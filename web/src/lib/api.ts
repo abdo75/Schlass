@@ -26,8 +26,16 @@ export async function apiFetch<T>(
   });
 
   if (!response.ok) {
+    if (response.status === 401) {
+      window.dispatchEvent(new CustomEvent("schlass:unauthorized"));
+    }
     const body: ApiError = await response.json();
     throw new ApiRequestError(response.status, body);
+  }
+
+  // 204 No Content has no body — return undefined cast to T (callers use T = void).
+  if (response.status === 204) {
+    return undefined as T;
   }
 
   return response.json();
