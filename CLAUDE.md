@@ -144,6 +144,6 @@ This sets `core.hooksPath` to `.githooks/` so the pre-commit hook (lint + unit t
 ## Commits
 
 - Conventional commits: `feat:`, `fix:`, `test:`, `docs:`, `refactor:`
-- Branch naming: `sprint-N/<feature>` or `pre-sprint-N/<topic>`
+- Branch naming: `<type>/<slug>` following Conventional Commits types — `feat/`, `fix/`, `docs/`, `chore/`, `refactor/`, `test/`, `ci/`. Slug is 2-4 kebab-case words describing *what* not *how* (e.g. `feat/admin-login`, `fix/ci-lint`, `docs/sessions-auth`). Sprint tracking lives in issue trackers / PR milestones, not branch names.
 - Don't commit `.env`, `node_modules/`, `bin/`, `internal/web/dist/*` (except `.gitkeep`)
 - Pre-commit hook runs: Go lint, Go unit tests, ESLint, Vitest
