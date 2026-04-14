@@ -14,13 +14,15 @@ type Config struct {
 	ValkeyURL             string
 	EncryptionKey         []byte
 	Port                  string
+	SchlassPublicURL      string
 }
 
 func Load() (*Config, error) {
 	_ = godotenv.Load() // .env file is optional; ignore if not present
 
 	cfg := &Config{
-		Port: "3000",
+		Port:             "3000",
+		SchlassPublicURL: "http://localhost:3000",
 	}
 
 	var missing []string
@@ -60,6 +62,10 @@ func Load() (*Config, error) {
 
 	if port := os.Getenv("SCHLASS_PORT"); port != "" {
 		cfg.Port = port
+	}
+
+	if publicURL := os.Getenv("SCHLASS_PUBLIC_URL"); publicURL != "" {
+		cfg.SchlassPublicURL = publicURL
 	}
 
 	return cfg, nil
