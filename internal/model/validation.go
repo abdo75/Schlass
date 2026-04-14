@@ -22,23 +22,23 @@ type SetupRequest struct {
 
 func ValidateEmail(email string) error {
 	if email == "" {
-		return fmt.Errorf("email is required")
+		return &ValidationError{Message: "email is required"}
 	}
 	if len(email) > 254 {
-		return fmt.Errorf("email must not exceed 254 characters")
+		return &ValidationError{Message: "email must not exceed 254 characters"}
 	}
 	if strings.ContainsAny(email, " \t\n\r") {
-		return fmt.Errorf("email must not contain whitespace")
+		return &ValidationError{Message: "email must not contain whitespace"}
 	}
 	if _, err := mail.ParseAddress(email); err != nil {
-		return fmt.Errorf("invalid email address")
+		return &ValidationError{Message: "invalid email address"}
 	}
 	return nil
 }
 
 func ValidatePassword(password string, policy PasswordPolicy) error {
 	if len(password) < policy.MinLength {
-		return fmt.Errorf("password must be at least %d characters", policy.MinLength)
+		return &PasswordPolicyError{Message: fmt.Sprintf("password must be at least %d characters", policy.MinLength)}
 	}
 
 	if policy.RequireUpper {
@@ -50,7 +50,7 @@ func ValidatePassword(password string, policy PasswordPolicy) error {
 			}
 		}
 		if !hasUpper {
-			return fmt.Errorf("password must contain at least one uppercase letter")
+			return &PasswordPolicyError{Message: "password must contain at least one uppercase letter"}
 		}
 	}
 
@@ -63,7 +63,7 @@ func ValidatePassword(password string, policy PasswordPolicy) error {
 			}
 		}
 		if !hasDigit {
-			return fmt.Errorf("password must contain at least one digit")
+			return &PasswordPolicyError{Message: "password must contain at least one digit"}
 		}
 	}
 
@@ -78,13 +78,13 @@ func (r SetupRequest) Validate(policy PasswordPolicy) error {
 		return err
 	}
 	if r.Password != r.ConfirmPassword {
-		return fmt.Errorf("passwords do not match")
+		return &ValidationError{Message: "passwords do not match"}
 	}
 	if r.InstanceName == "" {
-		return fmt.Errorf("instance name is required")
+		return &ValidationError{Message: "instance name is required"}
 	}
 	if len(r.InstanceName) > 128 {
-		return fmt.Errorf("instance name must not exceed 128 characters")
+		return &ValidationError{Message: "instance name must not exceed 128 characters"}
 	}
 	return nil
 }

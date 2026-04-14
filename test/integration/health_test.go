@@ -14,7 +14,7 @@ func TestHealthCheckHealthy(t *testing.T) {
 	env := NewTestEnv(t)
 	h := handler.NewHealthHandler(env.Pool, env.ValkeyClient)
 
-	req := httptest.NewRequest("GET", "/api/health", nil)
+	req := httptest.NewRequestWithContext(t.Context(), "GET", "/api/health", nil)
 	rec := httptest.NewRecorder()
 	h.GetHealth(rec, req)
 
@@ -23,7 +23,9 @@ func TestHealthCheckHealthy(t *testing.T) {
 	}
 
 	var resp map[string]string
-	json.NewDecoder(rec.Body).Decode(&resp)
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
 
 	if resp["status"] != "healthy" {
 		t.Fatalf("expected status=healthy, got %s", resp["status"])
@@ -40,11 +42,13 @@ func TestHealthCheckUnhealthyWhenValkeyDown(t *testing.T) {
 	env := NewTestEnv(t)
 
 	// Close valkey client to simulate it being down
-	env.ValkeyClient.Close()
+	if err := env.ValkeyClient.Close(); err != nil {
+		t.Fatalf("failed to close valkey client: %v", err)
+	}
 
 	h := handler.NewHealthHandler(env.Pool, env.ValkeyClient)
 
-	req := httptest.NewRequest("GET", "/api/health", nil)
+	req := httptest.NewRequestWithContext(t.Context(), "GET", "/api/health", nil)
 	rec := httptest.NewRecorder()
 	h.GetHealth(rec, req)
 
@@ -53,7 +57,9 @@ func TestHealthCheckUnhealthyWhenValkeyDown(t *testing.T) {
 	}
 
 	var resp map[string]string
-	json.NewDecoder(rec.Body).Decode(&resp)
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
 
 	if resp["status"] != "unhealthy" {
 		t.Fatalf("expected status=unhealthy, got %s", resp["status"])

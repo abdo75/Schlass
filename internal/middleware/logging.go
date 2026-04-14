@@ -42,7 +42,7 @@ func RequestLogging(next http.Handler) http.Handler {
 
 		next.ServeHTTP(rw, r)
 
-		slog.Info("request",
+		slog.Info("request", //nolint:gosec // G706: slog structured logging is not susceptible to log injection
 			"correlation_id", id,
 			"method", r.Method,
 			"path", r.URL.Path,

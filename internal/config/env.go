@@ -17,7 +17,7 @@ type Config struct {
 }
 
 func Load() (*Config, error) {
-	godotenv.Load()
+	_ = godotenv.Load() // .env file is optional; ignore if not present
 
 	cfg := &Config{
 		Port: "3000",

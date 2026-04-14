@@ -1,0 +1,18 @@
+#!/bin/bash
+set -e
+
+echo "Running pre-commit checks..."
+
+# Go lint
+echo "→ Go lint"
+golangci-lint run ./...
+
+# Go unit tests
+echo "→ Go unit tests"
+go test ./internal/... -count=1
+
+# Frontend lint
+echo "→ Frontend lint"
+cd web && npx eslint src/ --max-warnings=0
+
+echo "All checks passed."

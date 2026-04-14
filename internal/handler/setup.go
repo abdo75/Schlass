@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net"
 	"net/http"
@@ -81,7 +82,8 @@ func (h *SetupHandler) PostSetup(w http.ResponseWriter, r *http.Request) {
 
 	if err := req.Validate(policy); err != nil {
 		code := "VALIDATION_ERROR"
-		if isPasswordPolicyError(err) {
+		var policyErr *model.PasswordPolicyError
+		if errors.As(err, &policyErr) {
 			code = "PASSWORD_POLICY_VIOLATION"
 		}
 		writeError(w, http.StatusBadRequest, code, err.Error())
@@ -101,7 +103,7 @@ func (h *SetupHandler) PostSetup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 		return
 	}
-	defer tx.Rollback(r.Context())
+	defer func() { _ = tx.Rollback(r.Context()) }() // error is non-actionable after a successful Commit (pgx returns ErrTxClosed)
 
 	userID, err := h.userStore.Create(r.Context(), tx, req.Email, passwordHash, "super_admin", false)
 	if err != nil {
@@ -159,9 +161,4 @@ func extractClientIP(r *http.Request) string {
 		return r.RemoteAddr
 	}
 	return host
-}
-
-func isPasswordPolicyError(err error) bool {
-	msg := err.Error()
-	return len(msg) > 13 && msg[:13] == "password must"
 }

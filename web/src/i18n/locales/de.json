@@ -1,0 +1,44 @@
+{
+  "common": {
+    "appName": "Schlass",
+    "tagline": "Identitätsanbieter",
+    "loading": "Laden..."
+  },
+  "setup": {
+    "title": "Schlass einrichten",
+    "description": "Erstellen Sie das Administratorkonto, um zu beginnen.",
+    "instanceName": "Instanzname",
+    "instanceNamePlaceholder": "Mein Unternehmen",
+    "adminEmail": "Admin-E-Mail",
+    "emailPlaceholder": "admin@beispiel.de",
+    "password": "Passwort",
+    "passwordHint": "Mindestens 12 Zeichen, mindestens ein Großbuchstabe und eine Ziffer.",
+    "confirmPassword": "Passwort bestätigen",
+    "submit": "Einrichtung abschließen",
+    "submitting": "Konto wird erstellt...",
+    "error": {
+      "setupCheckFailed": "Der Einrichtungsstatus konnte nicht überprüft werden."
+    }
+  },
+  "login": {
+    "title": "Bei Schlass anmelden",
+    "description": "Geben Sie Ihre Anmeldedaten ein, um auf Ihr Konto zuzugreifen.",
+    "email": "E-Mail",
+    "password": "Passwort",
+    "submit": "Anmelden"
+  },
+  "errors": {
+    "SETUP_ALREADY_COMPLETE": "Die Einrichtung wurde bereits abgeschlossen.",
+    "VALIDATION_ERROR": "Ungültige Eingabe. Bitte überprüfen Sie Ihre Angaben.",
+    "PASSWORD_POLICY_VIOLATION": "Das Passwort erfüllt nicht die Sicherheitsanforderungen.",
+    "RATE_LIMITED": "Zu viele Anfragen. Bitte versuchen Sie es später erneut.",
+    "INTERNAL_ERROR": "Ein unerwarteter Fehler ist aufgetreten. Bitte versuchen Sie es erneut.",
+    "passwordMismatch": "Die Passwörter stimmen nicht überein.",
+    "unexpected": "Ein unerwarteter Fehler ist aufgetreten."
+  },
+  "language": {
+    "en": "English",
+    "fr": "Français",
+    "de": "Deutsch"
+  }
+}

@@ -47,7 +47,7 @@ func main() {
 		slog.Error("failed to connect to Valkey", "error", err)
 		os.Exit(1)
 	}
-	defer valkeyClient.Close()
+	defer func() { _ = valkeyClient.Close() }() // error on Close is non-actionable during shutdown
 
 	configStore := store.NewConfigStore()
 	userStore := store.NewUserStore()

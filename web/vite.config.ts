@@ -1,10 +1,22 @@
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
+import { writeFileSync } from "fs";
+
+// Vite's emptyOutDir deletes .gitkeep before writing build output.
+// This plugin restores it after the build so git tracks the directory.
+function restoreGitkeep(): Plugin {
+  return {
+    name: "restore-gitkeep",
+    closeBundle() {
+      writeFileSync(path.resolve(__dirname, "../internal/web/dist/.gitkeep"), "");
+    },
+  };
+}
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [react(), tailwindcss(), restoreGitkeep()],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),

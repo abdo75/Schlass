@@ -93,9 +93,9 @@ func NewTestEnv(t *testing.T) *TestEnv {
 	t.Cleanup(func() {
 		pool.Close()
 		migrPool.Close()
-		valkeyClient.Close()
-		pgContainer.Terminate(ctx)
-		valkeyContainer.Terminate(ctx)
+		_ = valkeyClient.Close()
+		_ = pgContainer.Terminate(ctx)
+		_ = valkeyContainer.Terminate(ctx)
 	})
 
 	return env

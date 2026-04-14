@@ -36,7 +36,7 @@ func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
 
 		allowed, retryAfter, err := rl.allow(r.Context(), key)
 		if err != nil {
-			slog.Error("rate limiter error", "error", err, "key", key)
+			slog.Error("rate limiter error", "error", err, "key", key) //nolint:gosec // G706: slog structured logging is not susceptible to log injection
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -45,7 +45,7 @@ func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
 			w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())))
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusTooManyRequests)
-			w.Write([]byte(`{"error":"RATE_LIMITED","message":"Too many requests. Try again later."}`))
+			_, _ = w.Write([]byte(`{"error":"RATE_LIMITED","message":"Too many requests. Try again later."}`))
 			return
 		}
 
@@ -57,7 +57,7 @@ func (rl *RateLimiter) allow(ctx context.Context, key string) (bool, time.Durati
 	now := time.Now()
 	nowMicro := now.UnixMicro()
 	windowStartMicro := nowMicro - rl.window.Microseconds()
-	member := fmt.Sprintf("%d-%d", nowMicro, rand.Int64())
+	member := fmt.Sprintf("%d-%d", nowMicro, rand.Int64()) //nolint:gosec // math/rand is intentional: member is only used as a unique Redis set key suffix, not for security
 
 	pipe := rl.client.Pipeline()
 	pipe.ZRemRangeByScore(ctx, key, "-inf", strconv.FormatInt(windowStartMicro, 10))

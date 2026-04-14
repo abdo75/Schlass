@@ -37,7 +37,7 @@ func TestSetupHappyPath(t *testing.T) {
 	env := NewTestEnv(t)
 	router := setupRouter(env)
 
-	req := httptest.NewRequest("GET", "/api/setup", nil)
+	req := httptest.NewRequestWithContext(t.Context(), "GET", "/api/setup", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -46,7 +46,9 @@ func TestSetupHappyPath(t *testing.T) {
 	}
 
 	var getResp map[string]bool
-	json.NewDecoder(rec.Body).Decode(&getResp)
+	if err := json.NewDecoder(rec.Body).Decode(&getResp); err != nil {
+		t.Fatalf("failed to decode GET /api/setup response: %v", err)
+	}
 	if !getResp["setup_required"] {
 		t.Fatal("expected setup_required=true")
 	}
@@ -58,7 +60,7 @@ func TestSetupHappyPath(t *testing.T) {
 		"instance_name":    "Test Corp",
 	}
 	bodyJSON, _ := json.Marshal(body)
-	req = httptest.NewRequest("POST", "/api/setup", bytes.NewReader(bodyJSON))
+	req = httptest.NewRequestWithContext(t.Context(), "POST", "/api/setup", bytes.NewReader(bodyJSON))
 	req.Header.Set("Content-Type", "application/json")
 	rec = httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -68,7 +70,9 @@ func TestSetupHappyPath(t *testing.T) {
 	}
 
 	var postResp map[string]string
-	json.NewDecoder(rec.Body).Decode(&postResp)
+	if err := json.NewDecoder(rec.Body).Decode(&postResp); err != nil {
+		t.Fatalf("failed to decode POST /api/setup response: %v", err)
+	}
 	if postResp["redirect"] != "/login" {
 		t.Fatalf("expected redirect=/login, got %s", postResp["redirect"])
 	}
@@ -109,7 +113,7 @@ func TestSetupReturns404AfterCompletion(t *testing.T) {
 		"instance_name":    "Test Corp",
 	}
 	bodyJSON, _ := json.Marshal(body)
-	req := httptest.NewRequest("POST", "/api/setup", bytes.NewReader(bodyJSON))
+	req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/setup", bytes.NewReader(bodyJSON))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -118,7 +122,7 @@ func TestSetupReturns404AfterCompletion(t *testing.T) {
 		t.Fatalf("setup failed: %d %s", rec.Code, rec.Body.String())
 	}
 
-	req = httptest.NewRequest("GET", "/api/setup", nil)
+	req = httptest.NewRequestWithContext(t.Context(), "GET", "/api/setup", nil)
 	rec = httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -127,7 +131,7 @@ func TestSetupReturns404AfterCompletion(t *testing.T) {
 	}
 
 	bodyJSON, _ = json.Marshal(body)
-	req = httptest.NewRequest("POST", "/api/setup", bytes.NewReader(bodyJSON))
+	req = httptest.NewRequestWithContext(t.Context(), "POST", "/api/setup", bytes.NewReader(bodyJSON))
 	req.Header.Set("Content-Type", "application/json")
 	rec = httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -148,7 +152,7 @@ func TestSetupRejectsWeakPassword(t *testing.T) {
 		"instance_name":    "Test Corp",
 	}
 	bodyJSON, _ := json.Marshal(body)
-	req := httptest.NewRequest("POST", "/api/setup", bytes.NewReader(bodyJSON))
+	req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/setup", bytes.NewReader(bodyJSON))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -158,7 +162,9 @@ func TestSetupRejectsWeakPassword(t *testing.T) {
 	}
 
 	var errResp map[string]string
-	json.NewDecoder(rec.Body).Decode(&errResp)
+	if err := json.NewDecoder(rec.Body).Decode(&errResp); err != nil {
+		t.Fatalf("failed to decode error response: %v", err)
+	}
 	if errResp["error"] != "PASSWORD_POLICY_VIOLATION" {
 		t.Fatalf("expected PASSWORD_POLICY_VIOLATION, got %s", errResp["error"])
 	}
@@ -175,7 +181,7 @@ func TestSetupRejectsInvalidEmail(t *testing.T) {
 		"instance_name":    "Test Corp",
 	}
 	bodyJSON, _ := json.Marshal(body)
-	req := httptest.NewRequest("POST", "/api/setup", bytes.NewReader(bodyJSON))
+	req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/setup", bytes.NewReader(bodyJSON))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -196,7 +202,7 @@ func TestSetupRejectsMismatchedPasswords(t *testing.T) {
 		"instance_name":    "Test Corp",
 	}
 	bodyJSON, _ := json.Marshal(body)
-	req := httptest.NewRequest("POST", "/api/setup", bytes.NewReader(bodyJSON))
+	req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/setup", bytes.NewReader(bodyJSON))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -222,7 +228,7 @@ func TestSetupRejectsMissingFields(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			bodyJSON, _ := json.Marshal(tt.body)
-			req := httptest.NewRequest("POST", "/api/setup", bytes.NewReader(bodyJSON))
+			req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/setup", bytes.NewReader(bodyJSON))
 			req.Header.Set("Content-Type", "application/json")
 			rec := httptest.NewRecorder()
 			router.ServeHTTP(rec, req)
@@ -247,7 +253,7 @@ func TestSetupRateLimiting(t *testing.T) {
 	h := rl.Middleware(http.HandlerFunc(setupHandler.GetSetup))
 
 	for i := 0; i < 3; i++ {
-		req := httptest.NewRequest("GET", "/api/setup", nil)
+		req := httptest.NewRequestWithContext(t.Context(), "GET", "/api/setup", nil)
 		req.RemoteAddr = "1.2.3.4:1234"
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)
@@ -256,7 +262,7 @@ func TestSetupRateLimiting(t *testing.T) {
 		}
 	}
 
-	req := httptest.NewRequest("GET", "/api/setup", nil)
+	req := httptest.NewRequestWithContext(t.Context(), "GET", "/api/setup", nil)
 	req.RemoteAddr = "1.2.3.4:1234"
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
