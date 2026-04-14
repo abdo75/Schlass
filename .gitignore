@@ -38,6 +38,7 @@ plan.md
 
 # Build artifacts
 bin/
+/schlass
 internal/web/dist/*
 !internal/web/dist/.gitkeep
 
