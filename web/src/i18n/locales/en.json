@@ -1,0 +1,44 @@
+{
+  "common": {
+    "appName": "Schlass",
+    "tagline": "Identity Provider",
+    "loading": "Loading..."
+  },
+  "setup": {
+    "title": "Set up Schlass",
+    "description": "Create the administrator account to get started.",
+    "instanceName": "Instance Name",
+    "instanceNamePlaceholder": "My Company",
+    "adminEmail": "Admin Email",
+    "emailPlaceholder": "admin@example.com",
+    "password": "Password",
+    "passwordHint": "Minimum 12 characters, at least one uppercase letter and one digit.",
+    "confirmPassword": "Confirm Password",
+    "submit": "Complete Setup",
+    "submitting": "Creating account...",
+    "error": {
+      "setupCheckFailed": "Failed to check setup status."
+    }
+  },
+  "login": {
+    "title": "Sign in to Schlass",
+    "description": "Enter your credentials to access your account.",
+    "email": "Email",
+    "password": "Password",
+    "submit": "Sign in"
+  },
+  "errors": {
+    "SETUP_ALREADY_COMPLETE": "Setup has already been completed.",
+    "VALIDATION_ERROR": "Invalid input. Please check your entries.",
+    "PASSWORD_POLICY_VIOLATION": "Password does not meet the security requirements.",
+    "RATE_LIMITED": "Too many requests. Please try again later.",
+    "INTERNAL_ERROR": "An unexpected error occurred. Please try again.",
+    "passwordMismatch": "Passwords do not match.",
+    "unexpected": "An unexpected error occurred."
+  },
+  "language": {
+    "en": "English",
+    "fr": "Français",
+    "de": "Deutsch"
+  }
+}

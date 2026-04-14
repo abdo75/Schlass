@@ -1,5 +1,6 @@
 import { useState, useEffect, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,6 +17,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 
 export function SetupPage() {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -36,18 +38,18 @@ export function SetupPage() {
         if (err instanceof ApiRequestError && err.status === 404) {
           navigate("/login", { replace: true });
         } else {
-          setError("Failed to check setup status.");
+          setError(t("setup.error.setupCheckFailed"));
           setLoading(false);
         }
       });
-  }, [navigate]);
+  }, [navigate, t]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
 
     if (password !== confirmPassword) {
-      setError("Passwords do not match.");
+      setError(t("errors.passwordMismatch"));
       return;
     }
 
@@ -65,9 +67,9 @@ export function SetupPage() {
       navigate(result.redirect, { replace: true });
     } catch (err) {
       if (err instanceof ApiRequestError) {
-        setError(err.message);
+        setError(t(`errors.${err.code}`, { defaultValue: err.message }));
       } else {
-        setError("An unexpected error occurred.");
+        setError(t("errors.unexpected"));
       }
       setSubmitting(false);
     }
@@ -76,7 +78,7 @@ export function SetupPage() {
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <p className="text-muted-foreground">Loading...</p>
+        <p className="text-muted-foreground">{t("common.loading")}</p>
       </div>
     );
   }
@@ -94,19 +96,17 @@ export function SetupPage() {
       <ThemeToggle />
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle className="text-2xl">Set up Schlass</CardTitle>
-          <CardDescription>
-            Create the administrator account to get started.
-          </CardDescription>
+          <CardTitle className="text-2xl">{t("setup.title")}</CardTitle>
+          <CardDescription>{t("setup.description")}</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="instance-name">Instance Name</Label>
+              <Label htmlFor="instance-name">{t("setup.instanceName")}</Label>
               <Input
                 id="instance-name"
                 type="text"
-                placeholder="My Company"
+                placeholder={t("setup.instanceNamePlaceholder")}
                 value={instanceName}
                 onChange={(e) => setInstanceName(e.target.value)}
                 required
@@ -115,11 +115,11 @@ export function SetupPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="email">Admin Email</Label>
+              <Label htmlFor="email">{t("setup.adminEmail")}</Label>
               <Input
                 id="email"
                 type="email"
-                placeholder="admin@example.com"
+                placeholder={t("setup.emailPlaceholder")}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
@@ -127,7 +127,7 @@ export function SetupPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
+              <Label htmlFor="password">{t("setup.password")}</Label>
               <Input
                 id="password"
                 type="password"
@@ -137,13 +137,12 @@ export function SetupPage() {
                 minLength={12}
               />
               <p className="text-xs text-muted-foreground">
-                Minimum 12 characters, at least one uppercase letter and one
-                digit.
+                {t("setup.passwordHint")}
               </p>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="confirm-password">Confirm Password</Label>
+              <Label htmlFor="confirm-password">{t("setup.confirmPassword")}</Label>
               <Input
                 id="confirm-password"
                 type="password"
@@ -158,7 +157,7 @@ export function SetupPage() {
             )}
 
             <Button type="submit" className="w-full" disabled={submitting}>
-              {submitting ? "Creating account..." : "Complete Setup"}
+              {submitting ? t("setup.submitting") : t("setup.submit")}
             </Button>
           </form>
         </CardContent>

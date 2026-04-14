@@ -1,0 +1,44 @@
+{
+  "common": {
+    "appName": "Schlass",
+    "tagline": "Fournisseur d'identité",
+    "loading": "Chargement..."
+  },
+  "setup": {
+    "title": "Configurer Schlass",
+    "description": "Créez le compte administrateur pour commencer.",
+    "instanceName": "Nom de l'instance",
+    "instanceNamePlaceholder": "Mon Entreprise",
+    "adminEmail": "E-mail administrateur",
+    "emailPlaceholder": "admin@exemple.com",
+    "password": "Mot de passe",
+    "passwordHint": "Minimum 12 caractères, au moins une lettre majuscule et un chiffre.",
+    "confirmPassword": "Confirmer le mot de passe",
+    "submit": "Terminer la configuration",
+    "submitting": "Création du compte...",
+    "error": {
+      "setupCheckFailed": "Impossible de vérifier l'état de la configuration."
+    }
+  },
+  "login": {
+    "title": "Se connecter à Schlass",
+    "description": "Entrez vos identifiants pour accéder à votre compte.",
+    "email": "E-mail",
+    "password": "Mot de passe",
+    "submit": "Se connecter"
+  },
+  "errors": {
+    "SETUP_ALREADY_COMPLETE": "La configuration a déjà été effectuée.",
+    "VALIDATION_ERROR": "Saisie invalide. Veuillez vérifier vos entrées.",
+    "PASSWORD_POLICY_VIOLATION": "Le mot de passe ne respecte pas les exigences de sécurité.",
+    "RATE_LIMITED": "Trop de requêtes. Veuillez réessayer plus tard.",
+    "INTERNAL_ERROR": "Une erreur inattendue s'est produite. Veuillez réessayer.",
+    "passwordMismatch": "Les mots de passe ne correspondent pas.",
+    "unexpected": "Une erreur inattendue s'est produite."
+  },
+  "language": {
+    "en": "English",
+    "fr": "Français",
+    "de": "Deutsch"
+  }
+}
