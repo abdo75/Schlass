@@ -13,12 +13,10 @@ linters:
     - gosec
     - bodyclose
     - noctx
-
-linters-settings:
-  gosec:
-    excludes:
-      - G104  # unhandled errors on deferred Close() calls are acceptable
-
-issues:
-  exclude-dirs:
-    - internal/web/dist
+  settings:
+    gosec:
+      excludes:
+        - G104  # unhandled errors on deferred Close() calls are acceptable
+  exclusions:
+    paths:
+      - internal/web/dist
