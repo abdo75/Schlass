@@ -2,6 +2,7 @@
 
 build:
 	cd web && npm ci && npm run build
+	touch internal/web/dist/.gitkeep
 	go build -o bin/schlass ./cmd/schlass
 
 build-docker:
