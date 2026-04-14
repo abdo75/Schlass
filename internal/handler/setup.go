@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net"
 	"net/http"
@@ -81,7 +82,8 @@ func (h *SetupHandler) PostSetup(w http.ResponseWriter, r *http.Request) {
 
 	if err := req.Validate(policy); err != nil {
 		code := "VALIDATION_ERROR"
-		if isPasswordPolicyError(err) {
+		var policyErr *model.PasswordPolicyError
+		if errors.As(err, &policyErr) {
 			code = "PASSWORD_POLICY_VIOLATION"
 		}
 		writeError(w, http.StatusBadRequest, code, err.Error())
@@ -159,9 +161,4 @@ func extractClientIP(r *http.Request) string {
 		return r.RemoteAddr
 	}
 	return host
-}
-
-func isPasswordPolicyError(err error) bool {
-	msg := err.Error()
-	return len(msg) > 13 && msg[:13] == "password must"
 }
