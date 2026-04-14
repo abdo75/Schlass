@@ -1,0 +1,62 @@
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { getMe, login as apiLogin, logout as apiLogout, type AuthUser } from "./api";
+
+interface AuthState {
+  user: AuthUser | null;
+  loading: boolean;
+  login: (email: string, password: string) => Promise<void>;
+  logout: () => Promise<void>;
+}
+
+const AuthContext = createContext<AuthState | undefined>(undefined);
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    getMe()
+      .then((res) => {
+        if (!cancelled) setUser(res.user);
+      })
+      .catch(() => {
+        if (!cancelled) setUser(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const handler = () => setUser(null);
+    window.addEventListener("schlass:unauthorized", handler);
+    return () => window.removeEventListener("schlass:unauthorized", handler);
+  }, []);
+
+  const login = async (email: string, password: string) => {
+    const res = await apiLogin(email, password);
+    setUser(res.user);
+  };
+
+  const logout = async () => {
+    await apiLogout();
+    setUser(null);
+  };
+
+  return (
+    <AuthContext.Provider value={{ user, loading, login, logout }}>
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+// eslint-disable-next-line react-refresh/only-export-components -- useAuth hook is colocated with AuthProvider by convention
+export function useAuth(): AuthState {
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error("useAuth must be used within AuthProvider");
+  return ctx;
+}
