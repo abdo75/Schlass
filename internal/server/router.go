@@ -58,12 +58,20 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 
 	authMW := middleware.Auth(sessionStore, d.UserStore, d.AuditStore, d.Pool)
 
-	setupGetRL := middleware.NewRateLimiter(d.ValkeyClient, "ratelimit:setup:get", 10, time.Minute)
-	setupPostRL := middleware.NewRateLimiter(d.ValkeyClient, "ratelimit:setup:post", 5, time.Minute)
+	setupGetLimit := int64(10)
+	setupPostLimit := int64(5)
 	loginLimit := int64(5)
 	if d.LoginRateLimit > 0 {
 		loginLimit = d.LoginRateLimit
+		// When the operator has raised the login cap (e.g. for E2E test
+		// runs) it would be surprising to leave the sibling /api/setup
+		// limits at their tiny defaults, because those are just as easy
+		// to trip from a headless browser. Scale them to the same cap.
+		setupGetLimit = d.LoginRateLimit
+		setupPostLimit = d.LoginRateLimit
 	}
+	setupGetRL := middleware.NewRateLimiter(d.ValkeyClient, "ratelimit:setup:get", setupGetLimit, time.Minute)
+	setupPostRL := middleware.NewRateLimiter(d.ValkeyClient, "ratelimit:setup:post", setupPostLimit, time.Minute)
 	loginRL := middleware.NewRateLimiter(d.ValkeyClient, "ratelimit:login", loginLimit, time.Minute)
 
 	mux := http.NewServeMux()

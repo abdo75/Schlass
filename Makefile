@@ -1,4 +1,4 @@
-.PHONY: setup build build-docker dev dev-frontend test test-unit test-integration clean lint lint-fix
+.PHONY: setup build build-docker dev dev-frontend test test-unit test-integration e2e clean lint lint-fix
 
 setup:
 	git config core.hooksPath .githooks
@@ -27,6 +27,12 @@ test-unit: internal/web/dist/.gitkeep
 
 test-integration: internal/web/dist/.gitkeep
 	go test ./test/integration/...
+
+e2e:
+	docker compose down -v
+	SCHLASS_LOGIN_RATE_LIMIT=1000 docker compose -f docker-compose.yml -f docker-compose.e2e.yml up --build -d
+	./scripts/wait-for-health.sh
+	cd web && npx playwright test
 
 clean:
 	rm -rf bin/ internal/web/dist/*

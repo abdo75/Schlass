@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"os"
+	"strconv"
 
 	"github.com/joho/godotenv"
 )
@@ -15,6 +16,10 @@ type Config struct {
 	EncryptionKey         []byte
 	Port                  string
 	SchlassPublicURL      string
+	// LoginRateLimit overrides the per-IP /api/login cap per minute. Zero
+	// means "use the secure default" (5/min). Intended for E2E test runs
+	// that need to burst past the default without disabling the limiter.
+	LoginRateLimit int64
 }
 
 func Load() (*Config, error) {
@@ -66,6 +71,14 @@ func Load() (*Config, error) {
 
 	if publicURL := os.Getenv("SCHLASS_PUBLIC_URL"); publicURL != "" {
 		cfg.SchlassPublicURL = publicURL
+	}
+
+	if raw := os.Getenv("SCHLASS_LOGIN_RATE_LIMIT"); raw != "" {
+		parsed, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || parsed < 0 {
+			return nil, fmt.Errorf("SCHLASS_LOGIN_RATE_LIMIT must be a non-negative integer, got %q", raw)
+		}
+		cfg.LoginRateLimit = parsed
 	}
 
 	return cfg, nil

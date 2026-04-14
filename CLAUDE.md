@@ -117,6 +117,7 @@ This is a compliance claim — never weaken it.
 - **Run all**: `make test` or `go test ./...`
 - **Run unit only**: `make test-unit`
 - **Run integration only**: `make test-integration`
+- **E2E tests**: `web/e2e/` using `@playwright/test` against a dockerized stack. Run locally via `make e2e` (which does `docker compose down -v && up --build -d && wait-for-health && playwright test`). CI runs the same via the `e2e` job in `.github/workflows/ci.yml`. This is the only test tier that exercises the actual shipping artifact in a real browser — integration tests go through `httptest.NewRecorder` which does not evaluate CSP, SameSite cookies, or the SPA bootstrap sequence. The disabled-user revocation case is intentionally deferred to Sprint 4 pairing (requires admin user-management endpoints to toggle users without coupling tests to the DB schema).
 
 Never mock the database. Use testcontainers for anything that touches PG or Valkey.
 

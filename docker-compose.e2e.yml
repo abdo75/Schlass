@@ -1,0 +1,9 @@
+# Overlay applied on top of docker-compose.yml when running Playwright E2E
+# tests (see `make e2e` and the `e2e` CI job). Raises the /api/login rate
+# limit high enough that the lockout test can submit 5 failed attempts + 1
+# correct attempt without being rate-limited. Do NOT use this overlay in
+# production or dev.
+services:
+  app:
+    environment:
+      SCHLASS_LOGIN_RATE_LIMIT: "1000"

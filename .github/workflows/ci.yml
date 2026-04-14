@@ -78,3 +78,50 @@ jobs:
 
       - name: Build Go binary
         run: go build -o bin/schlass ./cmd/schlass
+
+  e2e:
+    name: E2E
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install web deps
+        run: cd web && npm ci
+
+      - name: Install Playwright browsers
+        run: cd web && npx playwright install --with-deps chromium
+
+      - name: Create .env for docker compose
+        run: |
+          cp .env.example .env
+          key=$(openssl rand -base64 32)
+          sed -i "s|SCHLASS_ENCRYPTION_KEY=.*|SCHLASS_ENCRYPTION_KEY=$key|" .env
+
+      - name: Start docker compose
+        run: docker compose -f docker-compose.yml -f docker-compose.e2e.yml up --build -d
+
+      - name: Wait for app to be healthy
+        run: ./scripts/wait-for-health.sh
+
+      - name: Run Playwright tests
+        run: cd web && npx playwright test
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: web/playwright-report/
+          retention-days: 7
+
+      - name: Dump docker logs on failure
+        if: failure()
+        run: docker compose logs
+

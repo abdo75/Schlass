@@ -20,4 +20,14 @@ export default defineConfig([
       globals: globals.browser,
     },
   },
+  {
+    // Playwright E2E tests are not React code. The fixture API uses an
+    // empty destructuring pattern `({}, use) => ...` and a `use` parameter
+    // that trips `react-hooks/rules-of-hooks` — both are false positives.
+    files: ['e2e/**/*.ts'],
+    rules: {
+      'react-hooks/rules-of-hooks': 'off',
+      'no-empty-pattern': 'off',
+    },
+  },
 ])

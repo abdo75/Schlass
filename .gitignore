@@ -47,3 +47,7 @@ internal/web/dist/*
 
 # Dependencies
 web/node_modules/
+
+# Playwright artifacts
+web/playwright-report/
+web/test-results/
