@@ -15,4 +15,8 @@ go test ./internal/... -count=1
 echo "→ Frontend lint"
 cd web && npx eslint src/ --max-warnings=0
 
+# Frontend tests
+echo "→ Frontend tests"
+npx vitest run
+
 echo "All checks passed."
