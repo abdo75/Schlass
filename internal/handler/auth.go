@@ -1,0 +1,360 @@
+package handler
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/abdo75/Schlass/internal/crypto"
+	"github.com/abdo75/Schlass/internal/database"
+	"github.com/abdo75/Schlass/internal/model"
+	"github.com/abdo75/Schlass/internal/session"
+	"github.com/abdo75/Schlass/internal/store"
+)
+
+// AuditLogger is the narrow interface the auth handler needs from an audit
+// store. Exported so the router wiring in cmd/schlass and the test harness
+// can inject a fake without touching production code. *store.AuditStore
+// already satisfies this interface.
+type AuditLogger interface {
+	Log(ctx context.Context, q database.Querier, entry store.AuditEntry) error
+}
+
+// AuthHandler serves POST /api/login (and, in later tasks, /api/logout and /api/me).
+type AuthHandler struct {
+	pool         *pgxpool.Pool
+	sessionStore session.Store
+	userStore    *store.UserStore
+	auditStore   AuditLogger
+	configStore  *store.ConfigStore
+
+	publicURL    string // for Origin check
+	cookieSecure bool   // derived from publicURL at construction time
+
+	dummyHash string // timing-defense Argon2id hash computed once at construction
+}
+
+// NewAuthHandler constructs the handler and pre-computes the dummy hash used
+// by the user-not-found timing-defense path. Returns an error if the dummy
+// hash cannot be computed so main.go can fail fast at startup.
+func NewAuthHandler(
+	pool *pgxpool.Pool,
+	sessionStore session.Store,
+	userStore *store.UserStore,
+	auditStore AuditLogger,
+	configStore *store.ConfigStore,
+	publicURL string,
+) (*AuthHandler, error) {
+	dummy, err := crypto.HashPassword("schlass-timing-defense-dummy-hash-v1")
+	if err != nil {
+		return nil, fmt.Errorf("auth handler: pre-compute dummy hash: %w", err)
+	}
+	return &AuthHandler{
+		pool:         pool,
+		sessionStore: sessionStore,
+		userStore:    userStore,
+		auditStore:   auditStore,
+		configStore:  configStore,
+		publicURL:    publicURL,
+		cookieSecure: strings.HasPrefix(publicURL, "https://"),
+		dummyHash:    dummy,
+	}, nil
+}
+
+func (h *AuthHandler) PostLogin(w http.ResponseWriter, r *http.Request) {
+	// 1. Origin check — login CSRF defense.
+	if r.Header.Get("Origin") != h.publicURL {
+		writeError(w, http.StatusForbidden, "INVALID_ORIGIN", "Request origin not allowed.")
+		return
+	}
+
+	// 2. Parse + validate body.
+	var req model.LoginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body.")
+		return
+	}
+	if err := req.Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return
+	}
+
+	// 3. Read lockout policy from config (read-only, outside tx).
+	threshold, err := h.configStore.GetInt(r.Context(), h.pool, "lockout_threshold")
+	if err != nil {
+		slog.Error("failed to read lockout_threshold", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	durationSecs, err := h.configStore.GetInt(r.Context(), h.pool, "lockout_duration_secs")
+	if err != nil {
+		slog.Error("failed to read lockout_duration_secs", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	// TODO(post-sprint-2): consolidate clientIP implementations (duplicated in internal/middleware/ratelimit.go).
+	ip := extractClientIP(r)
+
+	// 4. Begin PG transaction — all state + audit writes live inside this tx.
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		slog.Error("failed to begin tx", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	defer func() { _ = tx.Rollback(r.Context()) }() // non-actionable after a successful Commit (pgx returns ErrTxClosed)
+
+	user, err := h.userStore.GetByEmail(r.Context(), tx, req.Email)
+	if err != nil && !errors.Is(err, store.ErrUserNotFound) {
+		slog.Error("GetByEmail failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	if errors.Is(err, store.ErrUserNotFound) {
+		// Enumeration defense: run VerifyPassword against the dummy hash so the
+		// not-found path takes roughly the same wall time as the real path.
+		_, _ = crypto.VerifyPassword(req.Password, h.dummyHash)
+
+		if auditErr := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+			EventType:  "login.failed",
+			ActorEmail: req.Email,
+			TargetType: "user",
+			IPAddress:  ip,
+			Outcome:    "failure",
+			Metadata:   map[string]any{"reason": "user_not_found"},
+		}); auditErr != nil {
+			slog.Error("audit write failed", "error", auditErr)
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+			return
+		}
+		if commitErr := tx.Commit(r.Context()); commitErr != nil {
+			slog.Error("commit failed", "error", commitErr)
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+			return
+		}
+		writeError(w, http.StatusUnauthorized, "INVALID_CREDENTIALS", "Invalid email or password.")
+		return
+	}
+
+	// 5. Pre-check lockout (user-side snapshot).
+	if user.LockedUntil != nil && user.LockedUntil.After(time.Now()) {
+		if auditErr := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+			EventType:  "login.failed",
+			ActorID:    &user.ID,
+			ActorEmail: user.Email,
+			TargetType: "user",
+			TargetID:   user.ID.String(),
+			IPAddress:  ip,
+			Outcome:    "failure",
+			Metadata:   map[string]any{"reason": "locked"},
+		}); auditErr != nil {
+			slog.Error("audit write failed", "error", auditErr)
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+			return
+		}
+		if commitErr := tx.Commit(r.Context()); commitErr != nil {
+			slog.Error("commit failed", "error", commitErr)
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+			return
+		}
+		retryAfterSeconds := 0
+		if d := time.Until(*user.LockedUntil); d > 0 {
+			retryAfterSeconds = int(d.Seconds())
+		}
+		writeJSON(w, http.StatusUnauthorized, map[string]any{
+			"error":               "ACCOUNT_LOCKED",
+			"message":             "Account temporarily locked due to failed login attempts.",
+			"retry_after_seconds": retryAfterSeconds,
+		})
+		return
+	}
+
+	// 6. Verify password.
+	ok, verifyErr := crypto.VerifyPassword(req.Password, user.PasswordHash)
+	if verifyErr != nil {
+		slog.Error("VerifyPassword failed", "error", verifyErr)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	if !ok {
+		// Wrong password — increment counter + audit.
+		newCount, locked, incErr := h.userStore.IncrementFailedLogins(
+			r.Context(), tx, user.ID, threshold, durationSecs,
+		)
+		if errors.Is(incErr, store.ErrAlreadyLocked) {
+			// Concurrent lock race: account was locked between our GetByEmail
+			// and our UPDATE. Respond INVALID_CREDENTIALS (never leak the
+			// locked-transition to a wrong-password attempt).
+			if auditErr := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+				EventType:  "login.failed",
+				ActorID:    &user.ID,
+				ActorEmail: user.Email,
+				TargetType: "user",
+				TargetID:   user.ID.String(),
+				IPAddress:  ip,
+				Outcome:    "failure",
+				Metadata:   map[string]any{"reason": "locked_concurrent"},
+			}); auditErr != nil {
+				slog.Error("audit write failed", "error", auditErr)
+				writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+				return
+			}
+			if commitErr := tx.Commit(r.Context()); commitErr != nil {
+				slog.Error("commit failed", "error", commitErr)
+				writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+				return
+			}
+			writeError(w, http.StatusUnauthorized, "INVALID_CREDENTIALS", "Invalid email or password.")
+			return
+		}
+		if incErr != nil {
+			slog.Error("IncrementFailedLogins failed", "error", incErr)
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+			return
+		}
+
+		if err := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+			EventType:  "login.failed",
+			ActorID:    &user.ID,
+			ActorEmail: user.Email,
+			TargetType: "user",
+			TargetID:   user.ID.String(),
+			IPAddress:  ip,
+			Outcome:    "failure",
+			Metadata:   map[string]any{"reason": "wrong_password", "failed_count": newCount},
+		}); err != nil {
+			slog.Error("audit write failed", "error", err)
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+			return
+		}
+		if locked {
+			if err := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+				EventType:  "account.locked",
+				ActorID:    &user.ID,
+				ActorEmail: user.Email,
+				TargetType: "user",
+				TargetID:   user.ID.String(),
+				IPAddress:  ip,
+				Outcome:    "success",
+				Metadata:   map[string]any{"threshold": threshold, "duration_secs": durationSecs},
+			}); err != nil {
+				slog.Error("audit write failed", "error", err)
+				writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+				return
+			}
+		}
+		if err := tx.Commit(r.Context()); err != nil {
+			slog.Error("commit failed", "error", err)
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+			return
+		}
+		// Same response whether this attempt just tripped the lock or not —
+		// never leak the transition.
+		writeError(w, http.StatusUnauthorized, "INVALID_CREDENTIALS", "Invalid email or password.")
+		return
+	}
+
+	// 7. Success — reset counter, audit success, commit, create session.
+	// ResetFailedLogins refuses to clear an active lock (Task 2's WHERE guard),
+	// so a concurrent wrong-password attempt that locked the account between
+	// our GetByEmail snapshot and this UPDATE flips us into ACCOUNT_LOCKED.
+	resetErr := h.userStore.ResetFailedLogins(r.Context(), tx, user.ID)
+	if errors.Is(resetErr, store.ErrAlreadyLocked) {
+		// Re-read user inside the same tx to obtain the fresh locked_until.
+		freshUser, freshErr := h.userStore.GetByID(r.Context(), tx, user.ID)
+		if freshErr != nil {
+			slog.Error("GetByID after race-lock failed", "error", freshErr)
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+			return
+		}
+		if auditErr := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+			EventType:  "login.failed",
+			ActorID:    &user.ID,
+			ActorEmail: user.Email,
+			TargetType: "user",
+			TargetID:   user.ID.String(),
+			IPAddress:  ip,
+			Outcome:    "failure",
+			Metadata:   map[string]any{"reason": "locked_race"},
+		}); auditErr != nil {
+			slog.Error("audit write failed", "error", auditErr)
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+			return
+		}
+		if commitErr := tx.Commit(r.Context()); commitErr != nil {
+			slog.Error("commit failed", "error", commitErr)
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+			return
+		}
+		retryAfterSeconds := 0
+		if freshUser.LockedUntil != nil {
+			retryAfterSeconds = int(time.Until(*freshUser.LockedUntil).Seconds())
+		}
+		writeJSON(w, http.StatusUnauthorized, map[string]any{
+			"error":               "ACCOUNT_LOCKED",
+			"message":             "Account temporarily locked due to failed login attempts.",
+			"retry_after_seconds": retryAfterSeconds,
+		})
+		return
+	}
+	if resetErr != nil {
+		slog.Error("ResetFailedLogins failed", "error", resetErr)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if err := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+		EventType:  "login.succeeded",
+		ActorID:    &user.ID,
+		ActorEmail: user.Email,
+		TargetType: "user",
+		TargetID:   user.ID.String(),
+		IPAddress:  ip,
+		Outcome:    "success",
+	}); err != nil {
+		slog.Error("audit write failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		slog.Error("commit failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	// 8. Post-tx: create session in Valkey, set cookie, return user.
+	token, err := h.sessionStore.Create(r.Context(), user.ID.String())
+	if err != nil {
+		slog.Error("session create failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "schlass_session",
+		Value:    token,
+		Path:     "/",
+		MaxAge:   86400,
+		HttpOnly: true,
+		Secure:   h.cookieSecure,
+		SameSite: http.SameSiteStrictMode,
+	})
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"user": map[string]any{
+			"id":                    user.ID.String(),
+			"email":                 user.Email,
+			"role":                  user.Role,
+			"force_password_change": user.ForcePasswordChange,
+		},
+	})
+}
