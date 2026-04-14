@@ -27,12 +27,29 @@
     "password": "Passwort",
     "submit": "Anmelden"
   },
+  "auth": {
+    "login_title": "Anmelden",
+    "email": "E-Mail-Adresse",
+    "password": "Passwort",
+    "submit": "Anmelden",
+    "submitting": "Anmeldung läuft...",
+    "logout": "Abmelden"
+  },
+  "dashboard": {
+    "title": "Admin-Dashboard",
+    "welcome": "Willkommen, {{email}}"
+  },
   "errors": {
     "SETUP_ALREADY_COMPLETE": "Die Einrichtung wurde bereits abgeschlossen.",
-    "VALIDATION_ERROR": "Ungültige Eingabe. Bitte überprüfen Sie Ihre Angaben.",
+    "VALIDATION_ERROR": "Ungültige Eingabe.",
     "PASSWORD_POLICY_VIOLATION": "Das Passwort erfüllt nicht die Sicherheitsanforderungen.",
-    "RATE_LIMITED": "Zu viele Anfragen. Bitte versuchen Sie es später erneut.",
-    "INTERNAL_ERROR": "Ein unerwarteter Fehler ist aufgetreten. Bitte versuchen Sie es erneut.",
+    "RATE_LIMITED": "Zu viele Anfragen. Bitte langsamer.",
+    "INTERNAL_ERROR": "Ein unerwarteter Fehler ist aufgetreten.",
+    "INVALID_CREDENTIALS": "Ungültige E-Mail-Adresse oder Passwort.",
+    "ACCOUNT_LOCKED": "Konto wegen fehlgeschlagener Anmeldeversuche vorübergehend gesperrt. Bitte in einigen Minuten erneut versuchen.",
+    "INVALID_SESSION": "Ihre Sitzung ist abgelaufen. Bitte erneut anmelden.",
+    "INVALID_ORIGIN": "Anfrage-Origin nicht erlaubt.",
+    "SERVICE_UNAVAILABLE": "Dienst vorübergehend nicht verfügbar. Bitte erneut versuchen.",
     "passwordMismatch": "Die Passwörter stimmen nicht überein.",
     "unexpected": "Ein unerwarteter Fehler ist aufgetreten."
   },

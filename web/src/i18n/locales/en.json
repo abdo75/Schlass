@@ -27,12 +27,29 @@
     "password": "Password",
     "submit": "Sign in"
   },
+  "auth": {
+    "login_title": "Sign in",
+    "email": "Email",
+    "password": "Password",
+    "submit": "Sign in",
+    "submitting": "Signing in...",
+    "logout": "Sign out"
+  },
+  "dashboard": {
+    "title": "Admin dashboard",
+    "welcome": "Welcome, {{email}}"
+  },
   "errors": {
     "SETUP_ALREADY_COMPLETE": "Setup has already been completed.",
-    "VALIDATION_ERROR": "Invalid input. Please check your entries.",
+    "VALIDATION_ERROR": "Invalid input.",
     "PASSWORD_POLICY_VIOLATION": "Password does not meet the security requirements.",
-    "RATE_LIMITED": "Too many requests. Please try again later.",
-    "INTERNAL_ERROR": "An unexpected error occurred. Please try again.",
+    "RATE_LIMITED": "Too many requests. Please slow down.",
+    "INTERNAL_ERROR": "An unexpected error occurred.",
+    "INVALID_CREDENTIALS": "Invalid email or password.",
+    "ACCOUNT_LOCKED": "Account temporarily locked due to failed login attempts. Try again in a few minutes.",
+    "INVALID_SESSION": "Your session has expired. Please sign in again.",
+    "INVALID_ORIGIN": "Request origin not allowed.",
+    "SERVICE_UNAVAILABLE": "Service temporarily unavailable. Please try again.",
     "passwordMismatch": "Passwords do not match.",
     "unexpected": "An unexpected error occurred."
   },

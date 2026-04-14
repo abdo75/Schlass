@@ -68,12 +68,9 @@ describe("LoginPage", () => {
     await user.click(
       screen.getByRole("button", { name: /sign in|log in|submit/i }),
     );
-    // The key is returned verbatim when no translation is loaded, so we assert
-    // the translation key is rendered. Once T17 lands, the human text will
-    // replace this in the DOM.
     await waitFor(() =>
       expect(screen.getByRole("alert")).toHaveTextContent(
-        "errors.INVALID_CREDENTIALS",
+        /invalid email or password/i,
       ),
     );
   });

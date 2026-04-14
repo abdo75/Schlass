@@ -27,12 +27,29 @@
     "password": "Mot de passe",
     "submit": "Se connecter"
   },
+  "auth": {
+    "login_title": "Connexion",
+    "email": "Adresse e-mail",
+    "password": "Mot de passe",
+    "submit": "Se connecter",
+    "submitting": "Connexion en cours...",
+    "logout": "Se déconnecter"
+  },
+  "dashboard": {
+    "title": "Tableau de bord administrateur",
+    "welcome": "Bienvenue, {{email}}"
+  },
   "errors": {
     "SETUP_ALREADY_COMPLETE": "La configuration a déjà été effectuée.",
-    "VALIDATION_ERROR": "Saisie invalide. Veuillez vérifier vos entrées.",
+    "VALIDATION_ERROR": "Saisie invalide.",
     "PASSWORD_POLICY_VIOLATION": "Le mot de passe ne respecte pas les exigences de sécurité.",
-    "RATE_LIMITED": "Trop de requêtes. Veuillez réessayer plus tard.",
-    "INTERNAL_ERROR": "Une erreur inattendue s'est produite. Veuillez réessayer.",
+    "RATE_LIMITED": "Trop de requêtes. Veuillez ralentir.",
+    "INTERNAL_ERROR": "Une erreur inattendue s'est produite.",
+    "INVALID_CREDENTIALS": "Adresse e-mail ou mot de passe invalide.",
+    "ACCOUNT_LOCKED": "Compte temporairement verrouillé suite à plusieurs tentatives échouées. Réessayez dans quelques minutes.",
+    "INVALID_SESSION": "Votre session a expiré. Veuillez vous reconnecter.",
+    "INVALID_ORIGIN": "Origine de la requête non autorisée.",
+    "SERVICE_UNAVAILABLE": "Service temporairement indisponible. Veuillez réessayer.",
     "passwordMismatch": "Les mots de passe ne correspondent pas.",
     "unexpected": "Une erreur inattendue s'est produite."
   },
