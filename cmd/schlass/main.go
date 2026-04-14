@@ -57,12 +57,13 @@ func main() {
 	healthHandler := handler.NewHealthHandler(pool, valkeyClient)
 	setupHandler := handler.NewSetupHandler(pool, configService, configStore, userStore, auditStore)
 
-	setupRateLimiter := middleware.NewRateLimiter(valkeyClient, "ratelimit:setup", 5, time.Minute)
+	setupGetRL := middleware.NewRateLimiter(valkeyClient, "ratelimit:setup:get", 10, time.Minute)
+	setupPostRL := middleware.NewRateLimiter(valkeyClient, "ratelimit:setup:post", 5, time.Minute)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", healthHandler.GetHealth)
-	mux.Handle("GET /api/setup", setupRateLimiter.Middleware(http.HandlerFunc(setupHandler.GetSetup)))
-	mux.Handle("POST /api/setup", setupRateLimiter.Middleware(http.HandlerFunc(setupHandler.PostSetup)))
+	mux.Handle("GET /api/setup", setupGetRL.Middleware(http.HandlerFunc(setupHandler.GetSetup)))
+	mux.Handle("POST /api/setup", setupPostRL.Middleware(http.HandlerFunc(setupHandler.PostSetup)))
 	mux.Handle("/", web.SPAHandler())
 
 	var h http.Handler = mux
