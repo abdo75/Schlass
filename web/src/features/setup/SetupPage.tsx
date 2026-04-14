@@ -11,6 +11,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { apiFetch, ApiRequestError } from "@/lib/api";
+import { AuthLayout } from "@/components/AuthLayout";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 export function SetupPage() {
   const navigate = useNavigate();
@@ -88,7 +90,8 @@ export function SetupPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-4">
+    <AuthLayout>
+      <ThemeToggle />
       <Card className="w-full max-w-md">
         <CardHeader>
           <CardTitle className="text-2xl">Set up Schlass</CardTitle>
@@ -160,6 +163,6 @@ export function SetupPage() {
           </form>
         </CardContent>
       </Card>
-    </div>
+    </AuthLayout>
   );
 }
