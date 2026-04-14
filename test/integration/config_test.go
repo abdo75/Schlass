@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/schlass/schlass/internal/config"
-	"github.com/schlass/schlass/internal/store"
+	"github.com/abdo75/Schlass/internal/config"
+	"github.com/abdo75/Schlass/internal/store"
 )
 
 func TestConfigServiceNullHandling(t *testing.T) {

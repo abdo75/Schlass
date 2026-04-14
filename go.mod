@@ -1,4 +1,4 @@
-module github.com/schlass/schlass
+module github.com/abdo75/Schlass
 
 go 1.25.9
 

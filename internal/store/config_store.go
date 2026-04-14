@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/schlass/schlass/internal/database"
+	"github.com/abdo75/Schlass/internal/database"
 )
 
 type ConfigStore struct{}

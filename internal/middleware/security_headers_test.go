@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/schlass/schlass/internal/middleware"
+	"github.com/abdo75/Schlass/internal/middleware"
 )
 
 func TestSecurityHeadersAreSet(t *testing.T) {

@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/schlass/schlass/internal/handler"
+	"github.com/abdo75/Schlass/internal/handler"
 )
 
 

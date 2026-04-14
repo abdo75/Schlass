@@ -9,13 +9,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/schlass/schlass/internal/config"
-	"github.com/schlass/schlass/internal/database"
-	"github.com/schlass/schlass/internal/handler"
-	"github.com/schlass/schlass/internal/middleware"
-	"github.com/schlass/schlass/internal/store"
-	"github.com/schlass/schlass/internal/valkey"
-	"github.com/schlass/schlass/internal/web"
+	"github.com/abdo75/Schlass/internal/config"
+	"github.com/abdo75/Schlass/internal/database"
+	"github.com/abdo75/Schlass/internal/handler"
+	"github.com/abdo75/Schlass/internal/middleware"
+	"github.com/abdo75/Schlass/internal/store"
+	"github.com/abdo75/Schlass/internal/valkey"
+	"github.com/abdo75/Schlass/internal/web"
 )
 
 func main() {
