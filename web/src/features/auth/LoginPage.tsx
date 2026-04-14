@@ -31,7 +31,7 @@ export function LoginPage() {
     setSubmitting(true);
     try {
       await login(email, password);
-      navigate("/admin", { replace: true });
+      void navigate("/admin", { replace: true });
     } catch (err: unknown) {
       // apiFetch throws ApiRequestError with a `code` field (not `error`).
       // See web/src/lib/api.ts for the class definition.
@@ -54,7 +54,7 @@ export function LoginPage() {
           <CardDescription>{t("auth.login_description")}</CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={(e) => { void handleSubmit(e); }} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="email">{t("auth.email")}</Label>
               <Input

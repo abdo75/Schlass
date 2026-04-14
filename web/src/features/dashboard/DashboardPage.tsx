@@ -11,7 +11,7 @@ export function DashboardPage() {
 
   const handleLogout = async () => {
     await logout();
-    navigate("/login", { replace: true });
+    void navigate("/login", { replace: true });
   };
 
   return (
@@ -22,7 +22,7 @@ export function DashboardPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <p>{t("dashboard.welcome", { email: user?.email })}</p>
-          <Button onClick={handleLogout}>{t("auth.logout")}</Button>
+          <Button onClick={() => { void handleLogout(); }}>{t("auth.logout")}</Button>
         </CardContent>
       </Card>
     </div>

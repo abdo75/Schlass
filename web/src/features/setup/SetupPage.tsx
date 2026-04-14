@@ -36,7 +36,7 @@ export function SetupPage() {
       })
       .catch((err) => {
         if (err instanceof ApiRequestError && err.status === 404) {
-          navigate("/login", { replace: true });
+          void navigate("/login", { replace: true });
         } else {
           setError(t("setup.error.setupCheckFailed"));
           setLoading(false);
@@ -64,7 +64,7 @@ export function SetupPage() {
           instance_name: instanceName,
         }),
       });
-      navigate(result.redirect, { replace: true });
+      void navigate(result.redirect, { replace: true });
     } catch (err) {
       if (err instanceof ApiRequestError) {
         setError(t(`errors.${err.code}`, { defaultValue: err.message }));
@@ -100,7 +100,7 @@ export function SetupPage() {
           <CardDescription>{t("setup.description")}</CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={(e) => { void handleSubmit(e); }} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="instance-name">{t("setup.instanceName")}</Label>
               <Input

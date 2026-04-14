@@ -24,10 +24,14 @@ describe("ApiRequestError", () => {
 });
 
 describe("apiFetch", () => {
-  let dispatchSpy: ReturnType<typeof vi.spyOn>;
+  let dispatchSpy: ReturnType<typeof setupDispatchSpy>;
+
+  function setupDispatchSpy() {
+    return vi.spyOn(window, "dispatchEvent");
+  }
 
   beforeEach(() => {
-    dispatchSpy = vi.spyOn(window, "dispatchEvent");
+    dispatchSpy = setupDispatchSpy();
   });
 
   afterEach(() => {
@@ -48,9 +52,7 @@ describe("apiFetch", () => {
 
     await expect(apiFetch("/api/me")).rejects.toBeInstanceOf(ApiRequestError);
 
-    const dispatched = dispatchSpy.mock.calls.map(
-      (call: unknown[]) => (call[0] as Event).type,
-    );
+    const dispatched = dispatchSpy.mock.calls.map((call) => call[0].type);
     expect(dispatched).toContain("schlass:unauthorized");
   });
 
@@ -64,9 +66,7 @@ describe("apiFetch", () => {
 
     await apiFetch("/api/me");
 
-    const dispatched = dispatchSpy.mock.calls.map(
-      (call: unknown[]) => (call[0] as Event).type,
-    );
+    const dispatched = dispatchSpy.mock.calls.map((call) => call[0].type);
     expect(dispatched).not.toContain("schlass:unauthorized");
   });
 
@@ -83,9 +83,7 @@ describe("apiFetch", () => {
 
     await expect(apiFetch("/api/me")).rejects.toBeInstanceOf(ApiRequestError);
 
-    const dispatched = dispatchSpy.mock.calls.map(
-      (call: unknown[]) => (call[0] as Event).type,
-    );
+    const dispatched = dispatchSpy.mock.calls.map((call) => call[0].type);
     expect(dispatched).not.toContain("schlass:unauthorized");
   });
 });

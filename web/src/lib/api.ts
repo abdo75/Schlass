@@ -29,7 +29,7 @@ export async function apiFetch<T>(
     if (response.status === 401) {
       window.dispatchEvent(new CustomEvent("schlass:unauthorized"));
     }
-    const body: ApiError = await response.json();
+    const body = (await response.json()) as ApiError;
     throw new ApiRequestError(response.status, body);
   }
 
@@ -38,5 +38,5 @@ export async function apiFetch<T>(
     return undefined as T;
   }
 
-  return response.json();
+  return (await response.json()) as T;
 }

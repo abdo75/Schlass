@@ -17,7 +17,7 @@ export function LanguageSwitcher() {
           key={code}
           variant={i18n.language.startsWith(code) ? "default" : "ghost"}
           size="sm"
-          onClick={() => i18n.changeLanguage(code)}
+          onClick={() => { void i18n.changeLanguage(code); }}
           className="h-8 w-8 p-0 text-xs"
         >
           {label}
