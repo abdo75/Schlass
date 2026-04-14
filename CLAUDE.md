@@ -116,6 +116,22 @@ Never mock the database. Use testcontainers for anything that touches PG or Valk
 - API client in `web/src/lib/api.ts` — typed `apiFetch<T>()` wrapper
 - i18n via `react-i18next` — translations in `web/src/i18n/locales/{en,fr,de}.json`
 - Backend returns error codes, frontend translates to user-facing messages
+- Frontend tests: Vitest + React Testing Library (`cd web && npm test`)
+
+### Design System
+
+- Primary color: teal (oklch). CSS variables in `web/src/index.css`.
+- Dark mode: supported via `.dark` class on `<html>`. `ThemeToggle` component cycles light/dark/system.
+- `AuthLayout` component: shared wrapper for auth pages (setup, login, password change). Includes Schlass branding + language switcher.
+- shadcn components are copy-and-own in `web/src/components/ui/`. Install new ones with `npx shadcn@latest add <name>`.
+
+### i18n
+
+- Languages: English (default), French, German
+- All user-facing strings use `t()` from `react-i18next`
+- Backend error codes map to translated messages via `t(\`errors.\${code}\`)`
+- Language detection: browser preference → localStorage (`schlass-language`)
+- Add new strings to all 3 locale files: `web/src/i18n/locales/{en,fr,de}.json`
 
 ## Setup for New Clones
 
@@ -130,4 +146,4 @@ This sets `core.hooksPath` to `.githooks/` so the pre-commit hook (lint + unit t
 - Conventional commits: `feat:`, `fix:`, `test:`, `docs:`, `refactor:`
 - Branch naming: `sprint-N/<feature>` or `pre-sprint-N/<topic>`
 - Don't commit `.env`, `node_modules/`, `bin/`, `internal/web/dist/*` (except `.gitkeep`)
-- Pre-commit hook runs: Go lint, Go unit tests, frontend ESLint
+- Pre-commit hook runs: Go lint, Go unit tests, ESLint, Vitest

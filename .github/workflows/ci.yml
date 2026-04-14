@@ -34,6 +34,11 @@ jobs:
           npm ci
           npx eslint src/ --max-warnings=0
 
+      - name: Frontend tests
+        run: |
+          cd web
+          npx vitest run
+
   test:
     name: Test
     needs: lint
