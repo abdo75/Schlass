@@ -1,0 +1,34 @@
+interface ApiError {
+  error: string;
+  message: string;
+}
+
+export class ApiRequestError extends Error {
+  code: string;
+  status: number;
+
+  constructor(status: number, body: ApiError) {
+    super(body.message);
+    this.code = body.error;
+    this.status = status;
+  }
+}
+
+export async function apiFetch<T>(
+  path: string,
+  options?: RequestInit
+): Promise<T> {
+  const response = await fetch(path, {
+    headers: {
+      "Content-Type": "application/json",
+    },
+    ...options,
+  });
+
+  if (!response.ok) {
+    const body: ApiError = await response.json();
+    throw new ApiRequestError(response.status, body);
+  }
+
+  return response.json();
+}

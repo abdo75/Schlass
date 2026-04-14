@@ -1,0 +1,11 @@
+DROP INDEX IF EXISTS idx_users_email;
+DROP INDEX IF EXISTS idx_users_status;
+DROP INDEX IF EXISTS idx_users_locked_until;
+DROP INDEX IF EXISTS idx_refresh_tokens_user_id;
+DROP INDEX IF EXISTS idx_refresh_tokens_expires_at;
+DROP INDEX IF EXISTS idx_refresh_tokens_token_hash;
+DROP INDEX IF EXISTS idx_authorization_codes_expires_at;
+DROP INDEX IF EXISTS idx_audit_logs_actor_id;
+DROP INDEX IF EXISTS idx_audit_logs_created_at;
+DROP INDEX IF EXISTS idx_audit_logs_event_type;
+DROP INDEX IF EXISTS idx_audit_logs_client_id;
