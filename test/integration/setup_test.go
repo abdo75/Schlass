@@ -206,6 +206,34 @@ func TestSetupRejectsMismatchedPasswords(t *testing.T) {
 	}
 }
 
+func TestSetupRejectsMissingFields(t *testing.T) {
+	env := NewTestEnv(t)
+	router := setupRouter(env)
+
+	tests := []struct {
+		name string
+		body map[string]string
+	}{
+		{"missing email", map[string]string{"password": "SecurePass123!", "confirm_password": "SecurePass123!", "instance_name": "X"}},
+		{"missing password", map[string]string{"email": "a@b.com", "confirm_password": "SecurePass123!", "instance_name": "X"}},
+		{"missing instance_name", map[string]string{"email": "a@b.com", "password": "SecurePass123!", "confirm_password": "SecurePass123!"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bodyJSON, _ := json.Marshal(tt.body)
+			req := httptest.NewRequest("POST", "/api/setup", bytes.NewReader(bodyJSON))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400 for %s, got %d: %s", tt.name, rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
 func TestSetupRateLimiting(t *testing.T) {
 	env := NewTestEnv(t)
 	configStore := store.NewConfigStore()
