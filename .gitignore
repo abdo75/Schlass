@@ -30,3 +30,19 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Claude
+.claude
+superpowers
+plan.md
+
+# Build artifacts
+bin/
+internal/web/dist/*
+!internal/web/dist/.gitkeep
+
+# Environment
+.env
+
+# Dependencies
+web/node_modules/
