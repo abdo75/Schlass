@@ -53,7 +53,7 @@ func NewAuthHandler(
 	configStore *store.ConfigStore,
 	publicURL string,
 ) (*AuthHandler, error) {
-	dummy, err := crypto.HashPassword("schlass-timing-defense-dummy-hash-v1")
+	dummy, err := crypto.HashPassword("timing-defense-placeholder")
 	if err != nil {
 		return nil, fmt.Errorf("auth handler: pre-compute dummy hash: %w", err)
 	}

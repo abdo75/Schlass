@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-func TestLogin_HappyPath(t *testing.T) {
+func TestLogin_IssuesSessionCookieOnCorrectCredentials(t *testing.T) {
 	env := setupIntegrationEnv(t)
 	defer env.Cleanup()
 

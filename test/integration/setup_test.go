@@ -33,7 +33,7 @@ func setupRouter(env *TestEnv) http.Handler {
 	return middleware.SecurityHeaders(middleware.RequestLogging(mux))
 }
 
-func TestSetupHappyPath(t *testing.T) {
+func TestSetup_CreatesAdminAndMarksComplete(t *testing.T) {
 	env := NewTestEnv(t)
 	router := setupRouter(env)
 
