@@ -93,5 +93,5 @@ func parsePHC(encoded string) (salt, hash []byte, memory, iterations uint32, par
 		return nil, nil, 0, 0, 0, 0, fmt.Errorf("invalid hash encoding: %w", err)
 	}
 
-	return salt, hash, m, t, p, uint32(len(hash)), nil
+	return salt, hash, m, t, p, uint32(len(hash)), nil //nolint:gosec // G115: len() returns int >= 0, safe to convert to uint32
 }

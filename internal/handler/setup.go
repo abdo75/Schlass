@@ -103,7 +103,7 @@ func (h *SetupHandler) PostSetup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 		return
 	}
-	defer tx.Rollback(r.Context())
+	defer func() { _ = tx.Rollback(r.Context()) }() // error is non-actionable after a successful Commit (pgx returns ErrTxClosed)
 
 	userID, err := h.userStore.Create(r.Context(), tx, req.Email, passwordHash, "super_admin", false)
 	if err != nil {

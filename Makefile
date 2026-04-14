@@ -1,4 +1,4 @@
-.PHONY: build build-docker dev dev-frontend test test-unit test-integration clean
+.PHONY: build build-docker dev dev-frontend test test-unit test-integration clean lint lint-fix
 
 build:
 	cd web && npm ci && npm run build
@@ -26,3 +26,11 @@ test-integration: internal/web/dist/.gitkeep
 clean:
 	rm -rf bin/ internal/web/dist/*
 	touch internal/web/dist/.gitkeep
+
+lint:
+	golangci-lint run ./...
+	cd web && npx eslint src/ --max-warnings=0
+
+lint-fix:
+	golangci-lint run ./... --fix
+	cd web && npx eslint src/ --fix

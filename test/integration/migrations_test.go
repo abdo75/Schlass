@@ -31,7 +31,7 @@ func TestMigrationsUpDownUp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to start postgres: %v", err)
 	}
-	t.Cleanup(func() { pgContainer.Terminate(ctx) })
+	t.Cleanup(func() { _ = pgContainer.Terminate(ctx) })
 
 	pgHost, _ := pgContainer.Host(ctx)
 	pgPort, _ := pgContainer.MappedPort(ctx, "5432")
