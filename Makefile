@@ -1,4 +1,9 @@
-.PHONY: build build-docker dev dev-frontend test test-unit test-integration clean lint lint-fix
+.PHONY: setup build build-docker dev dev-frontend test test-unit test-integration clean lint lint-fix
+
+setup:
+	git config core.hooksPath .githooks
+	cd web && npm ci
+	@echo "Setup complete. Pre-commit hooks enabled."
 
 build:
 	cd web && npm ci && npm run build

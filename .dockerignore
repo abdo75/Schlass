@@ -1,0 +1,13 @@
+.git
+.github
+.githooks
+.env
+bin/
+docs/
+test/
+scripts/init-test-db.sh
+web/node_modules/
+internal/web/dist/
+*.md
+.golangci.yml
+.gitignore
