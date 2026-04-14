@@ -34,7 +34,7 @@ go.work.sum
 # Claude
 .claude
 superpowers
-plan.md
+/docs/
 
 # Build artifacts
 bin/
