@@ -11,11 +11,21 @@ export function ThemeToggle() {
 
   useEffect(() => {
     const root = document.documentElement;
-    const systemDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-    const isDark = theme === "dark" || (theme === "system" && systemDark);
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
 
-    root.classList.toggle("dark", isDark);
+    const apply = () => {
+      const isDark = theme === "dark" || (theme === "system" && mediaQuery.matches);
+      root.classList.toggle("dark", isDark);
+    };
+
+    apply();
     localStorage.setItem("schlass-theme", theme);
+
+    // Only subscribe to OS-level changes when the user picked "system".
+    // Explicit light/dark should not flip when the OS preference changes.
+    if (theme !== "system") return;
+    mediaQuery.addEventListener("change", apply);
+    return () => mediaQuery.removeEventListener("change", apply);
   }, [theme]);
 
   const cycle = () => {
