@@ -1,11 +1,16 @@
 package integration
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 	"github.com/testcontainers/testcontainers-go"
@@ -13,7 +18,12 @@ import (
 	tcredis "github.com/testcontainers/testcontainers-go/modules/redis"
 	"github.com/testcontainers/testcontainers-go/wait"
 
+	"github.com/abdo75/Schlass/internal/config"
+	"github.com/abdo75/Schlass/internal/crypto"
 	"github.com/abdo75/Schlass/internal/database"
+	"github.com/abdo75/Schlass/internal/handler"
+	"github.com/abdo75/Schlass/internal/server"
+	"github.com/abdo75/Schlass/internal/store"
 )
 
 type TestEnv struct {
@@ -22,9 +32,15 @@ type TestEnv struct {
 	ValkeyClient    *redis.Client
 	AppConnString   string
 	MigrConnString  string
+	Router          http.Handler
+	Cfg             *config.Config
 	pgContainer     testcontainers.Container
 	valkeyContainer testcontainers.Container
 }
+
+// Cleanup is a no-op — t.Cleanup registered in NewTestEnv handles teardown.
+// Kept as a method so tests using `defer env.Cleanup()` compile cleanly.
+func (e *TestEnv) Cleanup() {}
 
 func NewTestEnv(t *testing.T) *TestEnv {
 	t.Helper()
@@ -80,15 +96,34 @@ func NewTestEnv(t *testing.T) *TestEnv {
 		t.Fatalf("failed to ping valkey: %v", err)
 	}
 
+	// Deterministic test encryption key (32 bytes of zeros). Tests that need
+	// a real key should inject their own.
+	cfg := &config.Config{
+		DatabaseURL:           appConnString,
+		MigrationsDatabaseURL: migrConnString,
+		ValkeyURL:             "redis://" + valkeyAddr,
+		EncryptionKey:         make([]byte, 32),
+		Port:                  "3000",
+		SchlassPublicURL:      "http://localhost:3000",
+	}
+
 	env := &TestEnv{
 		Pool:            pool,
 		MigrationsPool:  migrPool,
 		ValkeyClient:    valkeyClient,
 		AppConnString:   appConnString,
 		MigrConnString:  migrConnString,
+		Cfg:             cfg,
 		pgContainer:     pgContainer,
 		valkeyContainer: valkeyContainer,
 	}
+
+	// Build the router via the same path main.go uses.
+	router, err := server.BuildRouter(env.BuildDeps())
+	if err != nil {
+		t.Fatalf("build router: %v", err)
+	}
+	env.Router = router
 
 	t.Cleanup(func() {
 		pool.Close()
@@ -99,4 +134,131 @@ func NewTestEnv(t *testing.T) *TestEnv {
 	})
 
 	return env
+}
+
+// setupIntegrationEnv is a thin alias for NewTestEnv. Provided because the
+// Sprint 2 gated tests (login_test.go, auth_middleware_test.go) were written
+// against this name before NewTestEnv existed.
+func setupIntegrationEnv(t *testing.T) *TestEnv {
+	return NewTestEnv(t)
+}
+
+// BuildDeps returns a RouterDeps snapshot of the current test environment.
+// Used internally by NewTestEnv and externally by WithFakeAuditStore when it
+// needs to rebuild the router with a swapped dependency.
+func (e *TestEnv) BuildDeps() server.RouterDeps {
+	configStore := store.NewConfigStore()
+	return server.RouterDeps{
+		Cfg:           e.Cfg,
+		Pool:          e.Pool,
+		ValkeyClient:  e.ValkeyClient,
+		ConfigStore:   configStore,
+		UserStore:     store.NewUserStore(),
+		AuditStore:    store.NewAuditStore(),
+		ConfigService: config.NewConfigService(configStore, e.Cfg.EncryptionKey),
+		// Tests drive many login attempts from the same virtual client IP
+		// (httptest uses 192.0.2.1 for every request). Raise the login
+		// rate-limit cap so the production 5/min guard doesn't mask the
+		// application-level lockout semantics we're trying to test.
+		LoginRateLimit: 10000,
+	}
+}
+
+// SeedAdmin creates a super_admin user with the given email and password,
+// using the real crypto.HashPassword so the password is verifiable via the
+// login handler. Returns the new user's ID.
+func (e *TestEnv) SeedAdmin(t *testing.T, email, password string) uuid.UUID {
+	t.Helper()
+	hash, err := crypto.HashPassword(password)
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	us := store.NewUserStore()
+	id, err := us.Create(context.Background(), e.Pool, email, hash, "super_admin", false)
+	if err != nil {
+		t.Fatalf("seed admin: %v", err)
+	}
+	return id
+}
+
+// LoginAsAdmin performs a real POST /api/login against the test router and
+// returns the schlass_session cookie set on the response. Fails the test if
+// the login did not succeed or the cookie was not set.
+func (e *TestEnv) LoginAsAdmin(t *testing.T, email, password string) *http.Cookie {
+	t.Helper()
+	body := bytes.NewBufferString(`{"email":"` + email + `","password":"` + password + `"}`)
+	req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/login", body)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", "http://localhost:3000")
+	rec := httptest.NewRecorder()
+	e.Router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("login failed: %d %s", rec.Code, rec.Body.String())
+	}
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == "schlass_session" {
+			return c
+		}
+	}
+	t.Fatal("no session cookie in login response")
+	return nil
+}
+
+// CaptureLogs installs a JSON slog handler writing to a returned buffer for
+// the duration of the test, restoring the original default on cleanup.
+func (e *TestEnv) CaptureLogs(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	original := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(original) })
+	return &buf
+}
+
+// failingAuditStore satisfies handler.AuditLogger by returning whatever fn
+// returns on every Log call. Used by WithFakeAuditStore to exercise the
+// "audit failure rolls back the login tx" contract.
+type failingAuditStore struct {
+	fn func() error
+}
+
+func (f *failingAuditStore) Log(_ context.Context, _ database.Querier, _ store.AuditEntry) error {
+	return f.fn()
+}
+
+// Compile-time proof that failingAuditStore satisfies handler.AuditLogger.
+var _ handler.AuditLogger = (*failingAuditStore)(nil)
+
+// WithFakeAuditStore rebuilds the router with an audit store whose Log method
+// always returns fn(). The original router is restored via t.Cleanup so the
+// swap is scoped to the current test.
+func (e *TestEnv) WithFakeAuditStore(t *testing.T, fn func() error) {
+	t.Helper()
+	original := e.Router
+	deps := e.BuildDeps()
+	deps.AuditStore = &failingAuditStore{fn: fn}
+	newRouter, err := server.BuildRouter(deps)
+	if err != nil {
+		t.Fatalf("rebuild router with fake audit store: %v", err)
+	}
+	e.Router = newRouter
+	t.Cleanup(func() { e.Router = original })
+}
+
+// StopValkey halts the Valkey testcontainer so the next session-store call
+// fails with a transport error (used by TestAuthMiddleware_ValkeyError_Returns503).
+func (e *TestEnv) StopValkey(t *testing.T) {
+	t.Helper()
+	if err := e.valkeyContainer.Stop(context.Background(), nil); err != nil {
+		t.Fatalf("stop valkey: %v", err)
+	}
+}
+
+// StartValkey resumes a previously-stopped Valkey testcontainer. Pair with
+// StopValkey inside a `defer` to keep tests hermetic.
+func (e *TestEnv) StartValkey(t *testing.T) {
+	t.Helper()
+	if err := e.valkeyContainer.Start(context.Background()); err != nil {
+		t.Fatalf("start valkey: %v", err)
+	}
 }

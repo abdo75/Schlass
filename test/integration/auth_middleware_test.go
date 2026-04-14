@@ -1,11 +1,3 @@
-//go:build t10_wired
-// +build t10_wired
-
-// The test helpers referenced here (setupIntegrationEnv, env.Router,
-// env.SeedAdmin, env.LoginAsAdmin, env.StopValkey, env.StartValkey) are
-// added in Task 10. This file is gated behind the t10_wired build tag
-// until then.
-
 package integration
 
 import (
@@ -20,7 +12,7 @@ func TestAuthMiddleware_NoCookie_Returns401(t *testing.T) {
 	env := setupIntegrationEnv(t)
 	defer env.Cleanup()
 
-	req := httptest.NewRequest("GET", "/api/me", nil)
+	req := httptest.NewRequestWithContext(t.Context(), "GET", "/api/me", nil)
 	rec := httptest.NewRecorder()
 	env.Router.ServeHTTP(rec, req)
 
@@ -39,7 +31,7 @@ func TestAuthMiddleware_ValidCookie_AllowsRequest(t *testing.T) {
 
 	cookie := env.LoginAsAdmin(t, "admin@example.com", "CorrectHorse42!")
 
-	req := httptest.NewRequest("GET", "/api/me", nil)
+	req := httptest.NewRequestWithContext(t.Context(), "GET", "/api/me", nil)
 	req.AddCookie(cookie)
 	rec := httptest.NewRecorder()
 	env.Router.ServeHTTP(rec, req)
@@ -63,7 +55,7 @@ func TestAuthMiddleware_DisabledUser_Revokes(t *testing.T) {
 		t.Fatalf("disable user: %v", err)
 	}
 
-	req := httptest.NewRequest("GET", "/api/me", nil)
+	req := httptest.NewRequestWithContext(t.Context(), "GET", "/api/me", nil)
 	req.AddCookie(cookie)
 	rec := httptest.NewRecorder()
 	env.Router.ServeHTTP(rec, req)
@@ -73,9 +65,11 @@ func TestAuthMiddleware_DisabledUser_Revokes(t *testing.T) {
 	}
 
 	var revokedCount int
-	env.Pool.QueryRow(context.Background(),
+	if err := env.Pool.QueryRow(context.Background(),
 		`SELECT count(*) FROM audit_logs WHERE event_type='session.revoked' AND actor_email=$1`,
-		"admin@example.com").Scan(&revokedCount)
+		"admin@example.com").Scan(&revokedCount); err != nil {
+		t.Fatalf("scan revoked count: %v", err)
+	}
 	if revokedCount == 0 {
 		t.Fatal("expected session.revoked audit row")
 	}
@@ -92,7 +86,7 @@ func TestAuthMiddleware_ValkeyError_Returns503(t *testing.T) {
 	env.StopValkey(t)
 	defer env.StartValkey(t)
 
-	req := httptest.NewRequest("GET", "/api/me", nil)
+	req := httptest.NewRequestWithContext(t.Context(), "GET", "/api/me", nil)
 	req.AddCookie(cookie)
 	rec := httptest.NewRecorder()
 	env.Router.ServeHTTP(rec, req)

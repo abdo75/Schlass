@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/abdo75/Schlass/internal/database"
 	"github.com/abdo75/Schlass/internal/session"
 	"github.com/abdo75/Schlass/internal/store"
 	"github.com/google/uuid"
@@ -16,6 +17,14 @@ import (
 type ctxKey int
 
 const userCtxKey ctxKey = 0
+
+// AuditLogger is the narrow contract the Auth middleware needs. *store.AuditStore
+// satisfies it; integration tests swap in a fake that errors on Log. Duplicated
+// from handler.AuditLogger (same shape) because middleware cannot import handler
+// (handler imports middleware).
+type AuditLogger interface {
+	Log(ctx context.Context, q database.Querier, entry store.AuditEntry) error
+}
 
 // Auth is the middleware that enforces authentication on wrapped routes.
 // See docs/superpowers/specs/2026-04-15-sprint2-login-design.md §2.
@@ -31,7 +40,7 @@ const userCtxKey ctxKey = 0
 func Auth(
 	sessionStore session.Store,
 	userStore *store.UserStore,
-	auditStore *store.AuditStore,
+	auditStore AuditLogger,
 	pool *pgxpool.Pool,
 ) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {

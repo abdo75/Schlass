@@ -20,7 +20,7 @@ type SetupHandler struct {
 	configService *config.ConfigService
 	configStore   *store.ConfigStore
 	userStore     *store.UserStore
-	auditStore    *store.AuditStore
+	auditStore    AuditLogger
 }
 
 func NewSetupHandler(
@@ -28,7 +28,7 @@ func NewSetupHandler(
 	configService *config.ConfigService,
 	configStore *store.ConfigStore,
 	userStore *store.UserStore,
-	auditStore *store.AuditStore,
+	auditStore AuditLogger,
 ) *SetupHandler {
 	return &SetupHandler{
 		pool:          pool,

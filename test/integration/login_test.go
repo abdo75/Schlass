@@ -1,13 +1,3 @@
-//go:build t10_wired
-// +build t10_wired
-
-// The test helpers referenced here (setupIntegrationEnv, env.Router,
-// env.SeedAdmin, env.CaptureLogs, env.WithFakeAuditStore) are added in
-// Task 10 ("Wire main.go + BuildRouter + test helpers"). Until then this
-// file is gated behind the t10_wired build tag so that `go build ./...`,
-// `go vet ./...`, and `golangci-lint run ./...` all remain clean.
-// Remove this tag in Task 10 once BuildRouter and the helpers land.
-
 package integration
 
 import (
@@ -30,7 +20,7 @@ func TestLogin_HappyPath(t *testing.T) {
 	env.SeedAdmin(t, "admin@example.com", "CorrectHorse42!")
 
 	body := bytes.NewBufferString(`{"email":"admin@example.com","password":"CorrectHorse42!"}`)
-	req := httptest.NewRequest("POST", "/api/login", body)
+	req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/login", body)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Origin", "http://localhost:3000")
 
@@ -87,7 +77,7 @@ func TestLogin_WrongPassword_IncrementsCounter(t *testing.T) {
 	env.SeedAdmin(t, "admin@example.com", "CorrectHorse42!")
 
 	body := bytes.NewBufferString(`{"email":"admin@example.com","password":"wrong"}`)
-	req := httptest.NewRequest("POST", "/api/login", body)
+	req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/login", body)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Origin", "http://localhost:3000")
 	rec := httptest.NewRecorder()
@@ -102,9 +92,11 @@ func TestLogin_WrongPassword_IncrementsCounter(t *testing.T) {
 
 	// Verify counter incremented in DB
 	var count int
-	env.Pool.QueryRow(context.Background(),
+	if err := env.Pool.QueryRow(context.Background(),
 		"SELECT failed_login_attempts FROM users WHERE email=$1",
-		"admin@example.com").Scan(&count)
+		"admin@example.com").Scan(&count); err != nil {
+		t.Fatalf("scan counter: %v", err)
+	}
 	if count != 1 {
 		t.Fatalf("counter not incremented: got %d", count)
 	}
@@ -117,7 +109,7 @@ func TestLogin_LockoutCycle(t *testing.T) {
 
 	attempt := func(pw string) *httptest.ResponseRecorder {
 		body := bytes.NewBufferString(`{"email":"admin@example.com","password":"` + pw + `"}`)
-		req := httptest.NewRequest("POST", "/api/login", body)
+		req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/login", body)
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Origin", "http://localhost:3000")
 		rec := httptest.NewRecorder()
@@ -156,9 +148,11 @@ func TestLogin_LockoutCycle(t *testing.T) {
 		t.Fatalf("post-lockout correct: want 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 	var count int
-	env.Pool.QueryRow(context.Background(),
+	if err := env.Pool.QueryRow(context.Background(),
 		"SELECT failed_login_attempts FROM users WHERE email=$1",
-		"admin@example.com").Scan(&count)
+		"admin@example.com").Scan(&count); err != nil {
+		t.Fatalf("scan counter: %v", err)
+	}
 	if count != 0 {
 		t.Fatalf("counter not reset: got %d", count)
 	}
@@ -171,7 +165,7 @@ func TestLogin_OriginCheck(t *testing.T) {
 
 	doWithOrigin := func(origin string) int {
 		body := bytes.NewBufferString(`{"email":"admin@example.com","password":"CorrectHorse42!"}`)
-		req := httptest.NewRequest("POST", "/api/login", body)
+		req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/login", body)
 		req.Header.Set("Content-Type", "application/json")
 		if origin != "" {
 			req.Header.Set("Origin", origin)
@@ -201,7 +195,7 @@ func TestLogin_EnumerationDefense(t *testing.T) {
 	knownWrong := bytes.NewBufferString(`{"email":"admin@example.com","password":"wrong"}`)
 
 	doReq := func(body *bytes.Buffer) *httptest.ResponseRecorder {
-		req := httptest.NewRequest("POST", "/api/login", body)
+		req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/login", body)
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Origin", "http://localhost:3000")
 		rec := httptest.NewRecorder()
@@ -234,7 +228,7 @@ func TestLogin_PasswordNeverLogged(t *testing.T) {
 	logs := env.CaptureLogs(t)
 
 	body := bytes.NewBufferString(`{"email":"admin@example.com","password":"` + sentinel + `"}`)
-	req := httptest.NewRequest("POST", "/api/login", body)
+	req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/login", body)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Origin", "http://localhost:3000")
 	rec := httptest.NewRecorder()
@@ -247,9 +241,11 @@ func TestLogin_PasswordNeverLogged(t *testing.T) {
 
 	// Audit metadata grep
 	var match int
-	env.Pool.QueryRow(context.Background(),
+	if err := env.Pool.QueryRow(context.Background(),
 		`SELECT count(*) FROM audit_logs WHERE metadata::text LIKE '%' || $1 || '%'`,
-		sentinel).Scan(&match)
+		sentinel).Scan(&match); err != nil {
+		t.Fatalf("scan match: %v", err)
+	}
 	if match != 0 {
 		t.Fatalf("sentinel appeared in %d audit rows", match)
 	}
@@ -263,7 +259,7 @@ func TestLogin_AuditTrailCompleteness(t *testing.T) {
 
 	for i := 0; i < 5; i++ {
 		body := bytes.NewBufferString(`{"email":"admin@example.com","password":"wrong"}`)
-		req := httptest.NewRequest("POST", "/api/login", body)
+		req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/login", body)
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Origin", "http://localhost:3000")
 		rec := httptest.NewRecorder()
@@ -272,29 +268,36 @@ func TestLogin_AuditTrailCompleteness(t *testing.T) {
 	}
 
 	var failedCount, lockedCount int
-	env.Pool.QueryRow(context.Background(),
+	if err := env.Pool.QueryRow(context.Background(),
 		`SELECT count(*) FROM audit_logs WHERE event_type='login.failed' AND actor_email=$1`,
-		"admin@example.com").Scan(&failedCount)
+		"admin@example.com").Scan(&failedCount); err != nil {
+		t.Fatalf("scan failedCount: %v", err)
+	}
 	if failedCount != 5 {
 		t.Fatalf("expected 5 login.failed rows, got %d", failedCount)
 	}
-	env.Pool.QueryRow(context.Background(),
+	if err := env.Pool.QueryRow(context.Background(),
 		`SELECT count(*) FROM audit_logs WHERE event_type='account.locked' AND actor_email=$1`,
-		"admin@example.com").Scan(&lockedCount)
+		"admin@example.com").Scan(&lockedCount); err != nil {
+		t.Fatalf("scan lockedCount: %v", err)
+	}
 	if lockedCount != 1 {
 		t.Fatalf("expected 1 account.locked row, got %d", lockedCount)
 	}
 
-	// Every login.failed row must have actor_id populated, non-empty ip, outcome=failure
+	// Every login.failed row must have actor_id populated, non-empty ip, outcome=failure.
+	// ip_address is INET — cast to text so pgx scans cleanly into a Go string.
 	rows, _ := env.Pool.Query(context.Background(),
-		`SELECT actor_id, ip_address, outcome FROM audit_logs WHERE event_type='login.failed' AND actor_email=$1`,
+		`SELECT actor_id, ip_address::text, outcome FROM audit_logs WHERE event_type='login.failed' AND actor_email=$1`,
 		"admin@example.com")
 	defer rows.Close()
 	for rows.Next() {
 		var actorID *string
 		var ip string
 		var outcome string
-		_ = rows.Scan(&actorID, &ip, &outcome)
+		if err := rows.Scan(&actorID, &ip, &outcome); err != nil {
+			t.Fatalf("scan audit row: %v", err)
+		}
 		if actorID == nil {
 			t.Error("login.failed row missing actor_id")
 		}
@@ -317,7 +320,7 @@ func TestLogin_AuditFailureRollsBack(t *testing.T) {
 	env.WithFakeAuditStore(t, func() error { return errors.New("simulated audit failure") })
 
 	body := bytes.NewBufferString(`{"email":"admin@example.com","password":"CorrectHorse42!"}`)
-	req := httptest.NewRequest("POST", "/api/login", body)
+	req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/login", body)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Origin", "http://localhost:3000")
 	rec := httptest.NewRecorder()
@@ -337,9 +340,11 @@ func TestLogin_AuditFailureRollsBack(t *testing.T) {
 
 	// failed_login_attempts must remain 0 (tx rolled back)
 	var count int
-	env.Pool.QueryRow(context.Background(),
+	if err := env.Pool.QueryRow(context.Background(),
 		"SELECT failed_login_attempts FROM users WHERE email=$1",
-		"admin@example.com").Scan(&count)
+		"admin@example.com").Scan(&count); err != nil {
+		t.Fatalf("scan counter: %v", err)
+	}
 	if count != 0 {
 		t.Fatalf("counter changed despite rollback: got %d", count)
 	}
@@ -363,7 +368,7 @@ func TestLogin_CorrectPasswordWhileConcurrentlyLocked(t *testing.T) {
 		id)
 
 	body := bytes.NewBufferString(`{"email":"admin@example.com","password":"CorrectHorse42!"}`)
-	req := httptest.NewRequest("POST", "/api/login", body)
+	req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/login", body)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Origin", "http://localhost:3000")
 	rec := httptest.NewRecorder()
@@ -376,8 +381,10 @@ func TestLogin_CorrectPasswordWhileConcurrentlyLocked(t *testing.T) {
 		t.Fatalf("want ACCOUNT_LOCKED, got %s", rec.Body.String())
 	}
 	var lockedUntil *time.Time
-	env.Pool.QueryRow(context.Background(),
-		`SELECT locked_until FROM users WHERE id=$1`, id).Scan(&lockedUntil)
+	if err := env.Pool.QueryRow(context.Background(),
+		`SELECT locked_until FROM users WHERE id=$1`, id).Scan(&lockedUntil); err != nil {
+		t.Fatalf("scan locked_until: %v", err)
+	}
 	if lockedUntil == nil || !lockedUntil.After(time.Now()) {
 		t.Fatal("lockout was silently cleared by the failed correct-attempt")
 	}

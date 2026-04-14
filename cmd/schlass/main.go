@@ -11,11 +11,9 @@ import (
 
 	"github.com/abdo75/Schlass/internal/config"
 	"github.com/abdo75/Schlass/internal/database"
-	"github.com/abdo75/Schlass/internal/handler"
-	"github.com/abdo75/Schlass/internal/middleware"
+	"github.com/abdo75/Schlass/internal/server"
 	"github.com/abdo75/Schlass/internal/store"
 	"github.com/abdo75/Schlass/internal/valkey"
-	"github.com/abdo75/Schlass/internal/web"
 )
 
 func main() {
@@ -54,23 +52,21 @@ func main() {
 	auditStore := store.NewAuditStore()
 	configService := config.NewConfigService(configStore, cfg.EncryptionKey)
 
-	healthHandler := handler.NewHealthHandler(pool, valkeyClient)
-	setupHandler := handler.NewSetupHandler(pool, configService, configStore, userStore, auditStore)
+	h, err := server.BuildRouter(server.RouterDeps{
+		Cfg:           cfg,
+		Pool:          pool,
+		ValkeyClient:  valkeyClient,
+		ConfigStore:   configStore,
+		UserStore:     userStore,
+		AuditStore:    auditStore,
+		ConfigService: configService,
+	})
+	if err != nil {
+		slog.Error("failed to build router", "error", err)
+		os.Exit(1)
+	}
 
-	setupGetRL := middleware.NewRateLimiter(valkeyClient, "ratelimit:setup:get", 10, time.Minute)
-	setupPostRL := middleware.NewRateLimiter(valkeyClient, "ratelimit:setup:post", 5, time.Minute)
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/health", healthHandler.GetHealth)
-	mux.Handle("GET /api/setup", setupGetRL.Middleware(http.HandlerFunc(setupHandler.GetSetup)))
-	mux.Handle("POST /api/setup", setupPostRL.Middleware(http.HandlerFunc(setupHandler.PostSetup)))
-	mux.Handle("/", web.SPAHandler())
-
-	var h http.Handler = mux
-	h = middleware.RequestLogging(h)
-	h = middleware.SecurityHeaders(h)
-
-	server := &http.Server{
+	httpServer := &http.Server{
 		Addr:         ":" + cfg.Port,
 		Handler:      h,
 		ReadTimeout:  10 * time.Second,
@@ -81,7 +77,7 @@ func main() {
 	errChan := make(chan error, 1)
 	go func() {
 		slog.Info("server starting", "port", cfg.Port)
-		errChan <- server.ListenAndServe()
+		errChan <- httpServer.ListenAndServe()
 	}()
 
 	quit := make(chan os.Signal, 1)
@@ -97,7 +93,7 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	if err := server.Shutdown(shutdownCtx); err != nil {
+	if err := httpServer.Shutdown(shutdownCtx); err != nil {
 		slog.Error("forced shutdown", "error", err)
 		os.Exit(1)
 	}
