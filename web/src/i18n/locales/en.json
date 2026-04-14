@@ -20,15 +20,9 @@
       "setupCheckFailed": "Failed to check setup status."
     }
   },
-  "login": {
-    "title": "Sign in to Schlass",
-    "description": "Enter your credentials to access your account.",
-    "email": "Email",
-    "password": "Password",
-    "submit": "Sign in"
-  },
   "auth": {
-    "login_title": "Sign in",
+    "login_title": "Sign in to Schlass",
+    "login_description": "Enter your credentials to access your account.",
     "email": "Email",
     "password": "Password",
     "submit": "Sign in",

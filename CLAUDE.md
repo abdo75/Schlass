@@ -64,6 +64,24 @@ Never match on error message strings.
 
 Every state-changing operation must write to `audit_logs` with: event_type, actor_id, actor_email (denormalized), target_type, target_id, ip_address, outcome, metadata. The `actor_email` is stored directly so the audit trail survives user deletion.
 
+### Sessions & Auth (Sprint 2+)
+
+Admin UI uses a **first-party opaque-token session** — not OIDC. Login issues a 32-byte random token (base64url, `crypto/rand`), stored in Valkey as `session:<token>` → `{"user_id":"..."}` with a 24h sliding TTL. Cookie attributes: `HttpOnly; SameSite=Strict; Path=/; MaxAge=86400`; the `Secure` flag is toggled by the `SCHLASS_PUBLIC_URL` scheme at handler construction time (true iff `https://`).
+
+The auth middleware (`internal/middleware/auth.go`) reads the cookie, fetches the user fresh from Postgres on every request (no denormalization of email/role/status into the session), and injects via `middleware.CurrentUser(ctx)`. Disabled users are revoked in-middleware with a `session.revoked` audit row.
+
+**Audit-in-tx rule.** Login success/failure and logout write their audit rows *inside the same PG transaction* as the state change (counter increment/reset, session destruction). The tx commits before any Valkey side-effect (`session.Create` for login, `session.Delete` for logout), so "state change with no audit" is impossible by construction; the reverse ("audit with no Valkey effect") produces only a retry, not a compliance gap. See `internal/handler/setup.go:100-147` and `internal/handler/auth.go PostLogin/PostLogout` for the reference implementations.
+
+**Documented exception — middleware session revocation is best-effort.** When the auth middleware detects an orphan session (user row gone) or a disabled user, it writes a `session.revoked` audit row via `_ = auditStore.Log(...)` (return value ignored, ERROR-level `slog` on failure) and unconditionally deletes the Valkey session. This is deliberately different from the audit-in-tx rule for two reasons: (a) the load-bearing compliance event is the original *user-disable* action at its source (Sprint 4+), not the subsequent cleanup in the middleware; (b) making middleware revocation audit-in-tx would wedge every authed request on PG errors, trading availability for a duplicate audit row. **Do not "fix" this to audit-in-tx** — it would break the "PG blip must not force-logout active users" property.
+
+**Enumeration defense.** The login handler pre-computes a dummy Argon2id hash in `NewAuthHandler` and runs `crypto.VerifyPassword` against it on the user-not-found path so response timing matches the real password-verify path. Rate limiting is 5 requests per minute per IP on `POST /api/login`. Lockout is account-keyed via `users.failed_login_attempts` + `users.locked_until` with a concurrent-safe `UPDATE ... WHERE (locked_until IS NULL OR locked_until < now()) RETURNING ...` pattern in both `IncrementFailedLogins` and `ResetFailedLogins` (the latter refuses to clear an active lock, preserving the lockout duration against concurrent races).
+
+**AuditLogger interface.** `internal/handler/auth.go` defines `type AuditLogger interface { Log(ctx, q, entry) error }` (exported) so the router wiring and integration test harness can inject a fake audit store. `*store.AuditStore` satisfies the interface unchanged. `internal/middleware/auth.go` defines a parallel unexported interface of the same shape (middleware cannot import handler without a circular dep).
+
+**Router wiring lives in `internal/server/router.go`** via `BuildRouter(RouterDeps) (http.Handler, error)`. Both `cmd/schlass/main.go` and `test/integration/testutil.go` use this single function — any future route or middleware change lands in one place and both production and tests pick it up.
+
+End-user (third-party client) OIDC sessions are a separate mechanism to be built in Sprint 6+; admin web sessions never interact with them.
+
 ## Database
 
 ### Two Roles

@@ -20,15 +20,9 @@
       "setupCheckFailed": "Der Einrichtungsstatus konnte nicht überprüft werden."
     }
   },
-  "login": {
-    "title": "Bei Schlass anmelden",
-    "description": "Geben Sie Ihre Anmeldedaten ein, um auf Ihr Konto zuzugreifen.",
-    "email": "E-Mail",
-    "password": "Passwort",
-    "submit": "Anmelden"
-  },
   "auth": {
-    "login_title": "Anmelden",
+    "login_title": "Bei Schlass anmelden",
+    "login_description": "Geben Sie Ihre Anmeldedaten ein, um auf Ihr Konto zuzugreifen.",
     "email": "E-Mail-Adresse",
     "password": "Passwort",
     "submit": "Anmelden",

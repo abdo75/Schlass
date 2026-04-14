@@ -51,7 +51,7 @@ export function LoginPage() {
       <Card className="w-full max-w-md">
         <CardHeader>
           <CardTitle className="text-2xl">{t("auth.login_title")}</CardTitle>
-          <CardDescription>{t("login.description")}</CardDescription>
+          <CardDescription>{t("auth.login_description")}</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">

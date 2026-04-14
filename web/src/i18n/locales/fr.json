@@ -20,15 +20,9 @@
       "setupCheckFailed": "Impossible de vérifier l'état de la configuration."
     }
   },
-  "login": {
-    "title": "Se connecter à Schlass",
-    "description": "Entrez vos identifiants pour accéder à votre compte.",
-    "email": "E-mail",
-    "password": "Mot de passe",
-    "submit": "Se connecter"
-  },
   "auth": {
-    "login_title": "Connexion",
+    "login_title": "Se connecter à Schlass",
+    "login_description": "Entrez vos identifiants pour accéder à votre compte.",
     "email": "Adresse e-mail",
     "password": "Mot de passe",
     "submit": "Se connecter",
