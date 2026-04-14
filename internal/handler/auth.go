@@ -14,6 +14,7 @@ import (
 
 	"github.com/abdo75/Schlass/internal/crypto"
 	"github.com/abdo75/Schlass/internal/database"
+	"github.com/abdo75/Schlass/internal/middleware"
 	"github.com/abdo75/Schlass/internal/model"
 	"github.com/abdo75/Schlass/internal/session"
 	"github.com/abdo75/Schlass/internal/store"
@@ -349,6 +350,92 @@ func (h *AuthHandler) PostLogin(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteStrictMode,
 	})
 
+	writeJSON(w, http.StatusOK, map[string]any{
+		"user": map[string]any{
+			"id":                    user.ID.String(),
+			"email":                 user.Email,
+			"role":                  user.Role,
+			"force_password_change": user.ForcePasswordChange,
+		},
+	})
+}
+
+// PostLogout destroys the current session. Logout is a state change so the
+// audit row is written inside a PG transaction (not best-effort); the Valkey
+// session and cookie are cleared only after the tx commits. If the audit
+// write or commit fails, the handler returns 500 and the user remains logged
+// in — they retry, and a correct audit row lands on the second attempt.
+func (h *AuthHandler) PostLogout(w http.ResponseWriter, r *http.Request) {
+	user, ok := middleware.CurrentUser(r.Context())
+	if !ok {
+		// Defensive: /api/logout is auth-wrapped so this should be unreachable.
+		writeError(w, http.StatusUnauthorized, "INVALID_SESSION", "Not authenticated.")
+		return
+	}
+
+	ip := extractClientIP(r)
+
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		slog.Error("failed to begin tx", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	defer func() { _ = tx.Rollback(r.Context()) }() // non-actionable after a successful Commit (pgx returns ErrTxClosed)
+
+	if auditErr := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+		EventType:  "logout.completed",
+		ActorID:    &user.ID,
+		ActorEmail: user.Email,
+		TargetType: "user",
+		TargetID:   user.ID.String(),
+		IPAddress:  ip,
+		Outcome:    "success",
+	}); auditErr != nil {
+		slog.Error("audit write failed", "error", auditErr)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	if commitErr := tx.Commit(r.Context()); commitErr != nil {
+		slog.Error("commit failed", "error", commitErr)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	// Post-commit: destroy the Valkey session, then clear the cookie.
+	// A missing cookie is tolerated (we still want to clear the client side),
+	// but a Valkey delete error fails the request — the audit row already says
+	// logout happened, so the user retries until the session is actually gone.
+	if cookie, cookieErr := r.Cookie("schlass_session"); cookieErr == nil {
+		if delErr := h.sessionStore.Delete(r.Context(), cookie.Value); delErr != nil {
+			slog.Error("session delete failed", "error", delErr)
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+			return
+		}
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "schlass_session",
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   h.cookieSecure,
+		SameSite: http.SameSiteStrictMode,
+	})
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// GetMe returns the authenticated user DTO from the request context (populated
+// by the auth middleware). Used by the frontend to rehydrate session state.
+func (h *AuthHandler) GetMe(w http.ResponseWriter, r *http.Request) {
+	user, ok := middleware.CurrentUser(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "INVALID_SESSION", "Not authenticated.")
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"user": map[string]any{
 			"id":                    user.ID.String(),
