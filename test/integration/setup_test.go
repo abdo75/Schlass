@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/schlass/schlass/internal/config"
-	"github.com/schlass/schlass/internal/handler"
-	"github.com/schlass/schlass/internal/middleware"
-	"github.com/schlass/schlass/internal/store"
+	"github.com/abdo75/Schlass/internal/config"
+	"github.com/abdo75/Schlass/internal/handler"
+	"github.com/abdo75/Schlass/internal/middleware"
+	"github.com/abdo75/Schlass/internal/store"
 )
 
 func setupRouter(env *TestEnv) http.Handler {

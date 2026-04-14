@@ -10,7 +10,7 @@ import (
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
 
-	"github.com/schlass/schlass/internal/database"
+	"github.com/abdo75/Schlass/internal/database"
 )
 
 func TestMigrationsUpDownUp(t *testing.T) {

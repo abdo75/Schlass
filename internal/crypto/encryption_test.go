@@ -5,7 +5,7 @@ import (
 	"crypto/rand"
 	"testing"
 
-	"github.com/schlass/schlass/internal/crypto"
+	"github.com/abdo75/Schlass/internal/crypto"
 )
 
 func testKey(t *testing.T) []byte {

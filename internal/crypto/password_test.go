@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/schlass/schlass/internal/crypto"
+	"github.com/abdo75/Schlass/internal/crypto"
 )
 
 func TestHashPasswordProducesPHCFormat(t *testing.T) {

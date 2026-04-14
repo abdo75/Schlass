@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
-	"github.com/schlass/schlass/internal/database"
+	"github.com/abdo75/Schlass/internal/database"
 )
 
 type AuditEntry struct {

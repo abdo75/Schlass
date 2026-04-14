@@ -9,10 +9,10 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/schlass/schlass/internal/config"
-	"github.com/schlass/schlass/internal/crypto"
-	"github.com/schlass/schlass/internal/model"
-	"github.com/schlass/schlass/internal/store"
+	"github.com/abdo75/Schlass/internal/config"
+	"github.com/abdo75/Schlass/internal/crypto"
+	"github.com/abdo75/Schlass/internal/model"
+	"github.com/abdo75/Schlass/internal/store"
 )
 
 type SetupHandler struct {

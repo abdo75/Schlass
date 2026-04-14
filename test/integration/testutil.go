@@ -13,7 +13,7 @@ import (
 	tcredis "github.com/testcontainers/testcontainers-go/modules/redis"
 	"github.com/testcontainers/testcontainers-go/wait"
 
-	"github.com/schlass/schlass/internal/database"
+	"github.com/abdo75/Schlass/internal/database"
 )
 
 type TestEnv struct {

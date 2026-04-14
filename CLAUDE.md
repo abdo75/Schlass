@@ -117,8 +117,17 @@ Never mock the database. Use testcontainers for anything that touches PG or Valk
 - i18n via `react-i18next` — translations in `web/src/i18n/locales/{en,fr,de}.json`
 - Backend returns error codes, frontend translates to user-facing messages
 
+## Setup for New Clones
+
+```bash
+make setup    # installs npm deps + configures git hooks path
+```
+
+This sets `core.hooksPath` to `.githooks/` so the pre-commit hook (lint + unit tests) runs automatically.
+
 ## Commits
 
 - Conventional commits: `feat:`, `fix:`, `test:`, `docs:`, `refactor:`
 - Branch naming: `sprint-N/<feature>` or `pre-sprint-N/<topic>`
 - Don't commit `.env`, `node_modules/`, `bin/`, `internal/web/dist/*` (except `.gitkeep`)
+- Pre-commit hook runs: Go lint, Go unit tests, frontend ESLint

@@ -3,7 +3,7 @@ package model_test
 import (
 	"testing"
 
-	"github.com/schlass/schlass/internal/model"
+	"github.com/abdo75/Schlass/internal/model"
 )
 
 func TestValidateEmail(t *testing.T) {

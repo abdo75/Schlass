@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/base64"
 
-	"github.com/schlass/schlass/internal/crypto"
-	"github.com/schlass/schlass/internal/database"
-	"github.com/schlass/schlass/internal/model"
-	"github.com/schlass/schlass/internal/store"
+	"github.com/abdo75/Schlass/internal/crypto"
+	"github.com/abdo75/Schlass/internal/database"
+	"github.com/abdo75/Schlass/internal/model"
+	"github.com/abdo75/Schlass/internal/store"
 )
 
 type ConfigService struct {
