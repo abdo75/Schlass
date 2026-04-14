@@ -55,7 +55,7 @@ describe("LoginPage", () => {
   });
 
   it("shows error on INVALID_CREDENTIALS", async () => {
-    // ApiRequestError shape: { code, message, status }
+    // ApiRequestError shape: { code, message, status, retryAfterSeconds? }
     vi.mocked(authApi.login).mockRejectedValue({
       code: "INVALID_CREDENTIALS",
       message: "Invalid email or password.",
@@ -71,6 +71,50 @@ describe("LoginPage", () => {
     await waitFor(() =>
       expect(screen.getByRole("alert")).toHaveTextContent(
         /invalid email or password/i,
+      ),
+    );
+  });
+
+  it("renders a minute-granularity countdown on ACCOUNT_LOCKED", async () => {
+    // 841 seconds → 15 minutes (Math.ceil). Plural form is used via
+    // i18next's `count` interpolation.
+    vi.mocked(authApi.login).mockRejectedValue({
+      code: "ACCOUNT_LOCKED",
+      message: "Account temporarily locked.",
+      status: 401,
+      retryAfterSeconds: 841,
+    });
+    renderLogin();
+    const user = userEvent.setup();
+    await user.type(await screen.findByLabelText(/email/i), "a@b.co");
+    await user.type(screen.getByLabelText(/password/i), "wrong");
+    await user.click(
+      screen.getByRole("button", { name: /sign in|log in|submit/i }),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        /try again in about 15 minutes/i,
+      ),
+    );
+  });
+
+  it("falls back to static message on ACCOUNT_LOCKED without retry info", async () => {
+    vi.mocked(authApi.login).mockRejectedValue({
+      code: "ACCOUNT_LOCKED",
+      message: "Account temporarily locked.",
+      status: 401,
+    });
+    renderLogin();
+    const user = userEvent.setup();
+    await user.type(await screen.findByLabelText(/email/i), "a@b.co");
+    await user.type(screen.getByLabelText(/password/i), "wrong");
+    await user.click(
+      screen.getByRole("button", { name: /sign in|log in|submit/i }),
+    );
+    // Generic message with "try again in a few minutes", NOT the countdown.
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        /try again in a few minutes/i,
       ),
     );
   });

@@ -41,6 +41,8 @@
     "INTERNAL_ERROR": "Une erreur inattendue s'est produite.",
     "INVALID_CREDENTIALS": "Adresse e-mail ou mot de passe invalide.",
     "ACCOUNT_LOCKED": "Compte temporairement verrouillé suite à plusieurs tentatives échouées. Réessayez dans quelques minutes.",
+    "ACCOUNT_LOCKED_WITH_RETRY_one": "Compte temporairement verrouillé. Réessayez dans environ {{count}} minute.",
+    "ACCOUNT_LOCKED_WITH_RETRY_other": "Compte temporairement verrouillé. Réessayez dans environ {{count}} minutes.",
     "INVALID_SESSION": "Votre session a expiré. Veuillez vous reconnecter.",
     "INVALID_ORIGIN": "Origine de la requête non autorisée.",
     "SERVICE_UNAVAILABLE": "Service temporairement indisponible. Veuillez réessayer.",

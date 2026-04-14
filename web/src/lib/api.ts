@@ -1,16 +1,22 @@
 interface ApiError {
   error: string;
   message: string;
+  retry_after_seconds?: number;
 }
 
 export class ApiRequestError extends Error {
   code: string;
   status: number;
+  // Populated when the backend includes retry_after_seconds in the body
+  // (currently only the ACCOUNT_LOCKED response). Callers can use this to
+  // render a countdown instead of a generic "try again later" message.
+  retryAfterSeconds?: number;
 
   constructor(status: number, body: ApiError) {
     super(body.message);
     this.code = body.error;
     this.status = status;
+    this.retryAfterSeconds = body.retry_after_seconds;
   }
 }
 

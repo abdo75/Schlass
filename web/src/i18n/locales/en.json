@@ -41,6 +41,8 @@
     "INTERNAL_ERROR": "An unexpected error occurred.",
     "INVALID_CREDENTIALS": "Invalid email or password.",
     "ACCOUNT_LOCKED": "Account temporarily locked due to failed login attempts. Try again in a few minutes.",
+    "ACCOUNT_LOCKED_WITH_RETRY_one": "Account temporarily locked. Try again in about {{count}} minute.",
+    "ACCOUNT_LOCKED_WITH_RETRY_other": "Account temporarily locked. Try again in about {{count}} minutes.",
     "INVALID_SESSION": "Your session has expired. Please sign in again.",
     "INVALID_ORIGIN": "Request origin not allowed.",
     "SERVICE_UNAVAILABLE": "Service temporarily unavailable. Please try again.",

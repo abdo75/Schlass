@@ -41,6 +41,8 @@
     "INTERNAL_ERROR": "Ein unerwarteter Fehler ist aufgetreten.",
     "INVALID_CREDENTIALS": "Ungültige E-Mail-Adresse oder Passwort.",
     "ACCOUNT_LOCKED": "Konto wegen fehlgeschlagener Anmeldeversuche vorübergehend gesperrt. Bitte in einigen Minuten erneut versuchen.",
+    "ACCOUNT_LOCKED_WITH_RETRY_one": "Konto vorübergehend gesperrt. Bitte in etwa {{count}} Minute erneut versuchen.",
+    "ACCOUNT_LOCKED_WITH_RETRY_other": "Konto vorübergehend gesperrt. Bitte in etwa {{count}} Minuten erneut versuchen.",
     "INVALID_SESSION": "Ihre Sitzung ist abgelaufen. Bitte erneut anmelden.",
     "INVALID_ORIGIN": "Anfrage-Origin nicht erlaubt.",
     "SERVICE_UNAVAILABLE": "Dienst vorübergehend nicht verfügbar. Bitte erneut versuchen.",
