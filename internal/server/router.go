@@ -58,6 +58,13 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 
 	authMW := middleware.Auth(sessionStore, d.UserStore, d.AuditStore, d.Pool)
 
+	usersHandler := handler.NewUsersHandler(d.Pool, d.UserStore, d.AuditStore, sessionStore, d.ConfigService)
+
+	adminRoleGate := middleware.RequireRole("super_admin")
+	admin := func(h http.Handler) http.Handler {
+		return authMW(adminRoleGate(h))
+	}
+
 	setupGetLimit := int64(10)
 	setupPostLimit := int64(5)
 	loginLimit := int64(5)
@@ -82,6 +89,18 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 	mux.Handle("POST /api/login", loginRL.Middleware(http.HandlerFunc(authHandler.PostLogin)))
 	mux.Handle("POST /api/logout", authMW(http.HandlerFunc(authHandler.PostLogout)))
 	mux.Handle("GET /api/me", authMW(http.HandlerFunc(authHandler.GetMe)))
+
+	mux.Handle("GET /api/users", admin(http.HandlerFunc(usersHandler.List)))
+	mux.Handle("POST /api/users", admin(http.HandlerFunc(usersHandler.Create)))
+	mux.Handle("GET /api/users/{id}", admin(http.HandlerFunc(usersHandler.Get)))
+	mux.Handle("PATCH /api/users/{id}", admin(http.HandlerFunc(usersHandler.Update)))
+	mux.Handle("POST /api/users/{id}/disable", admin(http.HandlerFunc(usersHandler.Disable)))
+	mux.Handle("POST /api/users/{id}/enable", admin(http.HandlerFunc(usersHandler.Enable)))
+	mux.Handle("POST /api/users/{id}/reset-password", admin(http.HandlerFunc(usersHandler.ResetPassword)))
+	mux.Handle("DELETE /api/users/{id}", admin(http.HandlerFunc(usersHandler.Delete)))
+	mux.Handle("GET /api/users/{id}/sessions", admin(http.HandlerFunc(usersHandler.ListSessions)))
+	mux.Handle("DELETE /api/users/{id}/sessions", admin(http.HandlerFunc(usersHandler.TerminateAllSessions)))
+	mux.Handle("DELETE /api/users/{id}/sessions/{token}", admin(http.HandlerFunc(usersHandler.TerminateSession)))
 
 	mux.Handle("/", web.SPAHandler())
 
