@@ -27,11 +27,28 @@
     "password": "Password",
     "submit": "Sign in",
     "submitting": "Signing in...",
-    "logout": "Sign out"
+    "logout": "Sign out",
+    "change_password_title": "Change password",
+    "change_password_description": "Enter your current password and choose a new one.",
+    "current_password": "Current password",
+    "new_password": "New password",
+    "confirm_new_password": "Confirm new password",
+    "submit_change_password": "Change password",
+    "submitting_change_password": "Changing password...",
+    "password_changed_success": "Password changed.",
+    "password_mismatch": "The new password and confirmation do not match."
   },
   "dashboard": {
     "title": "Admin dashboard",
-    "welcome": "Welcome, {{email}}"
+    "welcome": "Welcome, {{email}}",
+    "nav": {
+      "users": "Users",
+      "clients": "Clients",
+      "audit": "Audit log",
+      "settings": "Settings",
+      "signout": "Sign out",
+      "soon": "soon"
+    }
   },
   "users": {
     "title": "Users",
@@ -127,6 +144,8 @@
     "USER_NOT_FOUND": "User not found. They may have been deleted.",
     "CANNOT_OPERATE_ON_SELF": "You cannot perform this action on your own account.",
     "LAST_ADMIN_LOCKOUT": "This would leave the instance with no administrators. Promote another user first.",
+    "FORBIDDEN": "You don't have permission to perform this action.",
+    "WRONG_CURRENT_PASSWORD": "Current password is incorrect.",
     "passwordMismatch": "Passwords do not match.",
     "unexpected": "An unexpected error occurred."
   },

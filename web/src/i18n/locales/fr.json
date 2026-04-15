@@ -27,11 +27,28 @@
     "password": "Mot de passe",
     "submit": "Se connecter",
     "submitting": "Connexion en cours...",
-    "logout": "Se déconnecter"
+    "logout": "Se déconnecter",
+    "change_password_title": "Changer le mot de passe",
+    "change_password_description": "Saisissez votre mot de passe actuel et choisissez-en un nouveau.",
+    "current_password": "Mot de passe actuel",
+    "new_password": "Nouveau mot de passe",
+    "confirm_new_password": "Confirmer le nouveau mot de passe",
+    "submit_change_password": "Changer le mot de passe",
+    "submitting_change_password": "Modification du mot de passe...",
+    "password_changed_success": "Mot de passe modifié.",
+    "password_mismatch": "Le nouveau mot de passe et la confirmation ne correspondent pas."
   },
   "dashboard": {
     "title": "Tableau de bord administrateur",
-    "welcome": "Bienvenue, {{email}}"
+    "welcome": "Bienvenue, {{email}}",
+    "nav": {
+      "users": "Utilisateurs",
+      "clients": "Clients",
+      "audit": "Journal d'audit",
+      "settings": "Paramètres",
+      "signout": "Se déconnecter",
+      "soon": "bientôt"
+    }
   },
   "users": {
     "title": "Utilisateurs",
@@ -127,6 +144,8 @@
     "USER_NOT_FOUND": "Utilisateur introuvable. Il a peut-être été supprimé.",
     "CANNOT_OPERATE_ON_SELF": "Vous ne pouvez pas effectuer cette action sur votre propre compte.",
     "LAST_ADMIN_LOCKOUT": "Cela laisserait l'instance sans administrateur. Promouvez d'abord un autre utilisateur.",
+    "FORBIDDEN": "Vous n'avez pas l'autorisation d'effectuer cette action.",
+    "WRONG_CURRENT_PASSWORD": "Le mot de passe actuel est incorrect.",
     "passwordMismatch": "Les mots de passe ne correspondent pas.",
     "unexpected": "Une erreur inattendue s'est produite."
   },

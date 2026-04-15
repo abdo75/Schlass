@@ -27,11 +27,28 @@
     "password": "Passwort",
     "submit": "Anmelden",
     "submitting": "Anmeldung läuft...",
-    "logout": "Abmelden"
+    "logout": "Abmelden",
+    "change_password_title": "Passwort ändern",
+    "change_password_description": "Geben Sie Ihr aktuelles Passwort ein und wählen Sie ein neues.",
+    "current_password": "Aktuelles Passwort",
+    "new_password": "Neues Passwort",
+    "confirm_new_password": "Neues Passwort bestätigen",
+    "submit_change_password": "Passwort ändern",
+    "submitting_change_password": "Passwort wird geändert...",
+    "password_changed_success": "Passwort geändert.",
+    "password_mismatch": "Das neue Passwort und die Bestätigung stimmen nicht überein."
   },
   "dashboard": {
     "title": "Admin-Dashboard",
-    "welcome": "Willkommen, {{email}}"
+    "welcome": "Willkommen, {{email}}",
+    "nav": {
+      "users": "Benutzer",
+      "clients": "Clients",
+      "audit": "Audit-Protokoll",
+      "settings": "Einstellungen",
+      "signout": "Abmelden",
+      "soon": "bald"
+    }
   },
   "users": {
     "title": "Benutzer",
@@ -127,6 +144,8 @@
     "USER_NOT_FOUND": "Benutzer nicht gefunden. Möglicherweise wurde er gelöscht.",
     "CANNOT_OPERATE_ON_SELF": "Sie können diese Aktion nicht für Ihr eigenes Konto ausführen.",
     "LAST_ADMIN_LOCKOUT": "Dadurch hätte die Instanz keinen Administrator mehr. Befördern Sie zuerst einen anderen Benutzer.",
+    "FORBIDDEN": "Sie haben keine Berechtigung, diese Aktion durchzuführen.",
+    "WRONG_CURRENT_PASSWORD": "Das aktuelle Passwort ist falsch.",
     "passwordMismatch": "Die Passwörter stimmen nicht überein.",
     "unexpected": "Ein unerwarteter Fehler ist aufgetreten."
   },
