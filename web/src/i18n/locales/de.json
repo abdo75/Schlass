@@ -53,6 +53,61 @@
     "status": {
       "active": "Aktiv",
       "disabled": "Deaktiviert"
+    },
+    "create": {
+      "title": "Benutzer anlegen",
+      "description": "Legen Sie ein neues Konto an. Der Benutzer muss sein Passwort bei der ersten Anmeldung ändern.",
+      "email_label": "E-Mail",
+      "password_label": "Temporäres Passwort",
+      "password_hint": "Mindestens 12 Zeichen, mindestens ein Großbuchstabe und eine Ziffer.",
+      "role_label": "Rolle",
+      "submit": "Benutzer anlegen",
+      "submitting": "Wird erstellt...",
+      "cancel": "Abbrechen"
+    },
+    "detail": {
+      "back": "Zurück zu Benutzern",
+      "loading": "Benutzer wird geladen...",
+      "force_password_change": "Muss Passwort bei nächster Anmeldung ändern",
+      "created_at_label": "Erstellt",
+      "email_label": "E-Mail",
+      "role_label": "Rolle",
+      "status_label": "Status",
+      "edit": "Bearbeiten",
+      "save": "Speichern",
+      "saving": "Wird gespeichert...",
+      "cancel": "Abbrechen",
+      "actions_heading": "Aktionen",
+      "reset_password": "Passwort zurücksetzen",
+      "new_password_label": "Neues temporäres Passwort",
+      "reset_password_submit": "Passwort setzen",
+      "reset_password_success": "Passwort zurückgesetzt. Der Benutzer muss es bei der nächsten Anmeldung ändern.",
+      "disable": "Benutzer deaktivieren",
+      "enable": "Benutzer aktivieren",
+      "delete": "Benutzer löschen",
+      "sessions_heading": "Aktive Sitzungen",
+      "no_sessions": "Keine aktiven Sitzungen.",
+      "sessions_columns": {
+        "ip": "IP",
+        "user_agent": "User-Agent",
+        "created_at": "Gestartet",
+        "last_seen_at": "Zuletzt gesehen",
+        "actions": "Aktionen"
+      },
+      "kill_session": "Sitzung beenden",
+      "kill_all_sessions": "Alle Sitzungen beenden"
+    },
+    "confirm": {
+      "disable_title": "Diesen Benutzer deaktivieren?",
+      "disable_body": "Der Benutzer kann sich nicht mehr anmelden und alle aktiven Sitzungen werden sofort beendet. Sie können ihn jederzeit wieder aktivieren.",
+      "disable_confirm": "Deaktivieren",
+      "delete_title": "Diesen Benutzer dauerhaft löschen?",
+      "delete_body": "Dies kann nicht rückgängig gemacht werden. Das Konto wird entfernt und alle Sitzungen beendet. Audit-Protokolle seiner Aktivität bleiben erhalten.",
+      "delete_confirm": "Dauerhaft löschen",
+      "kill_all_sessions_title": "Alle Sitzungen beenden?",
+      "kill_all_sessions_body": "Alle Geräte, die derzeit als dieser Benutzer angemeldet sind, werden abgemeldet. Der Benutzer muss sich auf jedem Gerät neu anmelden.",
+      "kill_all_sessions_confirm": "Alle Sitzungen beenden",
+      "cancel": "Abbrechen"
     }
   },
   "errors": {
@@ -68,6 +123,10 @@
     "INVALID_SESSION": "Ihre Sitzung ist abgelaufen. Bitte erneut anmelden.",
     "INVALID_ORIGIN": "Anfrage-Origin nicht erlaubt.",
     "SERVICE_UNAVAILABLE": "Dienst vorübergehend nicht verfügbar. Bitte erneut versuchen.",
+    "EMAIL_ALREADY_EXISTS": "Ein Benutzer mit dieser E-Mail existiert bereits.",
+    "USER_NOT_FOUND": "Benutzer nicht gefunden. Möglicherweise wurde er gelöscht.",
+    "CANNOT_OPERATE_ON_SELF": "Sie können diese Aktion nicht für Ihr eigenes Konto ausführen.",
+    "LAST_ADMIN_LOCKOUT": "Dadurch hätte die Instanz keinen Administrator mehr. Befördern Sie zuerst einen anderen Benutzer.",
     "passwordMismatch": "Die Passwörter stimmen nicht überein.",
     "unexpected": "Ein unerwarteter Fehler ist aufgetreten."
   },
