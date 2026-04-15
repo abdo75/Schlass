@@ -59,8 +59,6 @@ func NewUsersHandler(
 // pathParam is a tiny wrapper over http.Request.PathValue so callers read
 // naturally (`pathParam(r, "id")`). Mostly cosmetic — keeps the stdlib
 // net/http routing pattern out of handler method bodies.
-//
-//nolint:unused // used by Tasks 6–11 which land after Task 5
 func pathParam(r *http.Request, name string) string {
 	return r.PathValue(name)
 }
@@ -68,8 +66,6 @@ func pathParam(r *http.Request, name string) string {
 // parseUserID pulls the `:id` path segment, parses it as a UUID, and writes a
 // 400 VALIDATION_ERROR if the parse fails. Returns (id, true) on success and
 // (uuid.Nil, false) on failure — callers should return immediately on false.
-//
-//nolint:unused // used by Tasks 6–11 which land after Task 5
 func parseUserID(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
 	raw := pathParam(r, "id")
 	id, err := uuid.Parse(raw)
@@ -88,8 +84,6 @@ func parseUserID(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
 // Prevents an admin from disabling, resetting, or deleting their own account
 // via the admin API. If no user is in context (wiring bug), we also reject so
 // we never silently allow a self-op.
-//
-//nolint:unused // used by Tasks 6–11 which land after Task 5
 func (h *UsersHandler) rejectSelfOp(w http.ResponseWriter, r *http.Request, targetID uuid.UUID) bool {
 	current, ok := middleware.CurrentUser(r.Context())
 	if !ok {
@@ -106,8 +100,6 @@ func (h *UsersHandler) rejectSelfOp(w http.ResponseWriter, r *http.Request, targ
 // lockSuperAdminsForUpdate takes a row-level lock on every super_admin row so
 // the current transaction can safely count remaining active admins without a
 // concurrent disable/delete changing the answer. Must be called inside a tx.
-//
-//nolint:unused // used by Tasks 6–11 which land after Task 5
 func lockSuperAdminsForUpdate(ctx context.Context, tx pgx.Tx) error {
 	_, err := tx.Exec(ctx, `SELECT id FROM users WHERE role = 'super_admin' FOR UPDATE`)
 	return err
@@ -116,8 +108,6 @@ func lockSuperAdminsForUpdate(ctx context.Context, tx pgx.Tx) error {
 // remainingActiveSuperAdmins counts super_admins that remain active (not
 // disabled, not deleted) after whatever change the surrounding transaction has
 // already staged. Must be called after lockSuperAdminsForUpdate.
-//
-//nolint:unused // used by Tasks 6–11 which land after Task 5
 func remainingActiveSuperAdmins(ctx context.Context, tx pgx.Tx) (int, error) {
 	var n int
 	err := tx.QueryRow(ctx,
@@ -133,8 +123,6 @@ func remainingActiveSuperAdmins(ctx context.Context, tx pgx.Tx) (int, error) {
 // Must be called inside the same tx that already applied the staged change
 // (disable/delete/role-demote) — this is the compliance gate that prevents an
 // admin from locking everyone out of the system.
-//
-//nolint:unused // used by Tasks 6–11 which land after Task 5
 func (h *UsersHandler) enforceLastAdminLockout(ctx context.Context, tx pgx.Tx, w http.ResponseWriter) bool {
 	n, err := remainingActiveSuperAdmins(ctx, tx)
 	if err != nil {
@@ -324,20 +312,374 @@ func (h *UsersHandler) Create(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]any{"user": userDTO(fresh)})
 }
 
+// Get handles GET /api/users/:id. Returns the user DTO plus the list of
+// active sessions (each carrying its opaque token so the admin UI can issue
+// per-device terminate calls). If the session store is temporarily unavailable
+// we degrade gracefully: log a WARN and return the user DTO with a nil
+// sessions array rather than failing the whole request.
 func (h *UsersHandler) Get(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusNotImplemented, "NOT_IMPLEMENTED", "coming in Task 7")
+	id, ok := parseUserID(w, r)
+	if !ok {
+		return
+	}
+
+	user, err := h.userStore.GetByID(r.Context(), h.pool, id)
+	if err != nil {
+		if errors.Is(err, store.ErrUserNotFound) {
+			writeError(w, http.StatusNotFound, "USER_NOT_FOUND", "User not found.")
+			return
+		}
+		slog.Error("users.Get: fetch user", "error", err, "user_id", id) //nolint:gosec // G706: slog structured logging is not susceptible to log injection
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	sessions, err := h.sessionStore.ListByUser(r.Context(), id.String())
+	if err != nil {
+		slog.Warn("users.Get: list sessions degraded", "error", err, "user_id", id) //nolint:gosec // G706: slog structured logging is not susceptible to log injection
+		sessions = nil
+	}
+
+	sessionsOut := make([]map[string]any, 0, len(sessions))
+	for _, s := range sessions {
+		sessionsOut = append(sessionsOut, map[string]any{
+			"token":        s.Token,
+			"created_at":   s.CreatedAt,
+			"last_seen_at": s.LastSeenAt,
+			"ip_address":   s.IPAddress,
+			"user_agent":   s.UserAgent,
+		})
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"user":     userDTO(user),
+		"sessions": sessionsOut,
+	})
 }
 
+// updateUserRequest — PATCH body. Both fields optional; at least one required.
+type updateUserRequest struct {
+	Email *string `json:"email,omitempty"`
+	Role  *string `json:"role,omitempty"`
+}
+
+// Update handles PATCH /api/users/:id. Supports partial updates of email and
+// role. Self-op guard only fires on role change (self-email-update is allowed).
+// Role-demotion of a super_admin triggers the last-admin lockout guard inside
+// the transaction.
 func (h *UsersHandler) Update(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusNotImplemented, "NOT_IMPLEMENTED", "coming in Task 7")
+	id, ok := parseUserID(w, r)
+	if !ok {
+		return
+	}
+
+	var req updateUserRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body.")
+		return
+	}
+	if req.Email == nil && req.Role == nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "At least one of email or role is required.")
+		return
+	}
+	if req.Email != nil {
+		if *req.Email == "" || !strings.Contains(*req.Email, "@") {
+			writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid email.")
+			return
+		}
+	}
+	if req.Role != nil {
+		if *req.Role != "super_admin" && *req.Role != "user" {
+			writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "role must be 'super_admin' or 'user'.")
+			return
+		}
+	}
+
+	// Self-op guard — only on role change. An admin is allowed to update
+	// their own email, but must not demote (or even re-affirm) their own role
+	// via this endpoint.
+	if req.Role != nil && h.rejectSelfOp(w, r, id) {
+		return
+	}
+
+	current, ok := middleware.CurrentUser(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "INVALID_SESSION", "Not authenticated.")
+		return
+	}
+	ip := extractClientIP(r)
+
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		slog.Error("users.Update: begin tx", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	defer func() { _ = tx.Rollback(r.Context()) }()
+
+	existing, err := h.userStore.GetByID(r.Context(), tx, id)
+	if err != nil {
+		if errors.Is(err, store.ErrUserNotFound) {
+			writeError(w, http.StatusNotFound, "USER_NOT_FOUND", "User not found.")
+			return
+		}
+		slog.Error("users.Update: fetch existing", "error", err, "user_id", id) //nolint:gosec // G706: slog structured logging is not susceptible to log injection
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	newEmail := existing.Email
+	if req.Email != nil {
+		newEmail = *req.Email
+	}
+	newRole := existing.Role
+	if req.Role != nil {
+		newRole = *req.Role
+	}
+
+	// If this change demotes a super_admin, lock the admin set so the
+	// remaining-count check below is race-free.
+	demoting := existing.Role == "super_admin" && newRole != "super_admin"
+	if demoting {
+		if err := lockSuperAdminsForUpdate(r.Context(), tx); err != nil {
+			slog.Error("users.Update: lock super_admins", "error", err)
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+			return
+		}
+	}
+
+	if err := h.userStore.Update(r.Context(), tx, id, newEmail, newRole); err != nil {
+		if uniqueViolationAsEmailConflict(w, err) {
+			return
+		}
+		if errors.Is(err, store.ErrUserNotFound) {
+			writeError(w, http.StatusNotFound, "USER_NOT_FOUND", "User not found.")
+			return
+		}
+		slog.Error("users.Update: update", "error", err, "user_id", id) //nolint:gosec // G706: slog structured logging is not susceptible to log injection
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	if demoting && h.enforceLastAdminLockout(r.Context(), tx, w) {
+		return
+	}
+
+	changed := map[string]any{}
+	if req.Email != nil && *req.Email != existing.Email {
+		changed["email"] = map[string]any{"from": existing.Email, "to": *req.Email}
+	}
+	if req.Role != nil && *req.Role != existing.Role {
+		changed["role"] = map[string]any{"from": existing.Role, "to": *req.Role}
+	}
+
+	if auditErr := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+		EventType:  "user.updated",
+		ActorID:    &current.ID,
+		ActorEmail: current.Email,
+		TargetType: "user",
+		TargetID:   id.String(),
+		IPAddress:  ip,
+		Outcome:    "success",
+		Metadata:   map[string]any{"changed_fields": changed},
+	}); auditErr != nil {
+		slog.Error("audit user.updated", "error", auditErr)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		slog.Error("users.Update: commit", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	fresh, err := h.userStore.GetByID(r.Context(), h.pool, id)
+	if err != nil {
+		slog.Error("users.Update: refetch", "error", err, "user_id", id) //nolint:gosec // G706: slog structured logging is not susceptible to log injection
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"user": userDTO(fresh)})
 }
 
+// Disable handles POST /api/users/:id/disable. Sets the target user's status
+// to 'disabled', writes a user.disabled audit row in the same tx, and — after
+// a successful commit — best-effort destroys every active session the user
+// has in Valkey. If the session revocation call fails we log a WARN and
+// return success anyway: the auth middleware's disabled-user check will
+// revoke stale sessions on next request, so the database state is the source
+// of truth and the Valkey entries are just a cache.
+//
+// Guards:
+//   - parseUserID: 400 VALIDATION_ERROR on bad UUID.
+//   - rejectSelfOp: 400 CANNOT_OPERATE_ON_SELF — an admin must not disable
+//     their own account via the admin API.
+//   - lockSuperAdminsForUpdate + enforceLastAdminLockout: if the target is a
+//     super_admin, serializes against concurrent destructive ops and aborts
+//     with 400 LAST_ADMIN_LOCKOUT if disabling would leave zero active admins.
 func (h *UsersHandler) Disable(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusNotImplemented, "NOT_IMPLEMENTED", "coming in Task 8")
+	id, ok := parseUserID(w, r)
+	if !ok {
+		return
+	}
+	if h.rejectSelfOp(w, r, id) {
+		return
+	}
+
+	current, ok := middleware.CurrentUser(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "INVALID_SESSION", "Not authenticated.")
+		return
+	}
+	ip := extractClientIP(r)
+
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		slog.Error("users.Disable: begin tx", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	defer func() { _ = tx.Rollback(r.Context()) }()
+
+	// Lock the admin set up-front so the optional last-admin check below is
+	// race-free. Cheap on a super_admin set of ~1–10 rows and harmless for
+	// non-admin targets — we'd rather pay the tiny lock cost than branch.
+	if err := lockSuperAdminsForUpdate(r.Context(), tx); err != nil {
+		slog.Error("users.Disable: lock super_admins", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	existing, err := h.userStore.GetByID(r.Context(), tx, id)
+	if err != nil {
+		if errors.Is(err, store.ErrUserNotFound) {
+			writeError(w, http.StatusNotFound, "USER_NOT_FOUND", "User not found.")
+			return
+		}
+		slog.Error("users.Disable: fetch existing", "error", err, "user_id", id) //nolint:gosec // G706: slog structured logging is not susceptible to log injection
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	if err := h.userStore.SetStatus(r.Context(), tx, id, "disabled"); err != nil {
+		if errors.Is(err, store.ErrUserNotFound) {
+			// Shouldn't happen — we just verified existence under lock — but
+			// keep the branch so a race doesn't 500.
+			writeError(w, http.StatusNotFound, "USER_NOT_FOUND", "User not found.")
+			return
+		}
+		slog.Error("users.Disable: set status", "error", err, "user_id", id) //nolint:gosec // G706: slog structured logging is not susceptible to log injection
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	// Last-admin guard — only meaningful when disabling a super_admin.
+	if existing.Role == "super_admin" && h.enforceLastAdminLockout(r.Context(), tx, w) {
+		return
+	}
+
+	if auditErr := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+		EventType:  "user.disabled",
+		ActorID:    &current.ID,
+		ActorEmail: current.Email,
+		TargetType: "user",
+		TargetID:   id.String(),
+		IPAddress:  ip,
+		Outcome:    "success",
+		Metadata:   map[string]any{"email": existing.Email, "role": existing.Role},
+	}); auditErr != nil {
+		slog.Error("audit user.disabled", "error", auditErr)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		slog.Error("users.Disable: commit", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	// Post-commit, best-effort: nuke every active session for this user so
+	// they're kicked out immediately. If Valkey is temporarily unreachable we
+	// log a WARN and return success — the auth middleware's disabled-user
+	// check (Sprint 2) rejects stale sessions on next request, so the DB
+	// row is the source of truth.
+	if err := h.sessionStore.DeleteAllForUser(r.Context(), id.String()); err != nil {
+		slog.Warn("users.Disable: session revocation degraded", "error", err, "user_id", id) //nolint:gosec // G706: slog structured logging is not susceptible to log injection
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
+// Enable handles POST /api/users/:id/enable. Sets the target user's status to
+// 'active' and writes a user.enabled audit row in the same tx. No self-op
+// guard (enabling yourself is a no-op) and no last-admin lockout check
+// (enabling can only increase the active super_admin count, never decrease).
 func (h *UsersHandler) Enable(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusNotImplemented, "NOT_IMPLEMENTED", "coming in Task 8")
+	id, ok := parseUserID(w, r)
+	if !ok {
+		return
+	}
+
+	current, ok := middleware.CurrentUser(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "INVALID_SESSION", "Not authenticated.")
+		return
+	}
+	ip := extractClientIP(r)
+
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		slog.Error("users.Enable: begin tx", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	defer func() { _ = tx.Rollback(r.Context()) }()
+
+	existing, err := h.userStore.GetByID(r.Context(), tx, id)
+	if err != nil {
+		if errors.Is(err, store.ErrUserNotFound) {
+			writeError(w, http.StatusNotFound, "USER_NOT_FOUND", "User not found.")
+			return
+		}
+		slog.Error("users.Enable: fetch existing", "error", err, "user_id", id) //nolint:gosec // G706: slog structured logging is not susceptible to log injection
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	if err := h.userStore.SetStatus(r.Context(), tx, id, "active"); err != nil {
+		if errors.Is(err, store.ErrUserNotFound) {
+			writeError(w, http.StatusNotFound, "USER_NOT_FOUND", "User not found.")
+			return
+		}
+		slog.Error("users.Enable: set status", "error", err, "user_id", id) //nolint:gosec // G706: slog structured logging is not susceptible to log injection
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	if auditErr := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+		EventType:  "user.enabled",
+		ActorID:    &current.ID,
+		ActorEmail: current.Email,
+		TargetType: "user",
+		TargetID:   id.String(),
+		IPAddress:  ip,
+		Outcome:    "success",
+		Metadata:   map[string]any{"email": existing.Email, "role": existing.Role},
+	}); auditErr != nil {
+		slog.Error("audit user.enabled", "error", auditErr)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		slog.Error("users.Enable: commit", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *UsersHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
