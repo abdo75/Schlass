@@ -1,6 +1,6 @@
 # API Reference
 
-All routes are wired in `internal/server/router.go`. JSON request and response bodies; session cookie is the auth credential. "Auth" means `middleware.Auth` is required; "Admin" means `RequireRole("super_admin")` is also enforced.
+All routes are wired in `internal/server/router.go`. This doc covers `/api/*` only; the embedded SPA fallback (`mux.Handle("/", web.SPAHandler())`) is intentionally omitted. JSON request and response bodies; session cookie is the auth credential. "Auth" means `middleware.Auth` is required; "Admin" means `RequireRole("super_admin")` is also enforced.
 
 ## Health
 
