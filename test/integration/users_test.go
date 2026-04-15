@@ -755,3 +755,142 @@ func TestUsers_Enable_NotFound(t *testing.T) {
 		t.Fatalf("want 404, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
+
+// TestUsers_ResetPassword_HappyPath seeds a target user, resets the password
+// via the admin API, and asserts: (a) the new hash verifies against the new
+// password, (b) force_password_change is true, (c) a user.password_reset
+// audit row exists.
+func TestUsers_ResetPassword_HappyPath(t *testing.T) {
+	ctx := t.Context()
+	env := NewTestEnv(t)
+	env.SeedAdmin(t, "admin@example.com", "CorrectHorse42Battery")
+	cookie := env.LoginAsAdmin(t, "admin@example.com", "CorrectHorse42Battery")
+
+	oldHash, err := crypto.HashPassword("OldUserPass42Battery")
+	if err != nil {
+		t.Fatalf("hash: %v", err)
+	}
+	if _, err := env.Pool.Exec(ctx,
+		`INSERT INTO users (email, password_hash, role, force_password_change)
+		 VALUES ('resetme@example.com', $1, 'user', false)`, oldHash); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	id := userIDByEmail(t, env, "resetme@example.com")
+
+	body := bytes.NewBufferString(`{"password":"BrandNewTemp42!"}`)
+	req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/users/"+id+"/reset-password", body)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", "http://localhost:3000")
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	env.Router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("want 204, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var newHash string
+	var fpc bool
+	if err := env.Pool.QueryRow(ctx,
+		`SELECT password_hash, force_password_change FROM users WHERE id = $1`, id,
+	).Scan(&newHash, &fpc); err != nil {
+		t.Fatalf("fetch user: %v", err)
+	}
+	if !fpc {
+		t.Fatal("force_password_change should be true after admin reset")
+	}
+	ok, err := crypto.VerifyPassword("BrandNewTemp42!", newHash)
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if !ok {
+		t.Fatal("new password did not verify against stored hash")
+	}
+
+	var auditCount int
+	_ = env.Pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM audit_logs
+		 WHERE event_type = 'user.password_reset' AND target_id = $1`, id).Scan(&auditCount)
+	if auditCount != 1 {
+		t.Fatalf("want 1 user.password_reset audit row, got %d", auditCount)
+	}
+}
+
+// TestUsers_ResetPassword_WeakPassword_400 proves the admin reset endpoint
+// enforces the password policy — a too-short password returns 400 with
+// PASSWORD_POLICY_VIOLATION.
+func TestUsers_ResetPassword_WeakPassword_400(t *testing.T) {
+	ctx := t.Context()
+	env := NewTestEnv(t)
+	env.SeedAdmin(t, "admin@example.com", "CorrectHorse42Battery")
+	cookie := env.LoginAsAdmin(t, "admin@example.com", "CorrectHorse42Battery")
+
+	hash, err := crypto.HashPassword("UserPass42Battery")
+	if err != nil {
+		t.Fatalf("hash: %v", err)
+	}
+	if _, err := env.Pool.Exec(ctx,
+		`INSERT INTO users (email, password_hash, role, force_password_change)
+		 VALUES ('weakreset@example.com', $1, 'user', false)`, hash); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	id := userIDByEmail(t, env, "weakreset@example.com")
+
+	body := bytes.NewBufferString(`{"password":"short"}`)
+	req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/users/"+id+"/reset-password", body)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", "http://localhost:3000")
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	env.Router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "PASSWORD_POLICY_VIOLATION") {
+		t.Fatalf("want PASSWORD_POLICY_VIOLATION, got %s", rec.Body.String())
+	}
+}
+
+// TestUsers_ResetPassword_KillsExistingSessions seeds a user with an active
+// Valkey session, resets their password via the admin API, and asserts the
+// session has been revoked so the user must re-log in with the new temp.
+func TestUsers_ResetPassword_KillsExistingSessions(t *testing.T) {
+	ctx := t.Context()
+	env := NewTestEnv(t)
+	env.SeedAdmin(t, "admin@example.com", "CorrectHorse42Battery")
+	cookie := env.LoginAsAdmin(t, "admin@example.com", "CorrectHorse42Battery")
+
+	hash, err := crypto.HashPassword("UserPass42Battery")
+	if err != nil {
+		t.Fatalf("hash: %v", err)
+	}
+	if _, err := env.Pool.Exec(ctx,
+		`INSERT INTO users (email, password_hash, role, force_password_change)
+		 VALUES ('sessionkill@example.com', $1, 'user', false)`, hash); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	targetID := userIDByEmail(t, env, "sessionkill@example.com")
+
+	sessStore := session.NewValkeyStore(env.ValkeyClient, 24*time.Hour)
+	token, err := sessStore.Create(ctx, targetID, "198.51.100.9", "curl/test")
+	if err != nil {
+		t.Fatalf("session create: %v", err)
+	}
+
+	body := bytes.NewBufferString(`{"password":"BrandNewTemp42!"}`)
+	req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/users/"+targetID+"/reset-password", body)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", "http://localhost:3000")
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	env.Router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("want 204, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	if _, err := sessStore.Get(ctx, token); err == nil {
+		t.Fatal("expected session to be revoked after password reset")
+	}
+}

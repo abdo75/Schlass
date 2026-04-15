@@ -682,8 +682,116 @@ func (h *UsersHandler) Enable(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// ResetPassword handles POST /api/users/:id/reset-password. The admin provides
+// a new temporary password; we policy-validate it, hash it, write the update
+// inside a tx with force_password_change=true so the user must change it on
+// next login, audit the operation, commit, and then best-effort revoke every
+// active session for the target so they're kicked out and must re-log in with
+// the temp and walk the forced-change flow.
 func (h *UsersHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusNotImplemented, "NOT_IMPLEMENTED", "coming in Task 9")
+	id, ok := parseUserID(w, r)
+	if !ok {
+		return
+	}
+
+	var req struct {
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body.")
+		return
+	}
+
+	policy, err := h.configService.GetPasswordPolicy(r.Context(), h.pool)
+	if err != nil {
+		slog.Error("users.ResetPassword: load password policy", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if err := model.ValidatePassword(req.Password, policy); err != nil {
+		var policyErr *model.PasswordPolicyError
+		if errors.As(err, &policyErr) {
+			writeError(w, http.StatusBadRequest, "PASSWORD_POLICY_VIOLATION", err.Error())
+			return
+		}
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return
+	}
+
+	hash, err := crypto.HashPassword(req.Password)
+	if err != nil {
+		slog.Error("users.ResetPassword: hash password", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	current, ok := middleware.CurrentUser(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "INVALID_SESSION", "Not authenticated.")
+		return
+	}
+	ip := extractClientIP(r)
+
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		slog.Error("users.ResetPassword: begin tx", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	defer func() { _ = tx.Rollback(r.Context()) }()
+
+	existing, err := h.userStore.GetByID(r.Context(), tx, id)
+	if err != nil {
+		if errors.Is(err, store.ErrUserNotFound) {
+			writeError(w, http.StatusNotFound, "USER_NOT_FOUND", "User not found.")
+			return
+		}
+		slog.Error("users.ResetPassword: fetch existing", "error", err, "user_id", id) //nolint:gosec // G706: slog structured logging is not susceptible to log injection
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	if err := h.userStore.SetPasswordHash(r.Context(), tx, id, hash, true); err != nil {
+		if errors.Is(err, store.ErrUserNotFound) {
+			writeError(w, http.StatusNotFound, "USER_NOT_FOUND", "User not found.")
+			return
+		}
+		slog.Error("users.ResetPassword: set password hash", "error", err, "user_id", id) //nolint:gosec // G706: slog structured logging is not susceptible to log injection
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	if auditErr := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+		EventType:  "user.password_reset",
+		ActorID:    &current.ID,
+		ActorEmail: current.Email,
+		TargetType: "user",
+		TargetID:   id.String(),
+		IPAddress:  ip,
+		Outcome:    "success",
+		Metadata:   map[string]any{"email": existing.Email},
+	}); auditErr != nil {
+		slog.Error("audit user.password_reset", "error", auditErr)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		slog.Error("users.ResetPassword: commit", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	// Post-commit, best-effort: kill every active session for this user so
+	// they're forced to re-log in with the new temp and walk the
+	// forced-change flow. DB state is the source of truth; if Valkey is
+	// momentarily unavailable the auth middleware's force_password_change
+	// check will still gate the next request.
+	if err := h.sessionStore.DeleteAllForUser(r.Context(), id.String()); err != nil {
+		slog.Warn("users.ResetPassword: session revocation degraded", "error", err, "user_id", id) //nolint:gosec // G706: slog structured logging is not susceptible to log injection
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *UsersHandler) Delete(w http.ResponseWriter, r *http.Request) {
