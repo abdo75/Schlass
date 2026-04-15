@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
+	"math/big"
 	"strings"
 
 	"golang.org/x/crypto/argon2"
@@ -17,6 +18,47 @@ const (
 	argon2SaltLength  = 16
 	argon2KeyLength   = 32
 )
+
+// tempPasswordAlphabet is base58-like: all letters and digits EXCEPT the five
+// characters that are easy to confuse when read aloud or on a terminal —
+// '0', 'O', 'I', 'l', '1'. 57 characters total. log2(57^16) ≈ 93 bits of
+// entropy, well above offline-brute-force thresholds.
+const tempPasswordAlphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+
+// GenerateTemporaryPassword returns a 16-character cryptographically-random
+// password drawn from the unambiguous base58-minus-confusables alphabet.
+// Used by the admin user-management flow (POST /api/users, POST
+// /api/users/:id/reset-password) to avoid admins ever typing a password.
+// The result is guaranteed to contain at least one uppercase letter and at
+// least one digit via a rejection loop — the probability of neither class
+// appearing in 16 draws is vanishingly small, but the loop makes it
+// deterministic.
+func GenerateTemporaryPassword() (string, error) {
+	const length = 16
+	alphabetLen := big.NewInt(int64(len(tempPasswordAlphabet)))
+	for attempt := 0; attempt < 8; attempt++ {
+		out := make([]byte, length)
+		var hasUpper, hasDigit bool
+		for i := 0; i < length; i++ {
+			n, err := rand.Int(rand.Reader, alphabetLen)
+			if err != nil {
+				return "", fmt.Errorf("generate temporary password: %w", err)
+			}
+			c := tempPasswordAlphabet[n.Int64()]
+			out[i] = c
+			if c >= 'A' && c <= 'Z' {
+				hasUpper = true
+			}
+			if c >= '0' && c <= '9' {
+				hasDigit = true
+			}
+		}
+		if hasUpper && hasDigit {
+			return string(out), nil
+		}
+	}
+	return "", fmt.Errorf("generate temporary password: 8 attempts failed to satisfy upper+digit policy")
+}
 
 func HashPassword(password string) (string, error) {
 	salt := make([]byte, argon2SaltLength)
