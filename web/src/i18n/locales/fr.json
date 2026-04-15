@@ -39,15 +39,7 @@
   },
   "dashboard": {
     "title": "Tableau de bord administrateur",
-    "welcome": "Bienvenue, {{email}}",
-    "nav": {
-      "users": "Utilisateurs",
-      "clients": "Clients",
-      "audit": "Journal d'audit",
-      "settings": "Paramètres",
-      "signout": "Se déconnecter",
-      "soon": "bientôt"
-    }
+    "welcome": "Bienvenue, {{email}}"
   },
   "users": {
     "title": "Utilisateurs",

@@ -39,15 +39,7 @@
   },
   "dashboard": {
     "title": "Admin dashboard",
-    "welcome": "Welcome, {{email}}",
-    "nav": {
-      "users": "Users",
-      "clients": "Clients",
-      "audit": "Audit log",
-      "settings": "Settings",
-      "signout": "Sign out",
-      "soon": "soon"
-    }
+    "welcome": "Welcome, {{email}}"
   },
   "users": {
     "title": "Users",

@@ -39,15 +39,7 @@
   },
   "dashboard": {
     "title": "Admin-Dashboard",
-    "welcome": "Willkommen, {{email}}",
-    "nav": {
-      "users": "Benutzer",
-      "clients": "Clients",
-      "audit": "Audit-Protokoll",
-      "settings": "Einstellungen",
-      "signout": "Abmelden",
-      "soon": "bald"
-    }
+    "welcome": "Willkommen, {{email}}"
   },
   "users": {
     "title": "Benutzer",
