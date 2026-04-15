@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/abdo75/Schlass/internal/config"
 	"github.com/abdo75/Schlass/internal/crypto"
 	"github.com/abdo75/Schlass/internal/database"
 	"github.com/abdo75/Schlass/internal/middleware"
@@ -30,11 +31,12 @@ type AuditLogger interface {
 
 // AuthHandler serves POST /api/login (and, in later tasks, /api/logout and /api/me).
 type AuthHandler struct {
-	pool         *pgxpool.Pool
-	sessionStore session.Store
-	userStore    *store.UserStore
-	auditStore   AuditLogger
-	configStore  *store.ConfigStore
+	pool          *pgxpool.Pool
+	sessionStore  session.Store
+	userStore     *store.UserStore
+	auditStore    AuditLogger
+	configStore   *store.ConfigStore
+	configService *config.ConfigService
 
 	publicURL    string // for Origin check
 	cookieSecure bool   // derived from publicURL at construction time
@@ -51,6 +53,7 @@ func NewAuthHandler(
 	userStore *store.UserStore,
 	auditStore AuditLogger,
 	configStore *store.ConfigStore,
+	configService *config.ConfigService,
 	publicURL string,
 ) (*AuthHandler, error) {
 	dummy, err := crypto.HashPassword("timing-defense-placeholder")
@@ -58,14 +61,15 @@ func NewAuthHandler(
 		return nil, fmt.Errorf("auth handler: pre-compute dummy hash: %w", err)
 	}
 	return &AuthHandler{
-		pool:         pool,
-		sessionStore: sessionStore,
-		userStore:    userStore,
-		auditStore:   auditStore,
-		configStore:  configStore,
-		publicURL:    publicURL,
-		cookieSecure: strings.HasPrefix(publicURL, "https://"),
-		dummyHash:    dummy,
+		pool:          pool,
+		sessionStore:  sessionStore,
+		userStore:     userStore,
+		auditStore:    auditStore,
+		configStore:   configStore,
+		configService: configService,
+		publicURL:     publicURL,
+		cookieSecure:  strings.HasPrefix(publicURL, "https://"),
+		dummyHash:     dummy,
 	}, nil
 }
 
@@ -420,6 +424,142 @@ func (h *AuthHandler) PostLogout(w http.ResponseWriter, r *http.Request) {
 		Value:    "",
 		Path:     "/",
 		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   h.cookieSecure,
+		SameSite: http.SameSiteStrictMode,
+	})
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// changePasswordRequest is the decoded body for POST /api/change-password.
+type changePasswordRequest struct {
+	CurrentPassword string `json:"current_password"`
+	NewPassword     string `json:"new_password"`
+}
+
+// PostChangePassword lets any authenticated user change their own password.
+// Used both by the forced-password-change flow (temp password issued via
+// admin reset) and as a self-service action. On success, the session token
+// is rotated post-commit per OWASP Session Management guidance: the old
+// token is destroyed and a new one issued, with the cookie updated inline
+// so the user stays transparently logged in.
+func (h *AuthHandler) PostChangePassword(w http.ResponseWriter, r *http.Request) {
+	current, ok := middleware.CurrentUser(r.Context())
+	if !ok {
+		// Defensive: /api/change-password is auth-wrapped so this should be unreachable.
+		writeError(w, http.StatusUnauthorized, "INVALID_SESSION", "Not authenticated.")
+		return
+	}
+
+	var req changePasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body.")
+		return
+	}
+
+	// 1. Verify current password. Treat mismatch as 400 WRONG_CURRENT_PASSWORD
+	//    (not 401 — the session is still valid, the user just typed the wrong
+	//    current password).
+	verifyOK, verifyErr := crypto.VerifyPassword(req.CurrentPassword, current.PasswordHash)
+	if verifyErr != nil {
+		slog.Error("auth.PostChangePassword: verify current password", "error", verifyErr)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if !verifyOK {
+		writeError(w, http.StatusBadRequest, "WRONG_CURRENT_PASSWORD", "Current password is incorrect.")
+		return
+	}
+
+	// 2. Load policy + validate new password.
+	policy, err := h.configService.GetPasswordPolicy(r.Context(), h.pool)
+	if err != nil {
+		slog.Error("auth.PostChangePassword: load password policy", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if err := model.ValidatePassword(req.NewPassword, policy); err != nil {
+		var policyErr *model.PasswordPolicyError
+		if errors.As(err, &policyErr) {
+			writeError(w, http.StatusBadRequest, "PASSWORD_POLICY_VIOLATION", err.Error())
+			return
+		}
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return
+	}
+
+	// 3. Hash + persist inside a tx. force_password_change=false because the
+	//    user is actively choosing this password.
+	newHash, err := crypto.HashPassword(req.NewPassword)
+	if err != nil {
+		slog.Error("auth.PostChangePassword: hash new password", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	ip := extractClientIP(r)
+
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		slog.Error("auth.PostChangePassword: begin tx", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	defer func() { _ = tx.Rollback(r.Context()) }() // non-actionable after commit (pgx returns ErrTxClosed)
+
+	if err := h.userStore.SetPasswordHash(r.Context(), tx, current.ID, newHash, false); err != nil {
+		slog.Error("auth.PostChangePassword: set password hash", "error", err, "user_id", current.ID) //nolint:gosec // G706: slog structured logging is not susceptible to log injection
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	if auditErr := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+		EventType:  "password.changed",
+		ActorID:    &current.ID,
+		ActorEmail: current.Email,
+		TargetType: "user",
+		TargetID:   current.ID.String(),
+		IPAddress:  ip,
+		Outcome:    "success",
+	}); auditErr != nil {
+		slog.Error("audit password.changed write failed", "error", auditErr)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		slog.Error("auth.PostChangePassword: commit", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	// 4. Post-commit: rotate the session token (OWASP Session Management —
+	//    renew session identifier after credential change). Delete the
+	//    caller's old session; if that fails, degrade to WARN and continue
+	//    — an orphaned Valkey entry is less harmful than leaving the user
+	//    with no working cookie.
+	if oldCookie, cookieErr := r.Cookie("schlass_session"); cookieErr == nil {
+		if delErr := h.sessionStore.Delete(r.Context(), current.ID.String(), oldCookie.Value); delErr != nil {
+			slog.Warn("auth.PostChangePassword: old session delete degraded", "error", delErr, "user_id", current.ID) //nolint:gosec // G706: slog structured logging is not susceptible to log injection
+		}
+	}
+
+	newToken, err := h.sessionStore.Create(r.Context(), current.ID.String(), ip, r.Header.Get("User-Agent"))
+	if err != nil {
+		// Password was committed but session rotation failed. Surface 500
+		// so the client knows to re-authenticate; the user will log in with
+		// the new password on their next attempt.
+		slog.Error("auth.PostChangePassword: session rotate create failed (password was changed)", "error", err, "user_id", current.ID) //nolint:gosec // G706: slog structured logging is not susceptible to log injection
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "schlass_session",
+		Value:    newToken,
+		Path:     "/",
+		MaxAge:   86400,
 		HttpOnly: true,
 		Secure:   h.cookieSecure,
 		SameSite: http.SameSiteStrictMode,

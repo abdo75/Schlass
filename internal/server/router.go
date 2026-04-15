@@ -50,7 +50,7 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 	healthHandler := handler.NewHealthHandler(d.Pool, d.ValkeyClient)
 	setupHandler := handler.NewSetupHandler(d.Pool, d.ConfigService, d.ConfigStore, d.UserStore, d.AuditStore)
 	authHandler, err := handler.NewAuthHandler(
-		d.Pool, sessionStore, d.UserStore, d.AuditStore, d.ConfigStore, d.Cfg.SchlassPublicURL,
+		d.Pool, sessionStore, d.UserStore, d.AuditStore, d.ConfigStore, d.ConfigService, d.Cfg.SchlassPublicURL,
 	)
 	if err != nil {
 		return nil, err
@@ -89,6 +89,7 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 	mux.Handle("POST /api/login", loginRL.Middleware(http.HandlerFunc(authHandler.PostLogin)))
 	mux.Handle("POST /api/logout", authMW(http.HandlerFunc(authHandler.PostLogout)))
 	mux.Handle("GET /api/me", authMW(http.HandlerFunc(authHandler.GetMe)))
+	mux.Handle("POST /api/change-password", authMW(http.HandlerFunc(authHandler.PostChangePassword)))
 
 	mux.Handle("GET /api/users", admin(http.HandlerFunc(usersHandler.List)))
 	mux.Handle("POST /api/users", admin(http.HandlerFunc(usersHandler.Create)))
