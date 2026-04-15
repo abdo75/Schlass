@@ -794,8 +794,121 @@ func (h *UsersHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// Delete handles DELETE /api/users/:id. Hard-deletes the target row from the
+// users table. Relies on migration 000011 having dropped the audit_logs FK on
+// actor_id: the audit trail must outlive the user row, so forensic queries
+// can still reconstruct who did what long after the account is gone. Because
+// actor_email is denormalized onto audit_logs and we write a user.deleted row
+// that also captures the victim's email + role inline, the forensic story
+// survives even without any FK-driven join back to the (now-absent) user.
+//
+// Guards:
+//   - parseUserID: 400 VALIDATION_ERROR on bad UUID.
+//   - rejectSelfOp: 400 CANNOT_OPERATE_ON_SELF — an admin must not hard-delete
+//     their own account via the admin API.
+//   - lockSuperAdminsForUpdate + enforceLastAdminLockout (only when the
+//     target is a super_admin): serializes against concurrent destructive
+//     ops and aborts with 400 LAST_ADMIN_LOCKOUT if deleting would leave
+//     zero active super_admins.
+//
+// We read the victim row BEFORE running the DELETE so the audit metadata can
+// carry deleted_user_email + deleted_user_role — otherwise the post-delete
+// row would be gone and we'd have nothing to record.
 func (h *UsersHandler) Delete(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusNotImplemented, "NOT_IMPLEMENTED", "coming in Task 10")
+	id, ok := parseUserID(w, r)
+	if !ok {
+		return
+	}
+	if h.rejectSelfOp(w, r, id) {
+		return
+	}
+
+	current, ok := middleware.CurrentUser(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "INVALID_SESSION", "Not authenticated.")
+		return
+	}
+	ip := extractClientIP(r)
+
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		slog.Error("users.Delete: begin tx", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	defer func() { _ = tx.Rollback(r.Context()) }()
+
+	// Lock the admin set up-front so the optional last-admin check below is
+	// race-free. Cheap on a ~1–10 row super_admin set; mirrors Disable.
+	if err := lockSuperAdminsForUpdate(r.Context(), tx); err != nil {
+		slog.Error("users.Delete: lock super_admins", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	// Capture the victim row BEFORE the delete — the audit metadata needs
+	// the email + role and the row is about to vanish.
+	target, err := h.userStore.GetByID(r.Context(), tx, id)
+	if err != nil {
+		if errors.Is(err, store.ErrUserNotFound) {
+			writeError(w, http.StatusNotFound, "USER_NOT_FOUND", "User not found.")
+			return
+		}
+		slog.Error("users.Delete: fetch target", "error", err, "user_id", id) //nolint:gosec // G706: slog structured logging is not susceptible to log injection
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	if err := h.userStore.Delete(r.Context(), tx, id); err != nil {
+		if errors.Is(err, store.ErrUserNotFound) {
+			// Shouldn't happen — we just verified existence under lock — but
+			// keep the branch so a race doesn't 500.
+			writeError(w, http.StatusNotFound, "USER_NOT_FOUND", "User not found.")
+			return
+		}
+		slog.Error("users.Delete: delete", "error", err, "user_id", id) //nolint:gosec // G706: slog structured logging is not susceptible to log injection
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	// Last-admin guard — only meaningful when deleting a super_admin.
+	if target.Role == "super_admin" && h.enforceLastAdminLockout(r.Context(), tx, w) {
+		return
+	}
+
+	if auditErr := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+		EventType:  "user.deleted",
+		ActorID:    &current.ID,
+		ActorEmail: current.Email,
+		TargetType: "user",
+		TargetID:   id.String(),
+		IPAddress:  ip,
+		Outcome:    "success",
+		Metadata: map[string]any{
+			"deleted_user_email": target.Email,
+			"deleted_user_role":  target.Role,
+		},
+	}); auditErr != nil {
+		slog.Error("audit user.deleted", "error", auditErr)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		slog.Error("users.Delete: commit", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	// Post-commit, best-effort: kill every active session for the (now
+	// deleted) user in Valkey. DB is the source of truth; if Valkey is
+	// temporarily unreachable, the auth middleware's user lookup will fail
+	// on next request and revoke the stale session anyway.
+	if err := h.sessionStore.DeleteAllForUser(r.Context(), id.String()); err != nil {
+		slog.Warn("users.Delete: session revocation degraded", "error", err, "user_id", id) //nolint:gosec // G706: slog structured logging is not susceptible to log injection
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *UsersHandler) ListSessions(w http.ResponseWriter, r *http.Request) {
