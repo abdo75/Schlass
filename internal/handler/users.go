@@ -6,8 +6,12 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -15,7 +19,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/abdo75/Schlass/internal/config"
+	"github.com/abdo75/Schlass/internal/crypto"
 	"github.com/abdo75/Schlass/internal/middleware"
+	"github.com/abdo75/Schlass/internal/model"
 	"github.com/abdo75/Schlass/internal/session"
 	"github.com/abdo75/Schlass/internal/store"
 )
@@ -146,8 +152,6 @@ func (h *UsersHandler) enforceLastAdminLockout(ctx context.Context, tx pgx.Tx, w
 // unique-violation (the only unique constraint on users is the email column)
 // and, if matched, writes 409 EMAIL_ALREADY_EXISTS and returns true. Any other
 // error (or nil) returns false and the caller handles it.
-//
-//nolint:unused // used by Tasks 6–11 which land after Task 5
 func uniqueViolationAsEmailConflict(w http.ResponseWriter, err error) bool {
 	if err == nil {
 		return false
@@ -162,12 +166,162 @@ func uniqueViolationAsEmailConflict(w http.ResponseWriter, err error) bool {
 
 // --- Stub methods — 501 NOT_IMPLEMENTED until Tasks 6–11 replace them. ---
 
-func (h *UsersHandler) List(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusNotImplemented, "NOT_IMPLEMENTED", "coming in Task 6")
+type createUserRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+	Role     string `json:"role"`
 }
 
+// List handles GET /api/users.
+func (h *UsersHandler) List(w http.ResponseWriter, r *http.Request) {
+	limit := 50
+	offset := 0
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	if v := r.URL.Query().Get("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			offset = n
+		}
+	}
+	emailSearch := r.URL.Query().Get("email")
+
+	result, err := h.userStore.List(r.Context(), h.pool, store.ListUsersParams{
+		Limit:       limit,
+		Offset:      offset,
+		EmailSearch: emailSearch,
+	})
+	if err != nil {
+		slog.Error("users.List failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	// Serialize users (hide password_hash from response).
+	usersOut := make([]map[string]any, 0, len(result.Users))
+	for _, u := range result.Users {
+		usersOut = append(usersOut, userDTO(u))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"users":  usersOut,
+		"total":  result.Total,
+		"limit":  limit,
+		"offset": offset,
+	})
+}
+
+// userDTO returns the response shape — everything except the password hash.
+func userDTO(u *store.User) map[string]any {
+	return map[string]any{
+		"id":                    u.ID.String(),
+		"email":                 u.Email,
+		"role":                  u.Role,
+		"status":                u.Status,
+		"force_password_change": u.ForcePasswordChange,
+		"created_at":            u.CreatedAt,
+		"updated_at":            u.UpdatedAt,
+	}
+}
+
+// Create handles POST /api/users.
 func (h *UsersHandler) Create(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusNotImplemented, "NOT_IMPLEMENTED", "coming in Task 6")
+	var req createUserRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body.")
+		return
+	}
+	if req.Email == "" || !strings.Contains(req.Email, "@") {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid email.")
+		return
+	}
+	if req.Role != "super_admin" && req.Role != "user" {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "role must be 'super_admin' or 'user'.")
+		return
+	}
+
+	// Password policy check.
+	policy, err := h.configService.GetPasswordPolicy(r.Context(), h.pool)
+	if err != nil {
+		slog.Error("load password policy", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if err := model.ValidatePassword(req.Password, policy); err != nil {
+		var policyErr *model.PasswordPolicyError
+		if errors.As(err, &policyErr) {
+			writeError(w, http.StatusBadRequest, "PASSWORD_POLICY_VIOLATION", err.Error())
+			return
+		}
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return
+	}
+
+	hash, err := crypto.HashPassword(req.Password)
+	if err != nil {
+		slog.Error("hash password", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	current, ok := middleware.CurrentUser(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "INVALID_SESSION", "Not authenticated.")
+		return
+	}
+	ip := extractClientIP(r)
+
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		slog.Error("begin tx", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	defer func() { _ = tx.Rollback(r.Context()) }()
+
+	newID, err := h.userStore.Create(r.Context(), tx, req.Email, hash, req.Role, true)
+	if err != nil {
+		if uniqueViolationAsEmailConflict(w, err) {
+			return
+		}
+		slog.Error("create user", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	if auditErr := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+		EventType:  "user.created",
+		ActorID:    &current.ID,
+		ActorEmail: current.Email,
+		TargetType: "user",
+		TargetID:   newID.String(),
+		IPAddress:  ip,
+		Outcome:    "success",
+		Metadata:   map[string]any{"email": req.Email, "role": req.Role},
+	}); auditErr != nil {
+		slog.Error("audit user.created", "error", auditErr)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		slog.Error("commit create user", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	// Fetch the freshly-created row for the response.
+	fresh, err := h.userStore.GetByID(r.Context(), h.pool, newID)
+	if err != nil {
+		slog.Error("fetch new user", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"user": userDTO(fresh)})
 }
 
 func (h *UsersHandler) Get(w http.ResponseWriter, r *http.Request) {
