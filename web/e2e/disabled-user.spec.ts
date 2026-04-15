@@ -50,10 +50,13 @@ test.describe("disabled user revocation", () => {
         adminPage.getByText(/^disabled$/i).first(),
       ).toBeVisible({ timeout: 10000 });
 
-      // User B reloads — the auth middleware sees the disabled user, deletes
-      // the Valkey session, and AuthGuard bounces to /login.
-      await userPage.reload();
-      await userPage.waitForURL("**/login", { timeout: 15000 });
+      // User B navigates to a guarded route — forcing a fresh request through
+      // the auth middleware, which sees the disabled user, deletes the Valkey
+      // session, and AuthGuard bounces to /login. A client-side reload() of
+      // /change-password could be served from the SPA shell without hitting a
+      // guarded endpoint, so use goto("/admin") for a deterministic check.
+      await userPage.goto("/admin");
+      await expect(userPage).toHaveURL(/\/login/, { timeout: 15000 });
     } finally {
       await userContext.close();
     }

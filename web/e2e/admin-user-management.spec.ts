@@ -103,10 +103,13 @@ test.describe("user management", () => {
       /cannot perform this action on your own account/i,
     );
 
-    // Admin status must still be active — guard should have blocked the
-    // state change.
-    await expect(
-      adminPage.getByText(/^active$/i).first(),
-    ).toBeVisible();
+    // Force a fresh list fetch so we're asserting against server state, not a
+    // stale DOM snapshot, then scope the Active check to the admin's own row.
+    await adminPage.goto("/admin/users");
+    const adminRow = adminPage.getByRole("row", {
+      name: new RegExp(uniqueEmail.replace(/[.+]/g, "\\$&")),
+    });
+    await expect(adminRow).toBeVisible();
+    await expect(adminRow).toContainText(/active/i);
   });
 });
