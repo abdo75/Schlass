@@ -35,7 +35,6 @@
     "confirm_new_password": "Confirmer le nouveau mot de passe",
     "submit_change_password": "Changer le mot de passe",
     "submitting_change_password": "Modification du mot de passe...",
-    "password_changed_success": "Mot de passe modifié.",
     "password_mismatch": "Le nouveau mot de passe et la confirmation ne correspondent pas."
   },
   "dashboard": {

@@ -52,7 +52,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const res = await getMe();
       setUser(res.user);
-    } catch {
+    } catch (err) {
+      // Clearing on any error is a safe default: a 401 legitimately means the
+      // session is gone, and a transient 500 will re-resolve on the next
+      // AuthGuard check after the /login bounce. Log so transient failures
+      // surface in devtools instead of looking like a silent logout.
+      console.error("refreshUser failed", err);
       setUser(null);
     }
   };

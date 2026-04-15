@@ -135,6 +135,11 @@ describe("ChangePasswordPage", () => {
     // getMe is called once by the AuthProvider on mount and once by refreshUser
     // after the successful change.
     expect(authApi.getMe).toHaveBeenCalledTimes(2);
+    // refreshUser must resolve BEFORE navigate, otherwise AuthGuard would still
+    // see the stale force_password_change=true user and bounce back here.
+    const refreshOrder = vi.mocked(authApi.getMe).mock.invocationCallOrder[1];
+    const navigateOrder = navigateMock.mock.invocationCallOrder[0];
+    expect(refreshOrder).toBeLessThan(navigateOrder);
   });
 
   it("renders a translated error when the backend returns WRONG_CURRENT_PASSWORD", async () => {

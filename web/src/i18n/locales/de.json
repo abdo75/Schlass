@@ -35,7 +35,6 @@
     "confirm_new_password": "Neues Passwort bestätigen",
     "submit_change_password": "Passwort ändern",
     "submitting_change_password": "Passwort wird geändert...",
-    "password_changed_success": "Passwort geändert.",
     "password_mismatch": "Das neue Passwort und die Bestätigung stimmen nicht überein."
   },
   "dashboard": {
