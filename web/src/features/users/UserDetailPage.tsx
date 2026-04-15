@@ -129,7 +129,7 @@ export function UserDetailPage() {
     setErrorCode(null);
     setResetSuccess(false);
     try {
-      await resetUserPassword(id, newPassword);
+      await resetUserPassword(id);
       await refetch();
       setNewPassword("");
       setResetOpen(false);

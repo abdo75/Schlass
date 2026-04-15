@@ -51,6 +51,7 @@ describe("UserCreatePage", () => {
         role: "user",
         force_password_change: true,
       },
+      temporary_password: "TempPass123",
     });
 
     renderPage();
@@ -67,7 +68,6 @@ describe("UserCreatePage", () => {
     await waitFor(() => {
       expect(usersApi.createUser).toHaveBeenCalledWith(
         "new@example.com",
-        "SuperSecret1234",
         "super_admin",
       );
     });

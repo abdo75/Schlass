@@ -151,7 +151,9 @@ describe("UserDetailPage", () => {
 
   it("reset password inline form calls resetUserPassword", async () => {
     vi.mocked(usersApi.getUser).mockResolvedValue(makeDetail());
-    vi.mocked(usersApi.resetUserPassword).mockResolvedValue();
+    vi.mocked(usersApi.resetUserPassword).mockResolvedValue({
+      temporary_password: "TempPass123",
+    });
 
     renderPage();
     const user = userEvent.setup();
@@ -165,10 +167,7 @@ describe("UserDetailPage", () => {
     await user.click(screen.getByRole("button", { name: /set password/i }));
 
     await waitFor(() => {
-      expect(usersApi.resetUserPassword).toHaveBeenCalledWith(
-        "user-1",
-        "BrandNewPass123",
-      );
+      expect(usersApi.resetUserPassword).toHaveBeenCalledWith("user-1");
     });
   });
 

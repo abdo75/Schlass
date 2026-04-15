@@ -23,7 +23,7 @@ export function UserCreatePage() {
     setErrorCode(null);
     setSubmitting(true);
     try {
-      const res = await createUser(email, password, role);
+      const res = await createUser(email, role);
       void navigate(`/admin/users/${res.user.id}`);
     } catch (err: unknown) {
       const code =
