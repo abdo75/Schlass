@@ -155,9 +155,8 @@ func uniqueViolationAsEmailConflict(w http.ResponseWriter, err error) bool {
 // --- Stub methods — 501 NOT_IMPLEMENTED until Tasks 6–11 replace them. ---
 
 type createUserRequest struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
-	Role     string `json:"role"`
+	Email string `json:"email"`
+	Role  string `json:"role"`
 }
 
 // List handles GET /api/users.
@@ -232,24 +231,14 @@ func (h *UsersHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Password policy check.
-	policy, err := h.configService.GetPasswordPolicy(r.Context(), h.pool)
+	tempPassword, err := crypto.GenerateTemporaryPassword()
 	if err != nil {
-		slog.Error("load password policy", "error", err)
+		slog.Error("generate temporary password", "error", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 		return
 	}
-	if err := model.ValidatePassword(req.Password, policy); err != nil {
-		var policyErr *model.PasswordPolicyError
-		if errors.As(err, &policyErr) {
-			writeError(w, http.StatusBadRequest, "PASSWORD_POLICY_VIOLATION", err.Error())
-			return
-		}
-		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
-		return
-	}
 
-	hash, err := crypto.HashPassword(req.Password)
+	hash, err := crypto.HashPassword(tempPassword)
 	if err != nil {
 		slog.Error("hash password", "error", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
@@ -309,7 +298,10 @@ func (h *UsersHandler) Create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"user": userDTO(fresh)})
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"user":               userDTO(fresh),
+		"temporary_password": tempPassword,
+	})
 }
 
 // Get handles GET /api/users/:id. Returns the user DTO plus the list of

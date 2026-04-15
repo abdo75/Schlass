@@ -85,12 +85,12 @@ func TestUsers_RoleGate_AllowsSuperAdmin(t *testing.T) {
 	}
 }
 
-func TestUsers_Create_HappyPath(t *testing.T) {
+func TestCreateUser_ReturnsTemporaryPassword(t *testing.T) {
 	env := NewTestEnv(t)
 	env.SeedAdmin(t, "admin@example.com", "CorrectHorse42Battery")
 	cookie := env.LoginAsAdmin(t, "admin@example.com", "CorrectHorse42Battery")
 
-	body := bytes.NewBufferString(`{"email":"new@example.com","password":"NewTempPass42!","role":"user"}`)
+	body := bytes.NewBufferString(`{"email":"new-user@example.com","role":"user"}`)
 	req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/users", body)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Origin", "http://localhost:3000")
@@ -99,27 +99,95 @@ func TestUsers_Create_HappyPath(t *testing.T) {
 	env.Router.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusCreated {
-		t.Fatalf("want 201, got %d: %s", rec.Code, rec.Body.String())
+		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	// Verify the row exists and force_password_change is true.
-	var fpc bool
-	if err := env.Pool.QueryRow(t.Context(),
-		`SELECT force_password_change FROM users WHERE email = $1`, "new@example.com",
-	).Scan(&fpc); err != nil {
-		t.Fatalf("query new user: %v", err)
+	var respBody struct {
+		User struct {
+			ID                  string `json:"id"`
+			Email               string `json:"email"`
+			Role                string `json:"role"`
+			ForcePasswordChange bool   `json:"force_password_change"`
+		} `json:"user"`
+		TemporaryPassword string `json:"temporary_password"`
 	}
-	if !fpc {
-		t.Fatal("admin-created user should have force_password_change=true")
+	if err := json.NewDecoder(rec.Body).Decode(&respBody); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if respBody.User.Email != "new-user@example.com" {
+		t.Errorf("email mismatch: %q", respBody.User.Email)
+	}
+	if !respBody.User.ForcePasswordChange {
+		t.Error("force_password_change should be true for admin-created users")
+	}
+	if len(respBody.TemporaryPassword) != 16 {
+		t.Errorf("temporary_password wrong length: %d", len(respBody.TemporaryPassword))
 	}
 
-	// Verify an audit row exists.
+	// Verify an audit row exists with no password in metadata.
 	var auditCount int
 	_ = env.Pool.QueryRow(t.Context(),
 		`SELECT count(*) FROM audit_logs WHERE event_type = 'user.created' AND actor_email = $1`,
 		"admin@example.com").Scan(&auditCount)
 	if auditCount != 1 {
 		t.Fatalf("want 1 user.created audit row, got %d", auditCount)
+	}
+
+	// The returned temp password must let the new user actually log in.
+	loginBody := bytes.NewBufferString(`{"email":"new-user@example.com","password":"` + respBody.TemporaryPassword + `"}`)
+	loginReq := httptest.NewRequestWithContext(t.Context(), "POST", "/api/login", loginBody)
+	loginReq.Header.Set("Content-Type", "application/json")
+	loginReq.Header.Set("Origin", "http://localhost:3000")
+	loginRec := httptest.NewRecorder()
+	env.Router.ServeHTTP(loginRec, loginReq)
+	if loginRec.Code != http.StatusOK {
+		t.Fatalf("new user could not log in with returned temp password: status %d", loginRec.Code)
+	}
+}
+
+func TestCreateUser_IgnoresAdminSuppliedPassword(t *testing.T) {
+	env := NewTestEnv(t)
+	env.SeedAdmin(t, "admin@example.com", "CorrectHorse42Battery")
+	cookie := env.LoginAsAdmin(t, "admin@example.com", "CorrectHorse42Battery")
+
+	// Admin tries to supply a password — it must be silently ignored.
+	body := bytes.NewBufferString(`{"email":"another-user@example.com","role":"user","password":"AdminPicked42Battery"}`)
+	req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/users", body)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", "http://localhost:3000")
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	env.Router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201 regardless of admin-supplied password, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var respBody struct {
+		TemporaryPassword string `json:"temporary_password"`
+	}
+	_ = json.NewDecoder(rec.Body).Decode(&respBody)
+
+	// The admin-supplied password MUST NOT work.
+	loginBody := bytes.NewBufferString(`{"email":"another-user@example.com","password":"AdminPicked42Battery"}`)
+	loginReq := httptest.NewRequestWithContext(t.Context(), "POST", "/api/login", loginBody)
+	loginReq.Header.Set("Content-Type", "application/json")
+	loginReq.Header.Set("Origin", "http://localhost:3000")
+	loginRec := httptest.NewRecorder()
+	env.Router.ServeHTTP(loginRec, loginReq)
+	if loginRec.Code == http.StatusOK {
+		t.Error("admin-supplied password should not work — request body password must be ignored")
+	}
+
+	// The server-generated temp password must work.
+	loginBody2 := bytes.NewBufferString(`{"email":"another-user@example.com","password":"` + respBody.TemporaryPassword + `"}`)
+	loginReq2 := httptest.NewRequestWithContext(t.Context(), "POST", "/api/login", loginBody2)
+	loginReq2.Header.Set("Content-Type", "application/json")
+	loginReq2.Header.Set("Origin", "http://localhost:3000")
+	loginRec2 := httptest.NewRecorder()
+	env.Router.ServeHTTP(loginRec2, loginReq2)
+	if loginRec2.Code != http.StatusOK {
+		t.Error("returned temporary_password should work")
 	}
 }
 
@@ -128,7 +196,7 @@ func TestUsers_Create_DuplicateEmail_409(t *testing.T) {
 	env.SeedAdmin(t, "admin@example.com", "CorrectHorse42Battery")
 	cookie := env.LoginAsAdmin(t, "admin@example.com", "CorrectHorse42Battery")
 
-	body := bytes.NewBufferString(`{"email":"admin@example.com","password":"Whatever42Battery","role":"user"}`)
+	body := bytes.NewBufferString(`{"email":"admin@example.com","role":"user"}`)
 	req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/users", body)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Origin", "http://localhost:3000")
@@ -144,26 +212,6 @@ func TestUsers_Create_DuplicateEmail_409(t *testing.T) {
 	}
 }
 
-func TestUsers_Create_WeakPassword_400(t *testing.T) {
-	env := NewTestEnv(t)
-	env.SeedAdmin(t, "admin@example.com", "CorrectHorse42Battery")
-	cookie := env.LoginAsAdmin(t, "admin@example.com", "CorrectHorse42Battery")
-
-	body := bytes.NewBufferString(`{"email":"weak@example.com","password":"short","role":"user"}`)
-	req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/users", body)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Origin", "http://localhost:3000")
-	req.AddCookie(cookie)
-	rec := httptest.NewRecorder()
-	env.Router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("want 400, got %d: %s", rec.Code, rec.Body.String())
-	}
-	if !strings.Contains(rec.Body.String(), "PASSWORD_POLICY_VIOLATION") {
-		t.Fatalf("want PASSWORD_POLICY_VIOLATION, got %s", rec.Body.String())
-	}
-}
 
 func TestUsers_List_PaginationAndSearch(t *testing.T) {
 	env := NewTestEnv(t)
@@ -172,7 +220,7 @@ func TestUsers_List_PaginationAndSearch(t *testing.T) {
 
 	// Create 3 more users via the API.
 	for _, email := range []string{"alice@example.com", "bob@example.com", "carol@example.com"} {
-		body := bytes.NewBufferString(`{"email":"` + email + `","password":"UserPass42Battery","role":"user"}`)
+		body := bytes.NewBufferString(`{"email":"` + email + `","role":"user"}`)
 		req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/users", body)
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Origin", "http://localhost:3000")
@@ -237,7 +285,7 @@ func TestUsers_Get_HappyPath(t *testing.T) {
 	cookie := env.LoginAsAdmin(t, "admin@example.com", "CorrectHorse42Battery")
 
 	// Create a second user via API.
-	body := bytes.NewBufferString(`{"email":"target@example.com","password":"TargetPass42Battery","role":"user"}`)
+	body := bytes.NewBufferString(`{"email":"target@example.com","role":"user"}`)
 	req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/users", body)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Origin", "http://localhost:3000")
@@ -368,7 +416,7 @@ func TestUsers_Update_DuplicateEmail_409(t *testing.T) {
 	cookie := env.LoginAsAdmin(t, "admin@example.com", "CorrectHorse42Battery")
 
 	// Create a second user via API.
-	body := bytes.NewBufferString(`{"email":"other@example.com","password":"OtherPass42Battery","role":"user"}`)
+	body := bytes.NewBufferString(`{"email":"other@example.com","role":"user"}`)
 	req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/users", body)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Origin", "http://localhost:3000")
