@@ -33,6 +33,28 @@
     "title": "Admin-Dashboard",
     "welcome": "Willkommen, {{email}}"
   },
+  "users": {
+    "title": "Benutzer",
+    "create_button": "Benutzer anlegen",
+    "search_placeholder": "Nach E-Mail suchen",
+    "pagination": "Seite {{current}} von {{total}} ({{count}} Benutzer)",
+    "pagination_prev": "Vorherige Seite",
+    "pagination_next": "Nächste Seite",
+    "columns": {
+      "email": "E-Mail",
+      "role": "Rolle",
+      "status": "Status",
+      "created_at": "Erstellt"
+    },
+    "role": {
+      "super_admin": "Administrator",
+      "user": "Benutzer"
+    },
+    "status": {
+      "active": "Aktiv",
+      "disabled": "Deaktiviert"
+    }
+  },
   "errors": {
     "SETUP_ALREADY_COMPLETE": "Die Einrichtung wurde bereits abgeschlossen.",
     "VALIDATION_ERROR": "Ungültige Eingabe.",

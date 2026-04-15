@@ -33,6 +33,28 @@
     "title": "Admin dashboard",
     "welcome": "Welcome, {{email}}"
   },
+  "users": {
+    "title": "Users",
+    "create_button": "Create user",
+    "search_placeholder": "Search by email",
+    "pagination": "Page {{current}} of {{total}} ({{count}} users)",
+    "pagination_prev": "Previous page",
+    "pagination_next": "Next page",
+    "columns": {
+      "email": "Email",
+      "role": "Role",
+      "status": "Status",
+      "created_at": "Created"
+    },
+    "role": {
+      "super_admin": "Admin",
+      "user": "User"
+    },
+    "status": {
+      "active": "Active",
+      "disabled": "Disabled"
+    }
+  },
   "errors": {
     "SETUP_ALREADY_COMPLETE": "Setup has already been completed.",
     "VALIDATION_ERROR": "Invalid input.",

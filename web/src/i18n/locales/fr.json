@@ -33,6 +33,28 @@
     "title": "Tableau de bord administrateur",
     "welcome": "Bienvenue, {{email}}"
   },
+  "users": {
+    "title": "Utilisateurs",
+    "create_button": "Créer un utilisateur",
+    "search_placeholder": "Rechercher par e-mail",
+    "pagination": "Page {{current}} sur {{total}} ({{count}} utilisateurs)",
+    "pagination_prev": "Page précédente",
+    "pagination_next": "Page suivante",
+    "columns": {
+      "email": "E-mail",
+      "role": "Rôle",
+      "status": "Statut",
+      "created_at": "Créé le"
+    },
+    "role": {
+      "super_admin": "Administrateur",
+      "user": "Utilisateur"
+    },
+    "status": {
+      "active": "Actif",
+      "disabled": "Désactivé"
+    }
+  },
   "errors": {
     "SETUP_ALREADY_COMPLETE": "La configuration a déjà été effectuée.",
     "VALIDATION_ERROR": "Saisie invalide.",
