@@ -39,4 +39,38 @@ describe("AuthGuard", () => {
     );
     await waitFor(() => expect(screen.getByText("login page")).toBeInTheDocument());
   });
+
+  it("redirects to /change-password when user.force_password_change is true", async () => {
+    vi.mocked(authApi.getMe).mockResolvedValue({
+      user: { id: "1", email: "a@b.co", role: "super_admin", force_password_change: true },
+    });
+    render(
+      <MemoryRouter initialEntries={["/admin"]}>
+        <AuthProvider>
+          <Routes>
+            <Route path="/admin" element={<AuthGuard><div>admin content</div></AuthGuard>} />
+            <Route path="/change-password" element={<div>change password page</div>} />
+          </Routes>
+        </AuthProvider>
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(screen.getByText("change password page")).toBeInTheDocument());
+  });
+
+  it("allows through to /change-password when already there", async () => {
+    vi.mocked(authApi.getMe).mockResolvedValue({
+      user: { id: "1", email: "a@b.co", role: "super_admin", force_password_change: true },
+    });
+    render(
+      <MemoryRouter initialEntries={["/change-password"]}>
+        <AuthProvider>
+          <Routes>
+            <Route path="/change-password" element={<AuthGuard><div>change password form</div></AuthGuard>} />
+            <Route path="/login" element={<div>login page</div>} />
+          </Routes>
+        </AuthProvider>
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(screen.getByText("change password form")).toBeInTheDocument());
+  });
 });
