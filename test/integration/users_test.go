@@ -805,12 +805,12 @@ func TestUsers_Enable_NotFound(t *testing.T) {
 	}
 }
 
-// TestUsers_ResetPassword_HappyPath seeds a target user, resets the password
-// via the admin API, and asserts: (a) the server-generated temp password is
-// returned in the 200 body, (b) force_password_change is true, (c) the stored
-// hash verifies against the returned temp password, (d) a user.password_reset
-// audit row exists.
-func TestUsers_ResetPassword_HappyPath(t *testing.T) {
+// TestResetPassword_ReturnsTemporaryPassword seeds a target user, resets the
+// password via the admin API, and asserts: (a) the server-generated temp
+// password is returned in the 200 body, (b) force_password_change is true,
+// (c) the stored hash verifies against the returned temp password, (d) a
+// user.password_reset audit row exists.
+func TestResetPassword_ReturnsTemporaryPassword(t *testing.T) {
 	ctx := t.Context()
 	env := NewTestEnv(t)
 	env.SeedAdmin(t, "admin@example.com", "CorrectHorse42Battery")
@@ -1459,11 +1459,11 @@ func TestUsers_TerminateSession_AuditStoresTokenPrefix(t *testing.T) {
 	}
 }
 
-// TestResetPassword_ReturnsTemporaryPassword proves that POST
+// TestResetPassword_InvalidatesOldPassword proves that POST
 // /api/users/:id/reset-password returns a server-generated 16-char temporary
 // password in a 200 body, that the new password actually authenticates the
 // user, and that the old password no longer works.
-func TestResetPassword_ReturnsTemporaryPassword(t *testing.T) {
+func TestResetPassword_InvalidatesOldPassword(t *testing.T) {
 	ctx := t.Context()
 	env := NewTestEnv(t)
 	env.SeedAdmin(t, "admin@example.com", "CorrectHorse42Battery")
