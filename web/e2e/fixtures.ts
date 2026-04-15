@@ -2,20 +2,27 @@ import { test as base, expect, type Page } from "@playwright/test";
 
 export { expect };
 
-// Test ordering note: Playwright runs files in the order it discovers them,
-// and with `fullyParallel: false` + `workers: 1` the order within a file is
-// also deterministic. `lockout.spec.ts` leaves the admin account locked for
-// the remainder of the CI run, so it must run AFTER any test that needs a
-// working login. Alphabetical file ordering gives us:
-//   auth.spec.ts → lockout.spec.ts → preferences.spec.ts
-// `preferences.spec.ts` does not log in (it only exercises the theme toggle
-// and the language switcher on /login), so the locked account is harmless
-// there. Do not rename files without re-checking this order.
+// Test ordering note: Playwright runs files in alphabetical order, and with
+// `fullyParallel: false` + `workers: 1` the order within a file is also
+// deterministic. `lockout.spec.ts` leaves the shared admin account locked
+// for the remainder of the CI run (default lockout is 15 minutes), so every
+// spec that needs a working login MUST sort before `lockout.spec.ts`.
+// Current order:
+//   admin-user-management.spec.ts  (logs in — must precede lockout)
+//   auth.spec.ts                    (logs in — must precede lockout)
+//   disabled-user.spec.ts           (logs in — must precede lockout)
+//   lockout.spec.ts                 (locks the admin)
+//   preferences.spec.ts             (does NOT log in — safe after lockout)
+// Note: `user-management` would sort after `lockout` (u > l), which is why
+// the file is named `admin-user-management.spec.ts` instead. Do not rename
+// files without re-checking this order.
 
 type Fixtures = {
   uniqueEmail: string;
   adminPassword: string;
   completedSetup: Page;
+  adminPage: Page;
+  newUserEmail: string;
 };
 
 // The first test that sees a fresh stack completes the setup wizard and
@@ -63,5 +70,27 @@ export const test = base.extend<Fixtures>({
       await page.waitForURL("**/login", { timeout: 15000 });
     }
     await use(page);
+  },
+  // adminPage extends completedSetup by performing the shared-admin login
+  // and lands the page at /admin/users (the default admin landing after T16
+  // turned /admin into a redirect).
+  adminPage: async ({ page, completedSetup, uniqueEmail, adminPassword }, use) => {
+    void completedSetup;
+    await page.getByLabel(/email/i).fill(uniqueEmail);
+    await page.getByLabel(/password/i).fill(adminPassword);
+    await page.getByRole("button", { name: /sign in/i }).click();
+    await page.waitForURL("**/admin/users", { timeout: 15000 });
+    await use(page);
+  },
+  // newUserEmail produces a unique, deterministic-ish email per test. We
+  // include testInfo.title so multiple tests in the same run get distinct
+  // emails, and Date.now() so reruns within the same run don't collide.
+  newUserEmail: async ({}, use, testInfo) => {
+    const slug = testInfo.title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 40);
+    await use(`e2e-user-${Date.now()}-${slug}@example.com`);
   },
 });
