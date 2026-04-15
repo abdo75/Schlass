@@ -911,14 +911,161 @@ func (h *UsersHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// ListSessions serves GET /api/users/:id/sessions. Standalone read path used
+// by the admin UI to refresh its "active sessions" view without refetching
+// the whole user record.
 func (h *UsersHandler) ListSessions(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusNotImplemented, "NOT_IMPLEMENTED", "coming in Task 11")
+	id, ok := parseUserID(w, r)
+	if !ok {
+		return
+	}
+
+	sessions, err := h.sessionStore.ListByUser(r.Context(), id.String())
+	if err != nil {
+		slog.Error("users.ListSessions: session.ListByUser", "error", err, "user_id", id) //nolint:gosec // G706: slog structured logging is not susceptible to log injection
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	out := make([]map[string]any, 0, len(sessions))
+	for _, s := range sessions {
+		out = append(out, map[string]any{
+			"token":        s.Token,
+			"created_at":   s.CreatedAt,
+			"last_seen_at": s.LastSeenAt,
+			"ip_address":   s.IPAddress,
+			"user_agent":   s.UserAgent,
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"sessions": out})
 }
 
+// TerminateAllSessions serves DELETE /api/users/:id/sessions. Nuclear
+// force-terminate: kills every active session for the target user. Self-op
+// is rejected — an admin wanting to sign out their own current session
+// should use POST /api/logout, which has the right semantics for the
+// caller's own cookie.
 func (h *UsersHandler) TerminateAllSessions(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusNotImplemented, "NOT_IMPLEMENTED", "coming in Task 11")
+	id, ok := parseUserID(w, r)
+	if !ok {
+		return
+	}
+	if h.rejectSelfOp(w, r, id) {
+		return
+	}
+
+	current, _ := middleware.CurrentUser(r.Context())
+	ip := extractClientIP(r)
+
+	// Count before destruction for audit metadata. Best-effort: a Valkey
+	// transport error here degrades the audit row's terminated_count to 0
+	// but does not block the terminate flow — the DeleteAllForUser call
+	// below is the source of truth for destruction.
+	sessions, _ := h.sessionStore.ListByUser(r.Context(), id.String())
+	beforeCount := len(sessions)
+
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		slog.Error("users.TerminateAllSessions: begin tx", "error", err) //nolint:gosec // G706
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	defer func() { _ = tx.Rollback(r.Context()) }()
+
+	if err := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+		EventType:  "user.sessions_terminated",
+		ActorID:    &current.ID,
+		ActorEmail: current.Email,
+		TargetType: "user",
+		TargetID:   id.String(),
+		IPAddress:  ip,
+		Outcome:    "success",
+		Metadata:   map[string]any{"terminated_count": beforeCount},
+	}); err != nil {
+		slog.Error("users.TerminateAllSessions: audit log", "error", err) //nolint:gosec // G706
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		slog.Error("users.TerminateAllSessions: commit", "error", err) //nolint:gosec // G706
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	// Post-commit, best-effort: wipe every session from Valkey. On transport
+	// failure the auth middleware's per-request user lookup will still
+	// effectively invalidate stale sessions on the next request (user
+	// refetch), so the worst case is a brief window of staleness bounded
+	// by the session TTL.
+	if err := h.sessionStore.DeleteAllForUser(r.Context(), id.String()); err != nil {
+		slog.Warn("users.TerminateAllSessions: session revocation degraded", "error", err, "user_id", id) //nolint:gosec // G706
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
+// TerminateSession serves DELETE /api/users/:id/sessions/:token. Per-device
+// force-terminate. Unlike TerminateAllSessions, self-op is allowed here —
+// killing a single specific session of your own (e.g. "sign out my other
+// laptop") is a legitimate flow.
 func (h *UsersHandler) TerminateSession(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusNotImplemented, "NOT_IMPLEMENTED", "coming in Task 11")
+	id, ok := parseUserID(w, r)
+	if !ok {
+		return
+	}
+	token := pathParam(r, "token")
+	if token == "" {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Missing token.")
+		return
+	}
+
+	current, _ := middleware.CurrentUser(r.Context())
+	ip := extractClientIP(r)
+
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		slog.Error("users.TerminateSession: begin tx", "error", err) //nolint:gosec // G706
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	defer func() { _ = tx.Rollback(r.Context()) }()
+
+	// Audit stores only the token prefix (first 8 chars) — not the full
+	// credential. The full token is a secret and should not appear in
+	// persistent storage outside the Valkey session key.
+	tokenPrefix := token
+	if len(tokenPrefix) > 8 {
+		tokenPrefix = tokenPrefix[:8]
+	}
+	if err := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+		EventType:  "session.terminated",
+		ActorID:    &current.ID,
+		ActorEmail: current.Email,
+		TargetType: "user",
+		TargetID:   id.String(),
+		IPAddress:  ip,
+		Outcome:    "success",
+		Metadata:   map[string]any{"token_prefix": tokenPrefix},
+	}); err != nil {
+		slog.Error("users.TerminateSession: audit log", "error", err) //nolint:gosec // G706
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		slog.Error("users.TerminateSession: commit", "error", err) //nolint:gosec // G706
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	// Post-commit, best-effort Valkey delete. Same rationale as
+	// TerminateAllSessions: on transport failure the auth middleware will
+	// still reject the session on next use via user-lookup, so at worst we
+	// have a small staleness window bounded by the TTL.
+	if err := h.sessionStore.Delete(r.Context(), id.String(), token); err != nil {
+		slog.Warn("users.TerminateSession: session delete degraded", "error", err, "user_id", id) //nolint:gosec // G706
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }

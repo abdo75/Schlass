@@ -1137,3 +1137,300 @@ func TestUsers_Delete_LastAdminLockout_StoreLevel(t *testing.T) {
 		t.Fatalf("expected 0 remaining active super_admins, got %d", n)
 	}
 }
+
+// TestUsers_ListSessions_Empty proves GET /api/users/:id/sessions returns
+// 200 with an empty array when the target user has no sessions in Valkey.
+func TestUsers_ListSessions_Empty(t *testing.T) {
+	ctx := t.Context()
+	env := NewTestEnv(t)
+	env.SeedAdmin(t, "admin@example.com", "CorrectHorse42Battery")
+	cookie := env.LoginAsAdmin(t, "admin@example.com", "CorrectHorse42Battery")
+
+	hash, err := crypto.HashPassword("UserPass42Battery")
+	if err != nil {
+		t.Fatalf("hash: %v", err)
+	}
+	if _, err := env.Pool.Exec(ctx,
+		`INSERT INTO users (email, password_hash, role, force_password_change)
+		 VALUES ('lonely@example.com', $1, 'user', false)`, hash); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	targetID := userIDByEmail(t, env, "lonely@example.com")
+
+	req := httptest.NewRequestWithContext(t.Context(), "GET", "/api/users/"+targetID+"/sessions", nil)
+	req.AddCookie(cookie)
+	req.Header.Set("Origin", "http://localhost:3000")
+	rec := httptest.NewRecorder()
+	env.Router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Sessions []map[string]any `json:"sessions"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(body.Sessions) != 0 {
+		t.Fatalf("want 0 sessions, got %d", len(body.Sessions))
+	}
+}
+
+// TestUsers_ListSessions_TwoSessions seeds two distinct Valkey sessions for
+// a user and proves the admin endpoint returns both with metadata.
+func TestUsers_ListSessions_TwoSessions(t *testing.T) {
+	ctx := t.Context()
+	env := NewTestEnv(t)
+	env.SeedAdmin(t, "admin@example.com", "CorrectHorse42Battery")
+	cookie := env.LoginAsAdmin(t, "admin@example.com", "CorrectHorse42Battery")
+
+	hash, err := crypto.HashPassword("UserPass42Battery")
+	if err != nil {
+		t.Fatalf("hash: %v", err)
+	}
+	if _, err := env.Pool.Exec(ctx,
+		`INSERT INTO users (email, password_hash, role, force_password_change)
+		 VALUES ('popular@example.com', $1, 'user', false)`, hash); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	targetID := userIDByEmail(t, env, "popular@example.com")
+
+	sessStore := session.NewValkeyStore(env.ValkeyClient, 24*time.Hour)
+	if _, err := sessStore.Create(ctx, targetID, "198.51.100.20", "curl/one"); err != nil {
+		t.Fatalf("session create 1: %v", err)
+	}
+	if _, err := sessStore.Create(ctx, targetID, "198.51.100.21", "curl/two"); err != nil {
+		t.Fatalf("session create 2: %v", err)
+	}
+
+	req := httptest.NewRequestWithContext(t.Context(), "GET", "/api/users/"+targetID+"/sessions", nil)
+	req.AddCookie(cookie)
+	req.Header.Set("Origin", "http://localhost:3000")
+	rec := httptest.NewRecorder()
+	env.Router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Sessions []map[string]any `json:"sessions"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(body.Sessions) != 2 {
+		t.Fatalf("want 2 sessions, got %d", len(body.Sessions))
+	}
+	// Every entry must carry a non-empty token + ip_address.
+	for i, s := range body.Sessions {
+		if s["token"] == nil || s["token"] == "" {
+			t.Fatalf("session[%d]: missing token", i)
+		}
+		if s["ip_address"] == nil || s["ip_address"] == "" {
+			t.Fatalf("session[%d]: missing ip_address", i)
+		}
+	}
+}
+
+// TestUsers_TerminateAllSessions_HappyPath seeds 3 sessions, calls DELETE
+// /api/users/:id/sessions, and asserts all sessions are gone + an audit row
+// with metadata.terminated_count = 3 was written.
+func TestUsers_TerminateAllSessions_HappyPath(t *testing.T) {
+	ctx := t.Context()
+	env := NewTestEnv(t)
+	env.SeedAdmin(t, "admin@example.com", "CorrectHorse42Battery")
+	cookie := env.LoginAsAdmin(t, "admin@example.com", "CorrectHorse42Battery")
+
+	hash, err := crypto.HashPassword("UserPass42Battery")
+	if err != nil {
+		t.Fatalf("hash: %v", err)
+	}
+	if _, err := env.Pool.Exec(ctx,
+		`INSERT INTO users (email, password_hash, role, force_password_change)
+		 VALUES ('triple@example.com', $1, 'user', false)`, hash); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	targetID := userIDByEmail(t, env, "triple@example.com")
+
+	sessStore := session.NewValkeyStore(env.ValkeyClient, 24*time.Hour)
+	tokens := make([]string, 0, 3)
+	for i := 0; i < 3; i++ {
+		tok, err := sessStore.Create(ctx, targetID, "198.51.100.30", "curl/test")
+		if err != nil {
+			t.Fatalf("session create: %v", err)
+		}
+		tokens = append(tokens, tok)
+	}
+
+	req := httptest.NewRequestWithContext(t.Context(), "DELETE", "/api/users/"+targetID+"/sessions", nil)
+	req.AddCookie(cookie)
+	req.Header.Set("Origin", "http://localhost:3000")
+	rec := httptest.NewRecorder()
+	env.Router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("want 204, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// All sessions gone from Valkey.
+	for i, tok := range tokens {
+		if _, err := sessStore.Get(ctx, tok); err == nil {
+			t.Fatalf("session[%d] still alive", i)
+		}
+	}
+
+	// Audit row with metadata.terminated_count = 3.
+	var metadataJSON []byte
+	if err := env.Pool.QueryRow(ctx,
+		`SELECT metadata FROM audit_logs
+		 WHERE event_type = 'user.sessions_terminated' AND target_id = $1`, targetID,
+	).Scan(&metadataJSON); err != nil {
+		t.Fatalf("fetch audit: %v", err)
+	}
+	var metadata map[string]any
+	if err := json.Unmarshal(metadataJSON, &metadata); err != nil {
+		t.Fatalf("decode metadata: %v", err)
+	}
+	// JSON decode turns numbers into float64.
+	got, ok := metadata["terminated_count"].(float64)
+	if !ok || int(got) != 3 {
+		t.Fatalf("terminated_count: got %v, want 3", metadata["terminated_count"])
+	}
+}
+
+// TestUsers_TerminateAllSessions_SelfRejected proves the self-op guard
+// blocks an admin from nuking their own sessions via the admin endpoint.
+// The proper self-signout-everywhere flow is POST /api/logout.
+func TestUsers_TerminateAllSessions_SelfRejected(t *testing.T) {
+	env := NewTestEnv(t)
+	env.SeedAdmin(t, "admin@example.com", "CorrectHorse42Battery")
+	cookie := env.LoginAsAdmin(t, "admin@example.com", "CorrectHorse42Battery")
+	adminID := userIDByEmail(t, env, "admin@example.com")
+
+	req := httptest.NewRequestWithContext(t.Context(), "DELETE", "/api/users/"+adminID+"/sessions", nil)
+	req.AddCookie(cookie)
+	req.Header.Set("Origin", "http://localhost:3000")
+	rec := httptest.NewRecorder()
+	env.Router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "CANNOT_OPERATE_ON_SELF") {
+		t.Fatalf("want CANNOT_OPERATE_ON_SELF, got %s", rec.Body.String())
+	}
+}
+
+// TestUsers_TerminateSession_PerDevice creates 2 sessions, kills only the
+// first by token, and asserts the second survives. Confirms per-device
+// granularity of DELETE /api/users/:id/sessions/:token.
+func TestUsers_TerminateSession_PerDevice(t *testing.T) {
+	ctx := t.Context()
+	env := NewTestEnv(t)
+	env.SeedAdmin(t, "admin@example.com", "CorrectHorse42Battery")
+	cookie := env.LoginAsAdmin(t, "admin@example.com", "CorrectHorse42Battery")
+
+	hash, err := crypto.HashPassword("UserPass42Battery")
+	if err != nil {
+		t.Fatalf("hash: %v", err)
+	}
+	if _, err := env.Pool.Exec(ctx,
+		`INSERT INTO users (email, password_hash, role, force_password_change)
+		 VALUES ('perdevice@example.com', $1, 'user', false)`, hash); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	targetID := userIDByEmail(t, env, "perdevice@example.com")
+
+	sessStore := session.NewValkeyStore(env.ValkeyClient, 24*time.Hour)
+	tok1, err := sessStore.Create(ctx, targetID, "198.51.100.40", "curl/one")
+	if err != nil {
+		t.Fatalf("create 1: %v", err)
+	}
+	tok2, err := sessStore.Create(ctx, targetID, "198.51.100.41", "curl/two")
+	if err != nil {
+		t.Fatalf("create 2: %v", err)
+	}
+
+	req := httptest.NewRequestWithContext(t.Context(), "DELETE",
+		"/api/users/"+targetID+"/sessions/"+tok1, nil)
+	req.AddCookie(cookie)
+	req.Header.Set("Origin", "http://localhost:3000")
+	rec := httptest.NewRecorder()
+	env.Router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("want 204, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	if _, err := sessStore.Get(ctx, tok1); err == nil {
+		t.Fatal("tok1 should be gone")
+	}
+	if _, err := sessStore.Get(ctx, tok2); err != nil {
+		t.Fatalf("tok2 should survive: %v", err)
+	}
+}
+
+// TestUsers_TerminateSession_AuditStoresTokenPrefix proves the per-device
+// terminate audit row stores only the first 8 chars of the token as a
+// prefix — NOT the full credential. Protects session tokens from leaking
+// via the audit log.
+func TestUsers_TerminateSession_AuditStoresTokenPrefix(t *testing.T) {
+	ctx := t.Context()
+	env := NewTestEnv(t)
+	env.SeedAdmin(t, "admin@example.com", "CorrectHorse42Battery")
+	cookie := env.LoginAsAdmin(t, "admin@example.com", "CorrectHorse42Battery")
+
+	hash, err := crypto.HashPassword("UserPass42Battery")
+	if err != nil {
+		t.Fatalf("hash: %v", err)
+	}
+	if _, err := env.Pool.Exec(ctx,
+		`INSERT INTO users (email, password_hash, role, force_password_change)
+		 VALUES ('prefix@example.com', $1, 'user', false)`, hash); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	targetID := userIDByEmail(t, env, "prefix@example.com")
+
+	sessStore := session.NewValkeyStore(env.ValkeyClient, 24*time.Hour)
+	token, err := sessStore.Create(ctx, targetID, "198.51.100.50", "curl/test")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	req := httptest.NewRequestWithContext(t.Context(), "DELETE",
+		"/api/users/"+targetID+"/sessions/"+token, nil)
+	req.AddCookie(cookie)
+	req.Header.Set("Origin", "http://localhost:3000")
+	rec := httptest.NewRecorder()
+	env.Router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("want 204, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var metadataJSON []byte
+	if err := env.Pool.QueryRow(ctx,
+		`SELECT metadata FROM audit_logs
+		 WHERE event_type = 'session.terminated' AND target_id = $1`, targetID,
+	).Scan(&metadataJSON); err != nil {
+		t.Fatalf("fetch audit: %v", err)
+	}
+	var metadata map[string]any
+	if err := json.Unmarshal(metadataJSON, &metadata); err != nil {
+		t.Fatalf("decode metadata: %v", err)
+	}
+	prefix, ok := metadata["token_prefix"].(string)
+	if !ok {
+		t.Fatalf("token_prefix missing or not string: %v", metadata["token_prefix"])
+	}
+	if len(prefix) != 8 {
+		t.Fatalf("token_prefix length: got %d, want 8", len(prefix))
+	}
+	if prefix == token {
+		t.Fatal("token_prefix equals full token — credential leaked to audit log")
+	}
+	if token[:8] != prefix {
+		t.Fatalf("token_prefix %q is not the first 8 chars of token %q", prefix, token[:8])
+	}
+}
