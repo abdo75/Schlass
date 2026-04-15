@@ -333,7 +333,7 @@ func (h *AuthHandler) PostLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 8. Post-tx: create session in Valkey, set cookie, return user.
-	token, err := h.sessionStore.Create(r.Context(), user.ID.String())
+	token, err := h.sessionStore.Create(r.Context(), user.ID.String(), ip, r.Header.Get("User-Agent"))
 	if err != nil {
 		slog.Error("session create failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
@@ -408,7 +408,7 @@ func (h *AuthHandler) PostLogout(w http.ResponseWriter, r *http.Request) {
 	// but a Valkey delete error fails the request — the audit row already says
 	// logout happened, so the user retries until the session is actually gone.
 	if cookie, cookieErr := r.Cookie("schlass_session"); cookieErr == nil {
-		if delErr := h.sessionStore.Delete(r.Context(), cookie.Value); delErr != nil {
+		if delErr := h.sessionStore.Delete(r.Context(), user.ID.String(), cookie.Value); delErr != nil {
 			slog.Error("session delete failed", "error", delErr)
 			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 			return

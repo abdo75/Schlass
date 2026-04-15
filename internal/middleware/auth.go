@@ -65,14 +65,14 @@ func Auth(
 			userID, parseErr := uuid.Parse(sess.UserID)
 			if parseErr != nil {
 				slog.Error("session contained invalid user_id", "error", parseErr)
-				_ = sessionStore.Delete(r.Context(), cookie.Value)
+				_ = sessionStore.Delete(r.Context(), sess.UserID, cookie.Value)
 				writeAuthError(w, http.StatusUnauthorized, "INVALID_SESSION", "Not authenticated.")
 				return
 			}
 
 			user, err := userStore.GetByID(r.Context(), pool, userID)
 			if errors.Is(err, store.ErrUserNotFound) {
-				_ = sessionStore.Delete(r.Context(), cookie.Value)
+				_ = sessionStore.Delete(r.Context(), sess.UserID, cookie.Value)
 				if auditErr := auditStore.Log(r.Context(), pool, store.AuditEntry{
 					EventType:  "session.revoked",
 					ActorEmail: "",
@@ -94,7 +94,7 @@ func Auth(
 			}
 
 			if user.Status == "disabled" {
-				_ = sessionStore.Delete(r.Context(), cookie.Value)
+				_ = sessionStore.Delete(r.Context(), user.ID.String(), cookie.Value)
 				if auditErr := auditStore.Log(r.Context(), pool, store.AuditEntry{
 					EventType:  "session.revoked",
 					ActorID:    &user.ID,
