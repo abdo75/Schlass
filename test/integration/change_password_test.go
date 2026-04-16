@@ -57,11 +57,11 @@ func sessionCookie(rec *httptest.ResponseRecorder) *http.Cookie {
 	return nil
 }
 
-// TestChangePassword_HappyPath_RotatesToken is the load-bearing test for the
+// TestChangePassword_RotatesSessionToken is the load-bearing test for the
 // OWASP-aligned session rotation contract: after a successful password
 // change, the old session token must be revoked and the cookie must point at
 // a fresh, different token that authenticates the same user.
-func TestChangePassword_HappyPath_RotatesToken(t *testing.T) {
+func TestChangePassword_RotatesSessionToken(t *testing.T) {
 	env := setupIntegrationEnv(t)
 	defer env.Cleanup()
 

@@ -279,7 +279,7 @@ func userIDByEmail(t *testing.T, env *TestEnv, email string) string {
 	return id
 }
 
-func TestUsers_Get_HappyPath(t *testing.T) {
+func TestUsers_Get_ReturnsUserWithSessions(t *testing.T) {
 	env := NewTestEnv(t)
 	env.SeedAdmin(t, "admin@example.com", "CorrectHorse42Battery")
 	cookie := env.LoginAsAdmin(t, "admin@example.com", "CorrectHorse42Battery")
@@ -569,11 +569,12 @@ func TestUsers_Update_LastAdminLockout_StoreLevel(t *testing.T) {
 	// the handler relies on.
 }
 
-// TestUsers_Disable_HappyPath creates a target user, issues a session for
-// that user directly via the session store, disables the user via the admin
-// API, and asserts: (a) DB status is 'disabled', (b) a user.disabled audit
-// row exists, (c) the target's Valkey sessions have been revoked.
-func TestUsers_Disable_HappyPath(t *testing.T) {
+// TestUsers_Disable_TerminatesSessionsAndUpdatesStatus creates a target user,
+// issues a session for that user directly via the session store, disables the
+// user via the admin API, and asserts: (a) DB status is 'disabled', (b) a
+// user.disabled audit row exists, (c) the target's Valkey sessions have been
+// revoked.
+func TestUsers_Disable_TerminatesSessionsAndUpdatesStatus(t *testing.T) {
 	ctx := t.Context()
 	env := NewTestEnv(t)
 	env.SeedAdmin(t, "admin@example.com", "CorrectHorse42Battery")
@@ -740,10 +741,10 @@ func TestUsers_Disable_LastAdminLockout_StoreLevel(t *testing.T) {
 	}
 }
 
-// TestUsers_Enable_HappyPath disables a user directly via SQL, then enables
-// them via the admin API and asserts status flips back to 'active' and an
-// audit row is written.
-func TestUsers_Enable_HappyPath(t *testing.T) {
+// TestUsers_Enable_RestoresActiveStatus disables a user directly via SQL,
+// then enables them via the admin API and asserts status flips back to
+// 'active' and an audit row is written.
+func TestUsers_Enable_RestoresActiveStatus(t *testing.T) {
 	ctx := t.Context()
 	env := NewTestEnv(t)
 	env.SeedAdmin(t, "admin@example.com", "CorrectHorse42Battery")
@@ -920,11 +921,11 @@ func TestUsers_ResetPassword_KillsExistingSessions(t *testing.T) {
 	}
 }
 
-// TestUsers_Delete_HappyPath creates a target user, deletes them via the
-// admin API, and asserts: (a) the users row is gone (GetByID returns
-// ErrUserNotFound), (b) a user.deleted audit row exists with
+// TestUsers_Delete_RemovesUserAndPreservesAuditTrail creates a target user,
+// deletes them via the admin API, and asserts: (a) the users row is gone
+// (GetByID returns ErrUserNotFound), (b) a user.deleted audit row exists with
 // metadata.deleted_user_email populated from the pre-delete snapshot.
-func TestUsers_Delete_HappyPath(t *testing.T) {
+func TestUsers_Delete_RemovesUserAndPreservesAuditTrail(t *testing.T) {
 	ctx := t.Context()
 	env := NewTestEnv(t)
 	env.SeedAdmin(t, "admin@example.com", "CorrectHorse42Battery")
@@ -1257,10 +1258,10 @@ func TestUsers_ListSessions_TwoSessions(t *testing.T) {
 	}
 }
 
-// TestUsers_TerminateAllSessions_HappyPath seeds 3 sessions, calls DELETE
-// /api/users/:id/sessions, and asserts all sessions are gone + an audit row
-// with metadata.terminated_count = 3 was written.
-func TestUsers_TerminateAllSessions_HappyPath(t *testing.T) {
+// TestUsers_TerminateAllSessions_ClearsAllDevices seeds 3 sessions, calls
+// DELETE /api/users/:id/sessions, and asserts all sessions are gone + an
+// audit row with metadata.terminated_count = 3 was written.
+func TestUsers_TerminateAllSessions_ClearsAllDevices(t *testing.T) {
 	ctx := t.Context()
 	env := NewTestEnv(t)
 	env.SeedAdmin(t, "admin@example.com", "CorrectHorse42Battery")
