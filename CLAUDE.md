@@ -90,6 +90,10 @@ End-user (third-party client) OIDC sessions are a separate mechanism to be built
 
 Destructive handlers (disable, delete, role-demote PATCH) call `rejectSelfOp` as their first action: it's cheap, fails fast with 400 `CANNOT_OPERATE_ON_SELF`, and avoids any DB work for the obvious cases. Last-admin lockout is enforced with a `SELECT id FROM users WHERE role = 'super_admin' FOR UPDATE` that serializes concurrent destructive operations on the admin set, followed by a post-operation count check inside the same transaction as the correctness backstop. The lock deliberately omits `status = 'active'` so it also serializes against concurrent enable/disable flips — narrowing it would let a parallel re-enable slip past the count check. The shared helpers — `lockSuperAdminsForUpdate`, `remainingActiveSuperAdmins`, `enforceLastAdminLockout`, and `rejectSelfOp` — all live in `internal/handler/users.go`. Sprint 4's client-management routes will reuse the same `RequireRole` wrapper unchanged.
 
+### Temporary Passwords (Sprint 3+)
+
+Admin-created users receive a server-generated 16-character temporary password (`internal/crypto/password.go:GenerateTemporaryPassword`). The alphabet is base58-minus-ambiguous-characters (no `0/O/I/l/1`), yielding ~93 bits of entropy. The plaintext is returned once in the HTTP response body and never stored, logged, or written to audit rows. `force_password_change=true` forces the user to rotate it on first sign-in. Both `POST /api/users` (create) and `POST /api/users/:id/reset-password` (admin reset) use this flow — admins never type passwords.
+
 ## Database
 
 ### Two Roles
@@ -151,6 +155,10 @@ Never mock the database. Use testcontainers for anything that touches PG or Valk
 - Dark mode: supported via `.dark` class on `<html>`. `ThemeToggle` component cycles light/dark/system.
 - `AuthLayout` component: shared wrapper for auth pages (setup, login, password change). Includes Schlass branding + language switcher.
 - shadcn components are copy-and-own in `web/src/components/ui/`. Install new ones with `npx shadcn@latest add <name>`.
+
+### Design System (Sprint 3+)
+
+Typography scale: 24px (auth page titles), 20px (admin card titles), 18px (page titles), 14px (default UI), 13px (secondary metadata), 12px (labels/badges). Height tiers: 32px (controls), 36px (auth submit buttons, row avatars), 24px (badges). All colors from oklch tokens in `web/src/index.css` — `--primary` (teal), `--accent` (light teal), `--destructive` (red), `--warning` (amber, used by temp password reveal only), `--muted`, `--border`. No hex values anywhere in components.
 
 ### i18n
 
