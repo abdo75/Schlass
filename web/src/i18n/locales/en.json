@@ -111,6 +111,7 @@
       "email_label": "Email",
       "role_label": "Role",
       "status_label": "Status",
+      "disabled_subtitle": "Disabled by {{actor}} · {{time}}",
       "edit": "Edit",
       "save": "Save",
       "saving": "Saving...",
@@ -133,7 +134,23 @@
         "actions": "Actions"
       },
       "kill_session": "Kill session",
-      "kill_all_sessions": "Kill all sessions"
+      "kill_all_sessions": "Kill all sessions",
+      "self": {
+        "heading_subtitle": "This is you",
+        "actions_note": "Disable and delete are hidden on your own account. To remove yourself, have another administrator do it — or promote a new admin first.",
+        "change_password": "Change your password"
+      },
+      "not_found": {
+        "title": "User not found",
+        "body": "They may have been deleted by another administrator, or the link is incorrect.",
+        "back": "Back to users"
+      },
+      "sessions": {
+        "empty_disabled": {
+          "title": "No active sessions",
+          "body": "All sessions were terminated when this user was disabled."
+        }
+      }
     },
     "confirm": {
       "disable_title": "Disable this user?",
@@ -145,7 +162,22 @@
       "kill_all_sessions_title": "Terminate all sessions?",
       "kill_all_sessions_body": "Every device currently signed in as this user will be signed out. The user will need to sign in again on each device.",
       "kill_all_sessions_confirm": "Kill all sessions",
-      "cancel": "Cancel"
+      "cancel": "Cancel",
+      "reset_password": {
+        "title": "Reset password?",
+        "body": "A new temporary password will be generated. They'll be signed out everywhere and forced to change it on next sign-in.",
+        "confirm": "Reset password"
+      },
+      "terminate_all": {
+        "title": "Sign out of every device?",
+        "body": "They'll need to sign in again on each device. Their password is unchanged.",
+        "confirm": "Sign out everywhere"
+      },
+      "terminate_one": {
+        "title": "Sign out this device?",
+        "body": "This session will be terminated. Other sessions are unaffected.",
+        "confirm": "Sign out device"
+      }
     }
   },
   "errors": {

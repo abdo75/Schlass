@@ -111,6 +111,7 @@
       "email_label": "E-mail",
       "role_label": "Rôle",
       "status_label": "Statut",
+      "disabled_subtitle": "Désactivé par {{actor}} · {{time}}",
       "edit": "Modifier",
       "save": "Enregistrer",
       "saving": "Enregistrement...",
@@ -133,7 +134,23 @@
         "actions": "Actions"
       },
       "kill_session": "Terminer la session",
-      "kill_all_sessions": "Terminer toutes les sessions"
+      "kill_all_sessions": "Terminer toutes les sessions",
+      "self": {
+        "heading_subtitle": "C'est vous",
+        "actions_note": "Désactiver et supprimer sont masqués sur votre propre compte. Pour vous retirer, demandez à un autre administrateur — ou promouvez d'abord un nouvel administrateur.",
+        "change_password": "Changer votre mot de passe"
+      },
+      "not_found": {
+        "title": "Utilisateur introuvable",
+        "body": "Il a peut-être été supprimé par un autre administrateur, ou le lien est incorrect.",
+        "back": "Retour aux utilisateurs"
+      },
+      "sessions": {
+        "empty_disabled": {
+          "title": "Aucune session active",
+          "body": "Toutes les sessions ont été terminées lors de la désactivation de cet utilisateur."
+        }
+      }
     },
     "confirm": {
       "disable_title": "Désactiver cet utilisateur ?",
@@ -145,7 +162,22 @@
       "kill_all_sessions_title": "Terminer toutes les sessions ?",
       "kill_all_sessions_body": "Tous les appareils actuellement connectés sous cet utilisateur seront déconnectés. L'utilisateur devra se reconnecter sur chaque appareil.",
       "kill_all_sessions_confirm": "Terminer toutes les sessions",
-      "cancel": "Annuler"
+      "cancel": "Annuler",
+      "reset_password": {
+        "title": "Réinitialiser le mot de passe ?",
+        "body": "Un nouveau mot de passe temporaire sera généré. L'utilisateur sera déconnecté partout et devra le changer à la prochaine connexion.",
+        "confirm": "Réinitialiser le mot de passe"
+      },
+      "terminate_all": {
+        "title": "Déconnecter de tous les appareils ?",
+        "body": "L'utilisateur devra se reconnecter sur chaque appareil. Son mot de passe reste inchangé.",
+        "confirm": "Déconnecter partout"
+      },
+      "terminate_one": {
+        "title": "Déconnecter cet appareil ?",
+        "body": "Cette session sera terminée. Les autres sessions ne sont pas affectées.",
+        "confirm": "Déconnecter l'appareil"
+      }
     }
   },
   "errors": {

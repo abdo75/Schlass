@@ -111,6 +111,7 @@
       "email_label": "E-Mail",
       "role_label": "Rolle",
       "status_label": "Status",
+      "disabled_subtitle": "Deaktiviert von {{actor}} · {{time}}",
       "edit": "Bearbeiten",
       "save": "Speichern",
       "saving": "Wird gespeichert...",
@@ -133,7 +134,23 @@
         "actions": "Aktionen"
       },
       "kill_session": "Sitzung beenden",
-      "kill_all_sessions": "Alle Sitzungen beenden"
+      "kill_all_sessions": "Alle Sitzungen beenden",
+      "self": {
+        "heading_subtitle": "Das sind Sie",
+        "actions_note": "Deaktivieren und Löschen sind für Ihr eigenes Konto ausgeblendet. Um sich selbst zu entfernen, beauftragen Sie einen anderen Administrator — oder befördern Sie zuerst einen neuen Admin.",
+        "change_password": "Ihr Passwort ändern"
+      },
+      "not_found": {
+        "title": "Benutzer nicht gefunden",
+        "body": "Er wurde möglicherweise von einem anderen Administrator gelöscht, oder der Link ist ungültig.",
+        "back": "Zurück zu Benutzern"
+      },
+      "sessions": {
+        "empty_disabled": {
+          "title": "Keine aktiven Sitzungen",
+          "body": "Alle Sitzungen wurden bei der Deaktivierung dieses Benutzers beendet."
+        }
+      }
     },
     "confirm": {
       "disable_title": "Diesen Benutzer deaktivieren?",
@@ -145,7 +162,22 @@
       "kill_all_sessions_title": "Alle Sitzungen beenden?",
       "kill_all_sessions_body": "Alle Geräte, die derzeit als dieser Benutzer angemeldet sind, werden abgemeldet. Der Benutzer muss sich auf jedem Gerät neu anmelden.",
       "kill_all_sessions_confirm": "Alle Sitzungen beenden",
-      "cancel": "Abbrechen"
+      "cancel": "Abbrechen",
+      "reset_password": {
+        "title": "Passwort zurücksetzen?",
+        "body": "Ein neues temporäres Passwort wird generiert. Der Benutzer wird überall abgemeldet und muss es bei der nächsten Anmeldung ändern.",
+        "confirm": "Passwort zurücksetzen"
+      },
+      "terminate_all": {
+        "title": "Von allen Geräten abmelden?",
+        "body": "Der Benutzer muss sich auf jedem Gerät neu anmelden. Das Passwort bleibt unverändert.",
+        "confirm": "Überall abmelden"
+      },
+      "terminate_one": {
+        "title": "Dieses Gerät abmelden?",
+        "body": "Diese Sitzung wird beendet. Andere Sitzungen sind nicht betroffen.",
+        "confirm": "Gerät abmelden"
+      }
     }
   },
   "errors": {
