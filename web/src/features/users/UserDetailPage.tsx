@@ -89,11 +89,6 @@ function formatRelativeTime(iso: string): string {
   return `${days}d ago`;
 }
 
-function truncateId(id: string): string {
-  if (id.length <= 8) return id;
-  return `${id.slice(0, 4)}...${id.slice(-2)}`;
-}
-
 export function UserDetailPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -372,15 +367,11 @@ export function UserDetailPage() {
                   <p className="text-base font-semibold truncate">
                     {user.email}
                   </p>
-                  <p className="text-[13px] text-muted-foreground">
-                    {isSelf ? (
-                      <span className="text-accent-foreground font-medium">
-                        This is you
-                      </span>
-                    ) : (
-                      <>ID {truncateId(user.id)}</>
-                    )}
-                  </p>
+                  {isSelf && (
+                    <p className="text-[13px] text-accent-foreground font-medium">
+                      This is you
+                    </p>
+                  )}
                 </div>
                 {/* Status pill */}
                 <div className="shrink-0 rounded-md bg-muted px-3 py-1.5">
