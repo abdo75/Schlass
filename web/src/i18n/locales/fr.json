@@ -35,7 +35,18 @@
     "confirm_new_password": "Confirmer le nouveau mot de passe",
     "submit_change_password": "Changer le mot de passe",
     "submitting_change_password": "Modification du mot de passe...",
-    "password_mismatch": "Le nouveau mot de passe et la confirmation ne correspondent pas."
+    "password_mismatch": "Le nouveau mot de passe et la confirmation ne correspondent pas.",
+    "change_password": {
+      "confirm": "Confirmer",
+      "title_admin": "Changer le mot de passe",
+      "title_card": "Changez votre mot de passe",
+      "self_service": {
+        "subtitle": "Vous resterez connecté sur cet appareil. Toutes les autres sessions actives seront terminées."
+      },
+      "forced": {
+        "subtitle": "Votre administrateur vous a demandé de définir un nouveau mot de passe avant de continuer."
+      }
+    }
   },
   "dashboard": {
     "title": "Tableau de bord administrateur",

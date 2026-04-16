@@ -35,7 +35,18 @@
     "confirm_new_password": "Neues Passwort bestätigen",
     "submit_change_password": "Passwort ändern",
     "submitting_change_password": "Passwort wird geändert...",
-    "password_mismatch": "Das neue Passwort und die Bestätigung stimmen nicht überein."
+    "password_mismatch": "Das neue Passwort und die Bestätigung stimmen nicht überein.",
+    "change_password": {
+      "confirm": "Bestätigen",
+      "title_admin": "Passwort ändern",
+      "title_card": "Passwort ändern",
+      "self_service": {
+        "subtitle": "Sie bleiben auf diesem Gerät angemeldet. Alle anderen aktiven Sitzungen werden beendet."
+      },
+      "forced": {
+        "subtitle": "Ihr Administrator hat Sie gebeten, vor dem Fortfahren ein neues Passwort festzulegen."
+      }
+    }
   },
   "dashboard": {
     "title": "Admin-Dashboard",

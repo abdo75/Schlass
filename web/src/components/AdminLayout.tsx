@@ -41,34 +41,39 @@ function ChevronLeftIcon() {
   );
 }
 
-export function AdminLayout() {
+export function AdminSidebar() {
   const { t } = useTranslation();
+  return (
+    <aside className="flex w-[220px] flex-col border-r border-border bg-sidebar px-4 py-6">
+      <div className="mb-6 flex items-center gap-3 px-3">
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-sm font-extrabold text-primary-foreground">
+          S
+        </div>
+        <span className="text-base font-bold tracking-tight">Schlass</span>
+      </div>
+      <nav className="flex flex-col gap-1.5">
+        <NavLink
+          to="/admin/users"
+          className={({ isActive }) =>
+            `flex h-8 items-center gap-2.5 rounded-lg px-3 text-sm font-semibold transition-colors ${
+              isActive
+                ? "bg-accent text-accent-foreground"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+            }`
+          }
+        >
+          <UsersIcon />
+          {t("users.title")}
+        </NavLink>
+      </nav>
+    </aside>
+  );
+}
 
+export function AdminLayout() {
   return (
     <div className="flex min-h-screen bg-sidebar">
-      <aside className="flex w-[220px] flex-col border-r border-border bg-sidebar px-4 py-6">
-        <div className="mb-6 flex items-center gap-3 px-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-sm font-extrabold text-primary-foreground">
-            S
-          </div>
-          <span className="text-base font-bold tracking-tight">Schlass</span>
-        </div>
-        <nav className="flex flex-col gap-1.5">
-          <NavLink
-            to="/admin/users"
-            className={({ isActive }) =>
-              `flex h-8 items-center gap-2.5 rounded-lg px-3 text-sm font-semibold transition-colors ${
-                isActive
-                  ? "bg-accent text-accent-foreground"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
-              }`
-            }
-          >
-            <UsersIcon />
-            {t("users.title")}
-          </NavLink>
-        </nav>
-      </aside>
+      <AdminSidebar />
       <main className="flex min-w-0 flex-1 flex-col bg-background">
         <Outlet />
       </main>

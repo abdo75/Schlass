@@ -35,7 +35,18 @@
     "confirm_new_password": "Confirm new password",
     "submit_change_password": "Change password",
     "submitting_change_password": "Changing password...",
-    "password_mismatch": "The new password and confirmation do not match."
+    "password_mismatch": "The new password and confirmation do not match.",
+    "change_password": {
+      "confirm": "Confirm",
+      "title_admin": "Change password",
+      "title_card": "Change your password",
+      "self_service": {
+        "subtitle": "You'll stay signed in on this device. All other active sessions will be terminated."
+      },
+      "forced": {
+        "subtitle": "Your administrator has asked you to set a new password before continuing."
+      }
+    }
   },
   "dashboard": {
     "title": "Admin dashboard",

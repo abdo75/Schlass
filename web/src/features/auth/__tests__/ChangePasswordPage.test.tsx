@@ -20,9 +20,41 @@ vi.mock("react-router-dom", async () => {
   };
 });
 
-function renderPage() {
+/**
+ * Wait for the page to settle after getMe resolves, then return fresh
+ * element references so tests aren't affected by the transient initial
+ * render where user=null switches to user loaded.
+ */
+async function waitForStableForm() {
+  // findByLabelText waits until the element appears. But because the page
+  // transitions from self-service (user=null) to forced/self-service once
+  // getMe resolves, the first reference can be stale. We wait for the
+  // final stable state by waiting for getMe calls to settle.
+  // Using findByLabelText on the first call will settle the page; we then
+  // re-query synchronously to get the live reference.
+  await screen.findByLabelText(/current password/i);
+  // Wait one more tick for React to finish flushing the state update from
+  // getMe resolution so we definitely have the final DOM.
+  await new Promise((r) => setTimeout(r, 0));
+  return {
+    currentPw: screen.getByLabelText(/current password/i),
+    newPw: screen.getByLabelText(/^new password$/i),
+    confirmPw: screen.getByLabelText(/confirm new password/i),
+    confirmBtn: screen.getByRole("button", { name: /confirm/i }),
+  };
+}
+
+function renderForced() {
+  vi.mocked(authApi.getMe).mockResolvedValue({
+    user: {
+      id: "1",
+      email: "admin@example.com",
+      role: "super_admin",
+      force_password_change: true,
+    },
+  });
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={["/change-password"]}>
       <AuthProvider>
         <ChangePasswordPage />
       </AuthProvider>
@@ -30,52 +62,60 @@ function renderPage() {
   );
 }
 
-describe("ChangePasswordPage", () => {
+function renderSelfService() {
+  vi.mocked(authApi.getMe).mockResolvedValue({
+    user: {
+      id: "1",
+      email: "admin@example.com",
+      role: "super_admin",
+      force_password_change: false,
+    },
+  });
+  return render(
+    <MemoryRouter initialEntries={["/change-password"]}>
+      <AuthProvider>
+        <ChangePasswordPage />
+      </AuthProvider>
+    </MemoryRouter>,
+  );
+}
+
+describe("ChangePasswordPage — forced mode", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     navigateMock.mockReset();
-    // AuthProvider mounts and calls getMe — default to an authed user so the
-    // provider settles without error. Tests that care about refreshUser assert
-    // on getMe directly.
-    vi.mocked(authApi.getMe).mockResolvedValue({
-      user: {
-        id: "1",
-        email: "admin@example.com",
-        role: "super_admin",
-        force_password_change: true,
-      },
-    });
   });
 
-  it("renders three password inputs and a submit button", async () => {
-    renderPage();
-    expect(await screen.findByLabelText(/current password/i)).toBeInTheDocument();
+  it("renders inside AuthLayout: brand lockup 'Schlass' visible, no sidebar Users nav link", async () => {
+    renderForced();
+    await waitForStableForm();
+    // After settling in forced mode, AuthLayout brand is present
+    await waitFor(() =>
+      expect(screen.getByText("Schlass")).toBeInTheDocument(),
+    );
+    // Sidebar Users nav link must NOT be present in forced mode
+    expect(screen.queryByRole("link", { name: /users/i })).not.toBeInTheDocument();
+  });
+
+  it("renders three password fields and a Confirm button with no Cancel", async () => {
+    renderForced();
+    const { confirmBtn } = await waitForStableForm();
     expect(screen.getByLabelText(/^new password$/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/confirm new password/i)).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /change password/i }),
-    ).toBeInTheDocument();
+    expect(confirmBtn).toBeInTheDocument();
+    // No Cancel button in forced mode
+    expect(screen.queryByRole("button", { name: /cancel/i })).not.toBeInTheDocument();
   });
 
   it("shows a mismatch error without calling the API when confirm differs", async () => {
-    renderPage();
+    renderForced();
     const user = userEvent.setup();
+    const { currentPw, newPw, confirmPw, confirmBtn } = await waitForStableForm();
 
-    await user.type(
-      await screen.findByLabelText(/current password/i),
-      "OldPassword123",
-    );
-    await user.type(
-      screen.getByLabelText(/^new password$/i),
-      "NewPassword123",
-    );
-    await user.type(
-      screen.getByLabelText(/confirm new password/i),
-      "Different123",
-    );
-    await user.click(
-      screen.getByRole("button", { name: /change password/i }),
-    );
+    await user.type(currentPw, "OldPassword123");
+    await user.type(newPw, "NewPassword123");
+    await user.type(confirmPw, "Different123");
+    await user.click(confirmBtn);
 
     await waitFor(() =>
       expect(screen.getByRole("alert")).toHaveTextContent(/do not match/i),
@@ -84,44 +124,41 @@ describe("ChangePasswordPage", () => {
     expect(navigateMock).not.toHaveBeenCalled();
   });
 
-  it("calls changePassword, refreshes user, and navigates to /admin on success", async () => {
+  it("calls changePassword, refreshes user, and navigates to /admin/users on success", async () => {
     vi.mocked(authApi.changePassword).mockResolvedValue(undefined);
-    // After the change the user no longer needs to force-change their password.
-    vi.mocked(authApi.getMe).mockResolvedValueOnce({
-      user: {
-        id: "1",
-        email: "admin@example.com",
-        role: "super_admin",
-        force_password_change: true,
-      },
-    });
-    vi.mocked(authApi.getMe).mockResolvedValueOnce({
-      user: {
-        id: "1",
-        email: "admin@example.com",
-        role: "super_admin",
-        force_password_change: false,
-      },
-    });
+    vi.mocked(authApi.getMe)
+      .mockResolvedValueOnce({
+        user: {
+          id: "1",
+          email: "admin@example.com",
+          role: "super_admin",
+          force_password_change: true,
+        },
+      })
+      .mockResolvedValueOnce({
+        user: {
+          id: "1",
+          email: "admin@example.com",
+          role: "super_admin",
+          force_password_change: false,
+        },
+      });
 
-    renderPage();
+    render(
+      <MemoryRouter initialEntries={["/change-password"]}>
+        <AuthProvider>
+          <ChangePasswordPage />
+        </AuthProvider>
+      </MemoryRouter>,
+    );
+
     const user = userEvent.setup();
+    const { currentPw, newPw, confirmPw, confirmBtn } = await waitForStableForm();
 
-    await user.type(
-      await screen.findByLabelText(/current password/i),
-      "OldPassword123",
-    );
-    await user.type(
-      screen.getByLabelText(/^new password$/i),
-      "NewPassword123",
-    );
-    await user.type(
-      screen.getByLabelText(/confirm new password/i),
-      "NewPassword123",
-    );
-    await user.click(
-      screen.getByRole("button", { name: /change password/i }),
-    );
+    await user.type(currentPw, "OldPassword123");
+    await user.type(newPw, "NewPassword123");
+    await user.type(confirmPw, "NewPassword123");
+    await user.click(confirmBtn);
 
     await waitFor(() =>
       expect(authApi.changePassword).toHaveBeenCalledWith(
@@ -130,13 +167,13 @@ describe("ChangePasswordPage", () => {
       ),
     );
     await waitFor(() =>
-      expect(navigateMock).toHaveBeenCalledWith("/admin", { replace: true }),
+      expect(navigateMock).toHaveBeenCalledWith("/admin/users", {
+        replace: true,
+      }),
     );
-    // getMe is called once by the AuthProvider on mount and once by refreshUser
-    // after the successful change.
+    // getMe called once by AuthProvider on mount and once by refreshUser
     expect(authApi.getMe).toHaveBeenCalledTimes(2);
-    // refreshUser must resolve BEFORE navigate, otherwise AuthGuard would still
-    // see the stale force_password_change=true user and bounce back here.
+    // refreshUser must resolve BEFORE navigate
     const refreshOrder = vi.mocked(authApi.getMe).mock.invocationCallOrder[1];
     const navigateOrder = navigateMock.mock.invocationCallOrder[0];
     expect(refreshOrder).toBeLessThan(navigateOrder);
@@ -149,24 +186,14 @@ describe("ChangePasswordPage", () => {
       status: 400,
     });
 
-    renderPage();
+    renderForced();
     const user = userEvent.setup();
+    const { currentPw, newPw, confirmPw, confirmBtn } = await waitForStableForm();
 
-    await user.type(
-      await screen.findByLabelText(/current password/i),
-      "WrongOld123",
-    );
-    await user.type(
-      screen.getByLabelText(/^new password$/i),
-      "NewPassword123",
-    );
-    await user.type(
-      screen.getByLabelText(/confirm new password/i),
-      "NewPassword123",
-    );
-    await user.click(
-      screen.getByRole("button", { name: /change password/i }),
-    );
+    await user.type(currentPw, "WrongOld123");
+    await user.type(newPw, "NewPassword123");
+    await user.type(confirmPw, "NewPassword123");
+    await user.click(confirmBtn);
 
     await waitFor(() =>
       expect(screen.getByRole("alert")).toHaveTextContent(
@@ -174,5 +201,36 @@ describe("ChangePasswordPage", () => {
       ),
     );
     expect(navigateMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("ChangePasswordPage — self-service mode", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    navigateMock.mockReset();
+  });
+
+  it("renders inside the admin shell: sidebar Users nav link visible", async () => {
+    renderSelfService();
+    await waitForStableForm();
+    // Sidebar Users nav link is present in self-service mode
+    expect(
+      await screen.findByRole("link", { name: /users/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("renders Cancel and Confirm buttons", async () => {
+    renderSelfService();
+    const { confirmBtn } = await waitForStableForm();
+    expect(confirmBtn).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /cancel/i })).toBeInTheDocument();
+  });
+
+  it("Cancel navigates to /admin/users", async () => {
+    renderSelfService();
+    const user = userEvent.setup();
+    await waitForStableForm();
+    await user.click(screen.getByRole("button", { name: /cancel/i }));
+    expect(navigateMock).toHaveBeenCalledWith("/admin/users", { replace: true });
   });
 });
