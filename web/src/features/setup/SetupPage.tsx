@@ -92,15 +92,15 @@ export function SetupPage() {
 
   return (
     <AuthLayout>
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle className="text-2xl">{t("setup.title")}</CardTitle>
-          <CardDescription>{t("setup.description")}</CardDescription>
+      <Card className="w-full overflow-hidden border-border">
+        <CardHeader className="px-8 pt-8 pb-5">
+          <CardTitle className="text-2xl font-semibold tracking-tight leading-tight">{t("setup.title")}</CardTitle>
+          <CardDescription className="mt-2 text-[13px] leading-relaxed">{t("setup.description")}</CardDescription>
         </CardHeader>
-        <CardContent>
-          <form onSubmit={(e) => { void handleSubmit(e); }} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="instance-name">{t("setup.instanceName")}</Label>
+        <CardContent className="px-8 pb-7">
+          <form onSubmit={(e) => { void handleSubmit(e); }} className="flex flex-col gap-[18px]">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="instance-name" className="text-[13px] font-medium">{t("setup.instanceName")}</Label>
               <Input
                 id="instance-name"
                 type="text"
@@ -112,8 +112,8 @@ export function SetupPage() {
               />
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="email">{t("setup.adminEmail")}</Label>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="email" className="text-[13px] font-medium">{t("setup.adminEmail")}</Label>
               <Input
                 id="email"
                 type="email"
@@ -124,8 +124,8 @@ export function SetupPage() {
               />
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="password">{t("setup.password")}</Label>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="password" className="text-[13px] font-medium">{t("setup.password")}</Label>
               <Input
                 id="password"
                 type="password"
@@ -134,13 +134,13 @@ export function SetupPage() {
                 required
                 minLength={12}
               />
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs leading-snug text-muted-foreground">
                 {t("setup.passwordHint")}
               </p>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="confirm-password">{t("setup.confirmPassword")}</Label>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="confirm-password" className="text-[13px] font-medium">{t("setup.confirmPassword")}</Label>
               <Input
                 id="confirm-password"
                 type="password"
@@ -151,12 +151,14 @@ export function SetupPage() {
             </div>
 
             {error && (
-              <p className="text-sm text-destructive">{error}</p>
+              <p className="text-sm text-destructive" role="alert">{error}</p>
             )}
 
-            <Button type="submit" className="w-full" disabled={submitting}>
-              {submitting ? t("setup.submitting") : t("setup.submit")}
-            </Button>
+            <div className="border-t border-border px-8 py-7 -mx-8">
+              <Button type="submit" disabled={submitting} className="h-9 w-full">
+                {submitting ? t("setup.submitting") : t("setup.submit")}
+              </Button>
+            </div>
           </form>
         </CardContent>
       </Card>
