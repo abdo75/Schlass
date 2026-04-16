@@ -146,3 +146,13 @@
     @apply font-sans;
     }
 }
+
+@keyframes schlass-shimmer {
+  0% { opacity: 0.45; }
+  50% { opacity: 0.85; }
+  100% { opacity: 0.45; }
+}
+
+.schlass-shimmer {
+  animation: schlass-shimmer 1.4s ease-in-out infinite;
+}
