@@ -75,7 +75,15 @@
       "role_label": "Rôle",
       "submit": "Créer l'utilisateur",
       "submitting": "Création...",
-      "cancel": "Annuler"
+      "cancel": "Annuler",
+      "temp_password_modal": {
+        "title": "Mot de passe temporaire",
+        "subtitle": "Pour {{email}}",
+        "warning": "Affiché une seule fois. En cas de perte, il faudra réinitialiser.",
+        "copy": "Copier",
+        "copied": "Copié",
+        "done": "Terminé"
+      }
     },
     "detail": {
       "back": "Retour aux utilisateurs",

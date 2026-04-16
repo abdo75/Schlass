@@ -75,7 +75,15 @@
       "role_label": "Role",
       "submit": "Create user",
       "submitting": "Creating...",
-      "cancel": "Cancel"
+      "cancel": "Cancel",
+      "temp_password_modal": {
+        "title": "Temporary password",
+        "subtitle": "For {{email}}",
+        "warning": "Shown once. Lose it and you'll have to reset.",
+        "copy": "Copy",
+        "copied": "Copied",
+        "done": "Done"
+      }
     },
     "detail": {
       "back": "Back to users",

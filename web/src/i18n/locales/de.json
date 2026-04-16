@@ -75,7 +75,15 @@
       "role_label": "Rolle",
       "submit": "Benutzer anlegen",
       "submitting": "Wird erstellt...",
-      "cancel": "Abbrechen"
+      "cancel": "Abbrechen",
+      "temp_password_modal": {
+        "title": "Temporäres Passwort",
+        "subtitle": "Für {{email}}",
+        "warning": "Wird nur einmal angezeigt. Bei Verlust muss zurückgesetzt werden.",
+        "copy": "Kopieren",
+        "copied": "Kopiert",
+        "done": "Fertig"
+      }
     },
     "detail": {
       "back": "Zurück zu Benutzern",
