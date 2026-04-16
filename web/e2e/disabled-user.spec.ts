@@ -10,14 +10,20 @@ test.describe("disabled user revocation", () => {
     adminPage,
     newUserEmail,
   }) => {
-    const tempPassword = "DisableMeLater42";
-
-    // Admin creates user B via the UI.
-    await adminPage.getByRole("button", { name: /create user/i }).click();
+    // Admin creates user B via the UI. "Create user" is a <Link>.
+    await adminPage.getByRole("link", { name: /create user/i }).click();
     await adminPage.waitForURL("**/admin/users/new", { timeout: 10000 });
     await adminPage.getByLabel(/email/i).fill(newUserEmail);
-    await adminPage.getByLabel(/temporary password/i).fill(tempPassword);
+    // No password field — the server generates a temporary password.
     await adminPage.getByRole("button", { name: /^create user$/i }).click();
+
+    // Extract the temporary password from the TempPasswordModal.
+    const modal = adminPage.locator(".fixed").filter({ has: adminPage.locator("code") });
+    await modal.waitFor({ state: "visible", timeout: 10000 });
+    const tempPassword = (await modal.locator("code").textContent()) ?? "";
+    expect(tempPassword.length).toBeGreaterThan(0);
+    await modal.getByRole("button", { name: /done/i }).click();
+
     await adminPage.waitForURL(/\/admin\/users\/[0-9a-f-]+$/i, {
       timeout: 10000,
     });
@@ -37,13 +43,12 @@ test.describe("disabled user revocation", () => {
 
       // Admin now disables user B via the detail page.
       await adminPage.goto(userDetailUrl);
-      await expect(
-        adminPage.getByRole("heading", { name: newUserEmail, level: 1 }),
-      ).toBeVisible();
+      await expect(adminPage.getByText(newUserEmail).first()).toBeVisible();
       await adminPage.getByRole("button", { name: /disable user/i }).click();
-      const dialog = adminPage.getByRole("alertdialog");
+      // ConfirmDialog uses role="dialog" (not alertdialog).
+      const dialog = adminPage.getByRole("dialog");
       await expect(dialog).toBeVisible();
-      await dialog.getByRole("button", { name: /^disable$/i }).click();
+      await dialog.getByRole("button", { name: /disable user/i }).click();
       // Detail page should now show Disabled status — wait for the state
       // change before testing the other context to avoid a race.
       await expect(
@@ -52,9 +57,7 @@ test.describe("disabled user revocation", () => {
 
       // User B navigates to a guarded route — forcing a fresh request through
       // the auth middleware, which sees the disabled user, deletes the Valkey
-      // session, and AuthGuard bounces to /login. A client-side reload() of
-      // /change-password could be served from the SPA shell without hitting a
-      // guarded endpoint, so use goto("/admin") for a deterministic check.
+      // session, and AuthGuard bounces to /login.
       await userPage.goto("/admin");
       await expect(userPage).toHaveURL(/\/login/, { timeout: 15000 });
     } finally {

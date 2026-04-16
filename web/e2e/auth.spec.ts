@@ -16,22 +16,22 @@ test.describe("authentication", () => {
     await page.getByLabel(/password/i).fill(adminPassword);
     await page.getByRole("button", { name: /sign in/i }).click();
 
-    // Post-T16: /admin is a redirect to /admin/users. The old DashboardPage
-    // with its "Welcome, <email>" greeting is gone — AdminLayout renders a
-    // sidebar with the admin's email in a footer block and the Users page
-    // heading in the main pane.
+    // Post-redesign: /admin redirects to /admin/users. The AdminLayout renders
+    // a sidebar (<aside>) + a <main> pane with AdminPageHeader showing "Users"
+    // as a plain <div> (not an <h1>).
     await page.waitForURL("**/admin/users", { timeout: 15000 });
+    // Verify the page title inside the main pane (scoped away from the nav).
     await expect(
-      page.getByRole("heading", { name: /users/i, level: 1 }),
+      page.locator("main").getByText("Users", { exact: true }).first(),
     ).toBeVisible();
-    // The sidebar (aside / role=complementary) shows the signed-in admin's
-    // email in its footer block. The UsersPage table ALSO renders the
-    // admin's row containing the same email, so scope to the sidebar to
-    // keep the locator strict-mode-safe.
+    // The admin email appears on the UserMenuPopover pill button in the header.
     await expect(
-      page.getByRole("complementary").getByText(uniqueEmail),
+      page.getByRole("button", { name: uniqueEmail }),
     ).toBeVisible();
 
+    // Sign out is inside the UserMenuPopover. Click the admin pill (its
+    // aria-label is the email) to open the popover, then click "Sign out".
+    await page.getByRole("button", { name: uniqueEmail }).click();
     await page.getByRole("button", { name: /sign out/i }).click();
     await expect(page).toHaveURL(/\/login$/);
 
