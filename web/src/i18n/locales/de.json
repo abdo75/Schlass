@@ -45,9 +45,13 @@
     "title": "Benutzer",
     "create_button": "Benutzer anlegen",
     "search_placeholder": "Nach E-Mail suchen",
-    "pagination": "Seite {{current}} von {{total}} ({{count}} Benutzer)",
     "pagination_prev": "Vorherige Seite",
     "pagination_next": "Nächste Seite",
+    "pagination": {
+      "showing": "Zeige {{from}} bis {{to}} von {{total}}",
+      "prev": "Zurück",
+      "next": "Weiter"
+    },
     "columns": {
       "email": "E-Mail",
       "role": "Rolle",

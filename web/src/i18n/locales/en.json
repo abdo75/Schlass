@@ -45,9 +45,13 @@
     "title": "Users",
     "create_button": "Create user",
     "search_placeholder": "Search by email",
-    "pagination": "Page {{current}} of {{total}} ({{count}} users)",
     "pagination_prev": "Previous page",
     "pagination_next": "Next page",
+    "pagination": {
+      "showing": "Showing {{from}} to {{to}} of {{total}}",
+      "prev": "Prev",
+      "next": "Next"
+    },
     "columns": {
       "email": "Email",
       "role": "Role",
