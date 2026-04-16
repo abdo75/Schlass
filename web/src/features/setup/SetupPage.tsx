@@ -13,7 +13,6 @@ import {
 } from "@/components/ui/card";
 import { apiFetch, ApiRequestError } from "@/lib/api";
 import { AuthLayout } from "@/components/AuthLayout";
-import { ThemeToggle } from "@/components/ThemeToggle";
 
 export function SetupPage() {
   const navigate = useNavigate();
@@ -93,7 +92,6 @@ export function SetupPage() {
 
   return (
     <AuthLayout>
-      <ThemeToggle />
       <Card className="w-full max-w-md">
         <CardHeader>
           <CardTitle className="text-2xl">{t("setup.title")}</CardTitle>

@@ -12,7 +12,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { AuthLayout } from "@/components/AuthLayout";
-import { ThemeToggle } from "@/components/ThemeToggle";
 import { changePassword } from "./api";
 import { useAuth } from "./AuthContext";
 
@@ -56,7 +55,6 @@ export function ChangePasswordPage() {
 
   return (
     <AuthLayout>
-      <ThemeToggle />
       <Card className="w-full max-w-md">
         <CardHeader>
           <CardTitle className="text-2xl">

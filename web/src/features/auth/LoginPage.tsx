@@ -12,7 +12,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { AuthLayout } from "@/components/AuthLayout";
-import { ThemeToggle } from "@/components/ThemeToggle";
 import { useAuth } from "./AuthContext";
 
 export function LoginPage() {
@@ -77,7 +76,6 @@ export function LoginPage() {
 
   return (
     <AuthLayout>
-      <ThemeToggle />
       <Card className="w-full max-w-md">
         <CardHeader>
           <CardTitle className="text-2xl">{t("auth.login_title")}</CardTitle>
