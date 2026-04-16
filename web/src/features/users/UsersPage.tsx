@@ -154,7 +154,7 @@ export function UsersPage() {
         primaryAction={
           <Link
             to="/admin/users/new"
-            className={buttonVariants({ size: "sm" }) + " flex items-center gap-1.5"}
+            className={buttonVariants({ size: "default" }) + " flex items-center gap-1.5"}
           >
             <PlusIcon />
             {t("users.create_button")}

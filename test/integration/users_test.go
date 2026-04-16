@@ -1324,10 +1324,9 @@ func TestUsers_TerminateAllSessions_ClearsAllDevices(t *testing.T) {
 	}
 }
 
-// TestUsers_TerminateAllSessions_SelfRejected proves the self-op guard
-// blocks an admin from nuking their own sessions via the admin endpoint.
-// The proper self-signout-everywhere flow is POST /api/logout.
-func TestUsers_TerminateAllSessions_SelfRejected(t *testing.T) {
+// TestUsers_TerminateAllSessions_SelfAllowed proves an admin can nuke their
+// own sessions via DELETE /api/users/:id/sessions (standard IDP behavior).
+func TestUsers_TerminateAllSessions_SelfAllowed(t *testing.T) {
 	env := NewTestEnv(t)
 	env.SeedAdmin(t, "admin@example.com", "CorrectHorse42Battery")
 	cookie := env.LoginAsAdmin(t, "admin@example.com", "CorrectHorse42Battery")
@@ -1339,11 +1338,8 @@ func TestUsers_TerminateAllSessions_SelfRejected(t *testing.T) {
 	rec := httptest.NewRecorder()
 	env.Router.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("want 400, got %d: %s", rec.Code, rec.Body.String())
-	}
-	if !strings.Contains(rec.Body.String(), "CANNOT_OPERATE_ON_SELF") {
-		t.Fatalf("want CANNOT_OPERATE_ON_SELF, got %s", rec.Body.String())
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("want 204, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 

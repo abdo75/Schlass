@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, type FormEvent } from "react";
+import { useState, useEffect, useRef, useCallback, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useParams, Link } from "react-router-dom";
 import {
@@ -339,15 +339,6 @@ export function UserDetailPage() {
     );
   })();
 
-  // --- Formatted dates ---
-  const createdDate = user.created_at
-    ? new Date(user.created_at).toLocaleDateString("en-US", {
-        month: "long",
-        day: "numeric",
-        year: "numeric",
-      })
-    : "";
-
   return (
     <>
       <AdminPageHeader
@@ -364,7 +355,7 @@ export function UserDetailPage() {
 
         <div className="grid grid-cols-[1fr_300px] gap-5">
           {/* ---- Profile card ---- */}
-          <Card>
+          <Card className="overflow-visible">
             <CardHeader className="pb-0">
               <div className="flex items-start gap-4">
                 {/* Avatar */}
@@ -387,10 +378,7 @@ export function UserDetailPage() {
                         This is you
                       </span>
                     ) : (
-                      <>
-                        Created {createdDate} &middot; ID{" "}
-                        {truncateId(user.id)}
-                      </>
+                      <>ID {truncateId(user.id)}</>
                     )}
                   </p>
                 </div>
@@ -415,7 +403,7 @@ export function UserDetailPage() {
                     t={t}
                   />
                 ) : (
-                  <ViewProfileGrid user={user} t={t} />
+                  <ViewProfileGrid user={user} sessions={sessions} t={t} />
                 )}
               </div>
             </CardContent>
@@ -575,12 +563,29 @@ export function UserDetailPage() {
 
 interface ViewProfileGridProps {
   user: UserDetailResponse["user"];
+  sessions: UserSession[];
   t: (key: string) => string;
 }
 
-function ViewProfileGrid({ user, t }: ViewProfileGridProps) {
+function deriveLastSignIn(sessions: UserSession[]): string {
+  if (sessions.length === 0) return "Never";
+  const latest = sessions.reduce((a, b) =>
+    new Date(a.last_seen_at) > new Date(b.last_seen_at) ? a : b,
+  );
+  return formatRelativeTime(latest.last_seen_at);
+}
+
+function ViewProfileGrid({ user, sessions, t }: ViewProfileGridProps) {
+  const createdFormatted = user.created_at
+    ? new Date(user.created_at).toLocaleDateString("en-US", {
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+      })
+    : "";
+
   return (
-    <dl className="grid grid-cols-2 gap-x-7 gap-y-5 text-sm">
+    <dl className="grid grid-cols-3 gap-x-7 gap-y-5 text-sm">
       <div>
         <dt className="text-[13px] text-muted-foreground">
           {t("users.detail.email_label")}
@@ -596,8 +601,20 @@ function ViewProfileGrid({ user, t }: ViewProfileGridProps) {
         </dd>
       </div>
       <div>
+        <dt className="text-[13px] text-muted-foreground">Status</dt>
+        <dd className="mt-1">
+          <StatusBadge status={user.status} />
+        </dd>
+      </div>
+      <div>
+        <dt className="text-[13px] text-muted-foreground">Created</dt>
+        <dd className="mt-0.5 text-muted-foreground">{createdFormatted}</dd>
+      </div>
+      <div>
         <dt className="text-[13px] text-muted-foreground">Last sign-in</dt>
-        <dd className="mt-0.5 text-muted-foreground">Never</dd>
+        <dd className="mt-0.5 text-muted-foreground">
+          {deriveLastSignIn(sessions)}
+        </dd>
       </div>
       <div>
         <dt className="text-[13px] text-muted-foreground">
@@ -638,6 +655,19 @@ function EditProfileGrid({
   user,
   t,
 }: EditProfileGridProps) {
+  const roleRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!roleOpen) return;
+    const handlePointerDown = (e: PointerEvent) => {
+      if (roleRef.current && !roleRef.current.contains(e.target as Node)) {
+        onRoleOpenChange(false);
+      }
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [roleOpen, onRoleOpenChange]);
+
   return (
     <div className="grid grid-cols-2 gap-x-7 gap-y-5 text-sm">
       <div className="space-y-1.5">
@@ -652,7 +682,7 @@ function EditProfileGrid({
       </div>
       <div className="space-y-1.5">
         <Label htmlFor="edit-role">{t("users.detail.role_label")}</Label>
-        <div className="relative">
+        <div className="relative" ref={roleRef}>
           <button
             id="edit-role"
             type="button"
@@ -663,7 +693,7 @@ function EditProfileGrid({
             <ChevronDown className="size-4 text-muted-foreground" />
           </button>
           {roleOpen && (
-            <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-10 overflow-hidden rounded-[10px] border border-border bg-background p-1 shadow-xl">
+            <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-50 max-h-[240px] overflow-y-auto rounded-[10px] border border-border bg-background p-1 shadow-xl">
               {(["user", "super_admin"] as const).map((r) => (
                 <button
                   key={r}

@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useState, useEffect, useRef, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { ChevronDown, Check } from "lucide-react";
@@ -32,6 +32,18 @@ export function UserCreatePage() {
     user: CreateUserResponse["user"];
     temporary_password: string;
   } | null>(null);
+  const roleRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!roleOpen) return;
+    const handlePointerDown = (e: PointerEvent) => {
+      if (roleRef.current && !roleRef.current.contains(e.target as Node)) {
+        setRoleOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [roleOpen]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -65,7 +77,7 @@ export function UserCreatePage() {
       <AdminPageContent>
         <div className="flex justify-center pt-8">
           <div className="w-full max-w-[448px]">
-            <Card>
+            <Card className="overflow-visible">
               <CardHeader>
                 <CardTitle className="text-[20px]">
                   {t("users.create.title")}
@@ -97,7 +109,7 @@ export function UserCreatePage() {
 
                   <div className="space-y-1.5">
                     <Label>{t("users.create.role_label")}</Label>
-                    <div className="relative">
+                    <div className="relative" ref={roleRef}>
                       <button
                         type="button"
                         onClick={() => setRoleOpen((v) => !v)}
@@ -107,7 +119,7 @@ export function UserCreatePage() {
                         <ChevronDown className="size-4 text-muted-foreground" />
                       </button>
                       {roleOpen && (
-                        <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-10 overflow-hidden rounded-[10px] border border-border bg-background p-1 shadow-xl">
+                        <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-50 max-h-[240px] overflow-y-auto rounded-[10px] border border-border bg-background p-1 shadow-xl">
                           {(["user", "super_admin"] as const).map((r) => (
                             <button
                               key={r}

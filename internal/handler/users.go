@@ -927,15 +927,11 @@ func (h *UsersHandler) ListSessions(w http.ResponseWriter, r *http.Request) {
 
 // TerminateAllSessions serves DELETE /api/users/:id/sessions. Nuclear
 // force-terminate: kills every active session for the target user. Self-op
-// is rejected — an admin wanting to sign out their own current session
-// should use POST /api/logout, which has the right semantics for the
-// caller's own cookie.
+// is allowed — an admin can sign themselves out of all devices (standard
+// IDP behavior: Okta, Auth0, Keycloak all permit this).
 func (h *UsersHandler) TerminateAllSessions(w http.ResponseWriter, r *http.Request) {
 	id, ok := parseUserID(w, r)
 	if !ok {
-		return
-	}
-	if h.rejectSelfOp(w, r, id) {
 		return
 	}
 

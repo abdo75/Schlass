@@ -149,7 +149,7 @@ export function UserMenuPopover() {
                   key={value}
                   type="button"
                   onClick={() => setTheme(value)}
-                  className={`inline-flex h-8 flex-col items-center justify-center gap-0.5 rounded-md border text-[11px] transition-colors ${
+                  className={`inline-flex h-8 items-center justify-center gap-1.5 rounded-md border px-2 text-xs transition-colors ${
                     theme === value
                       ? "border-primary bg-accent text-accent-foreground"
                       : "border-transparent text-muted-foreground hover:text-foreground"
