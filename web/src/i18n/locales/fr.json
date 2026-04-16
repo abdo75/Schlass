@@ -66,6 +66,9 @@
       "active": "Actif",
       "disabled": "Désactivé"
     },
+    "list": {
+      "you": "vous"
+    },
     "create": {
       "title": "Créer un utilisateur",
       "description": "Provisionnez un nouveau compte. L'utilisateur devra changer son mot de passe lors de sa première connexion.",

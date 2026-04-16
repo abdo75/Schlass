@@ -1,46 +1,108 @@
-import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Table,
-  TableHeader,
-  TableBody,
-  TableRow,
-  TableHead,
-  TableCell,
-} from "@/components/ui/table";
-import { listUsers, type UsersListResponse } from "./api";
-import type { AuthUser } from "@/features/auth/api";
+import { AdminPageHeader, AdminPageContent } from "@/components/AdminLayout";
+import { buttonVariants } from "@/components/ui/button";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { RoleBadge } from "@/components/ui/role-badge";
+import { Pagination } from "@/components/Pagination";
+import { UsersTableSkeleton } from "@/components/PageSkeleton";
+import { useAuth } from "@/features/auth/AuthContext";
+import { listUsers, type UsersListResponse, type UserRow } from "./api";
 
-const PAGE_SIZE = 25;
+const PAGE_SIZE = 10;
 
-// Backend /api/users returns users with `status` and `created_at` in addition
-// to the shared AuthUser fields. The api.ts typing uses AuthUser for historical
-// parity; widen locally for table rendering.
-type UserRow = AuthUser & { status?: string; created_at?: string };
+function PlusIcon() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <line x1="12" y1="5" x2="12" y2="19" />
+      <line x1="5" y1="12" x2="19" y2="12" />
+    </svg>
+  );
+}
+
+function MagnifierIcon() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className="text-muted-foreground"
+    >
+      <circle cx="11" cy="11" r="8" />
+      <line x1="21" y1="21" x2="16.65" y2="16.65" />
+    </svg>
+  );
+}
+
+function relativeTime(iso: string): string {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const minutes = Math.floor(diffMs / 60000);
+  if (minutes < 1) return "Just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
+function UserAvatar({ user }: { user: UserRow }) {
+  const isAdmin = user.role === "super_admin";
+  const isDisabled = user.status === "disabled";
+  const initial = user.email[0]?.toUpperCase() ?? "?";
+
+  return (
+    <div
+      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold ${
+        isAdmin
+          ? "bg-primary text-primary-foreground"
+          : "border border-border bg-muted text-foreground"
+      } ${isDisabled ? "opacity-60" : ""}`}
+    >
+      {initial}
+    </div>
+  );
+}
 
 export function UsersPage() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
+  const { user: currentUser } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [data, setData] = useState<UsersListResponse | null>(null);
-  const [search, setSearch] = useState("");
-  const [offset, setOffset] = useState(0);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const pageParam = parseInt(searchParams.get("page") ?? "1", 10);
+  const currentPage = isNaN(pageParam) || pageParam < 1 ? 1 : pageParam;
+  const searchQuery = searchParams.get("q") ?? "";
+
+  const offset = (currentPage - 1) * PAGE_SIZE;
 
   useEffect(() => {
     let cancelled = false;
-    // Kick off the fetch asynchronously so the "set loading true / clear
-    // error" updates happen inside a callback rather than the effect body
-    // itself (react-hooks/set-state-in-effect).
     void (async () => {
       if (cancelled) return;
       setLoading(true);
       setError(null);
       try {
-        const res = await listUsers(PAGE_SIZE, offset, search || undefined);
+        const res = await listUsers(PAGE_SIZE, offset, searchQuery || undefined);
         if (!cancelled) setData(res);
       } catch (err: unknown) {
         if (cancelled) return;
@@ -56,102 +118,168 @@ export function UsersPage() {
     return () => {
       cancelled = true;
     };
-  }, [offset, search]);
+  }, [offset, searchQuery]);
 
   const totalPages = data ? Math.max(1, Math.ceil(data.total / PAGE_SIZE)) : 1;
-  const currentPage = Math.floor(offset / PAGE_SIZE) + 1;
+  const adminCount = data
+    ? data.users.filter((u) => u.role === "super_admin").length
+    : 0;
+
+  const subtitle = data
+    ? `${data.total} users · ${adminCount} administrator${adminCount !== 1 ? "s" : ""}`
+    : undefined;
+
+  function handlePageChange(page: number) {
+    const params = new URLSearchParams(searchParams);
+    params.set("page", String(page));
+    setSearchParams(params);
+  }
+
+  function handleSearchChange(value: string) {
+    const params = new URLSearchParams(searchParams);
+    if (value) {
+      params.set("q", value);
+    } else {
+      params.delete("q");
+    }
+    params.set("page", "1");
+    setSearchParams(params);
+  }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">{t("users.title")}</h1>
-        <Button
-          onClick={() => {
-            void navigate("/admin/users/new");
-          }}
-        >
-          {t("users.create_button")}
-        </Button>
-      </div>
-      <Input
-        placeholder={t("users.search_placeholder")}
-        value={search}
-        onChange={(e) => {
-          setSearch(e.target.value);
-          setOffset(0);
-        }}
+    <>
+      <AdminPageHeader
+        title={t("users.title")}
+        subtitle={subtitle}
+        primaryAction={
+          <Link
+            to="/admin/users/new"
+            className={buttonVariants({ size: "sm" }) + " flex items-center gap-1.5"}
+          >
+            <PlusIcon />
+            {t("users.create_button")}
+          </Link>
+        }
       />
-      {loading && (
-        <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
-      )}
-      {error && (
-        <p className="text-sm text-destructive" role="alert">
-          {t(`errors.${error}`)}
-        </p>
-      )}
-      {data && (
-        <>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{t("users.columns.email")}</TableHead>
-                <TableHead>{t("users.columns.role")}</TableHead>
-                <TableHead>{t("users.columns.status")}</TableHead>
-                <TableHead>{t("users.columns.created_at")}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {(data.users as UserRow[]).map((u) => (
-                <TableRow
-                  key={u.id}
-                  onClick={() => {
-                    void navigate(`/admin/users/${u.id}`);
-                  }}
-                  className="cursor-pointer"
-                >
-                  <TableCell>{u.email}</TableCell>
-                  <TableCell>{t(`users.role.${u.role}`)}</TableCell>
-                  <TableCell>
-                    {t(`users.status.${u.status ?? "active"}`)}
-                  </TableCell>
-                  <TableCell>{u.created_at ?? ""}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-          <div className="flex items-center justify-between text-sm text-muted-foreground">
-            <span>
-              {t("users.pagination", {
-                current: currentPage,
-                total: totalPages,
-                count: data.total,
-              })}
-            </span>
-            <div className="space-x-2">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={offset === 0}
-                onClick={() =>
-                  setOffset(Math.max(0, offset - PAGE_SIZE))
-                }
-                aria-label={t("users.pagination_prev")}
-              >
-                {"\u2039"}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={currentPage >= totalPages}
-                onClick={() => setOffset(offset + PAGE_SIZE)}
-                aria-label={t("users.pagination_next")}
-              >
-                {"\u203a"}
-              </Button>
+      <AdminPageContent>
+        {loading && !data ? (
+          <UsersTableSkeleton />
+        ) : (
+          <div className="space-y-4">
+            {error && (
+              <p className="text-sm text-destructive" role="alert">
+                {t(`errors.${error}`)}
+              </p>
+            )}
+            {/* Search toolbar */}
+            <div className="relative h-8 max-w-[400px]">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2">
+                <MagnifierIcon />
+              </span>
+              <input
+                type="text"
+                placeholder={t("users.search_placeholder")}
+                value={searchQuery}
+                onChange={(e) => handleSearchChange(e.target.value)}
+                className="h-8 w-full rounded-lg border border-border bg-background pl-8 pr-3 text-sm outline-none focus:ring-2 focus:ring-primary/40"
+              />
             </div>
+
+            {/* Table */}
+            <div className="overflow-hidden rounded-xl border border-border bg-background">
+              {/* Header */}
+              <div className="grid grid-cols-[1fr_120px_120px_140px_40px] gap-3 border-b border-border bg-sidebar px-6 py-3">
+                <span className="text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  {t("users.columns.email")}
+                </span>
+                <span className="text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  {t("users.columns.role")}
+                </span>
+                <span className="text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  {t("users.columns.status")}
+                </span>
+                <span className="text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  {t("users.columns.created_at")}
+                </span>
+                <span />
+              </div>
+
+              {/* Rows */}
+              {data && data.users.length === 0 ? (
+                <div className="px-6 py-8 text-center text-sm text-muted-foreground">
+                  No users found.
+                </div>
+              ) : (
+                data?.users.map((u) => {
+                  const isSelf = currentUser?.id === u.id;
+                  const isDisabled = u.status === "disabled";
+                  return (
+                    <Link
+                      key={u.id}
+                      to={`/admin/users/${u.id}`}
+                      className={`grid grid-cols-[1fr_120px_120px_140px_40px] items-center gap-3 border-b border-border px-6 py-4 last:border-b-0 hover:bg-muted/50 ${
+                        isSelf ? "bg-accent/40" : ""
+                      }`}
+                    >
+                      {/* Email + avatar */}
+                      <div className="flex min-w-0 items-center gap-3">
+                        <UserAvatar user={u} />
+                        <div className="min-w-0">
+                          <div
+                            className={`truncate text-sm font-medium ${
+                              isDisabled
+                                ? "text-muted-foreground opacity-60"
+                                : "text-foreground"
+                            }`}
+                          >
+                            {u.email}
+                          </div>
+                          {isSelf && (
+                            <div className="text-[12px] text-muted-foreground">
+                              {t("users.list.you")}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Role */}
+                      <div>
+                        <RoleBadge role={u.role as "super_admin" | "user"} />
+                      </div>
+
+                      {/* Status */}
+                      <div>
+                        <StatusBadge status={u.status} />
+                      </div>
+
+                      {/* Created */}
+                      <div className="text-sm text-muted-foreground">
+                        {relativeTime(u.created_at)}
+                      </div>
+
+                      {/* Chevron */}
+                      <div className="text-right text-lg text-muted-foreground">
+                        {"\u203a"}
+                      </div>
+                    </Link>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Pagination */}
+            {data && data.total > PAGE_SIZE && (
+              <Pagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                totalCount={data.total}
+                pageSize={PAGE_SIZE}
+                onPageChange={handlePageChange}
+              />
+            )}
           </div>
-        </>
-      )}
-    </div>
+        )}
+      </AdminPageContent>
+    </>
   );
 }

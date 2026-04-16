@@ -66,6 +66,9 @@
       "active": "Active",
       "disabled": "Disabled"
     },
+    "list": {
+      "you": "you"
+    },
     "create": {
       "title": "Create user",
       "description": "Provision a new account. The user will be required to change their password on first sign-in.",

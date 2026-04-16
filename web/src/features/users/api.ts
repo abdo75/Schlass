@@ -1,8 +1,13 @@
 import { apiFetch } from "@/lib/api";
 import type { AuthUser } from "@/features/auth/api";
 
+export interface UserRow extends AuthUser {
+  status: "active" | "disabled";
+  created_at: string;
+}
+
 export interface UsersListResponse {
-  users: AuthUser[];
+  users: UserRow[];
   total: number;
   limit: number;
   offset: number;
