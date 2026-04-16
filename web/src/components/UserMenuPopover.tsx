@@ -3,48 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "@/features/auth/AuthContext";
 import { LanguageSwitcher } from "./LanguageSwitcher";
-
-type Theme = "light" | "dark" | "system";
-
-function applyTheme(theme: Theme) {
-  const root = document.documentElement;
-  if (theme === "dark") {
-    root.classList.add("dark");
-  } else if (theme === "light") {
-    root.classList.remove("dark");
-  } else {
-    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-    if (prefersDark) {
-      root.classList.add("dark");
-    } else {
-      root.classList.remove("dark");
-    }
-  }
-}
-
-function useTheme(): { theme: Theme; setTheme: (t: Theme) => void } {
-  const [theme, setThemeState] = useState<Theme>(() => {
-    const stored = localStorage.getItem("schlass-theme");
-    if (stored === "light" || stored === "dark" || stored === "system") return stored;
-    return "system";
-  });
-
-  useEffect(() => {
-    applyTheme(theme);
-    if (theme !== "system") return;
-    const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    const handler = () => applyTheme("system");
-    mq.addEventListener("change", handler);
-    return () => mq.removeEventListener("change", handler);
-  }, [theme]);
-
-  const setTheme = (t: Theme) => {
-    localStorage.setItem("schlass-theme", t);
-    setThemeState(t);
-  };
-
-  return { theme, setTheme };
-}
+import { useTheme, type Theme } from "@/components/ThemeToggle";
 
 function SunIcon() {
   return (
