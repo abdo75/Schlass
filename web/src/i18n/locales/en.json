@@ -35,27 +35,34 @@
     "confirm_new_password": "Confirm new password",
     "submit_change_password": "Change password",
     "submitting_change_password": "Changing password...",
-    "password_mismatch": "The new password and confirmation do not match."
+    "password_mismatch": "The new password and confirmation do not match.",
+    "change_password": {
+      "confirm": "Confirm",
+      "title_admin": "Change password",
+      "title_card": "Change your password",
+      "self_service": {
+        "subtitle": "You'll stay signed in on this device. All other active sessions will be terminated."
+      },
+      "forced": {
+        "subtitle": "Your administrator has asked you to set a new password before continuing."
+      }
+    }
   },
   "dashboard": {
     "title": "Admin dashboard",
-    "welcome": "Welcome, {{email}}",
-    "nav": {
-      "users": "Users",
-      "clients": "Clients",
-      "audit": "Audit log",
-      "settings": "Settings",
-      "signout": "Sign out",
-      "soon": "soon"
-    }
+    "welcome": "Welcome, {{email}}"
   },
   "users": {
     "title": "Users",
     "create_button": "Create user",
     "search_placeholder": "Search by email",
-    "pagination": "Page {{current}} of {{total}} ({{count}} users)",
     "pagination_prev": "Previous page",
     "pagination_next": "Next page",
+    "pagination": {
+      "showing": "Showing {{from}} to {{to}} of {{total}}",
+      "prev": "Prev",
+      "next": "Next"
+    },
     "columns": {
       "email": "Email",
       "role": "Role",
@@ -70,16 +77,31 @@
       "active": "Active",
       "disabled": "Disabled"
     },
+    "list": {
+      "you": "you"
+    },
     "create": {
-      "title": "Create user",
-      "description": "Provision a new account. The user will be required to change their password on first sign-in.",
+      "title": "Create a new user",
+      "description": "A temporary password will be generated and shown once. The user will be required to change it on first sign-in.",
       "email_label": "Email",
       "password_label": "Temporary password",
       "password_hint": "Minimum 12 characters, at least one uppercase letter and one digit.",
       "role_label": "Role",
+      "role_description": {
+        "user": "Standard account with no admin access.",
+        "super_admin": "Full access — can manage users."
+      },
       "submit": "Create user",
       "submitting": "Creating...",
-      "cancel": "Cancel"
+      "cancel": "Cancel",
+      "temp_password_modal": {
+        "title": "Temporary password",
+        "subtitle": "For {{email}}",
+        "warning": "Shown once. Lose it and you'll have to reset.",
+        "copy": "Copy",
+        "copied": "Copied",
+        "done": "Done"
+      }
     },
     "detail": {
       "back": "Back to users",
@@ -89,6 +111,7 @@
       "email_label": "Email",
       "role_label": "Role",
       "status_label": "Status",
+      "disabled_subtitle": "Disabled by {{actor}} · {{time}}",
       "edit": "Edit",
       "save": "Save",
       "saving": "Saving...",
@@ -111,7 +134,23 @@
         "actions": "Actions"
       },
       "kill_session": "Kill session",
-      "kill_all_sessions": "Kill all sessions"
+      "kill_all_sessions": "Kill all sessions",
+      "self": {
+        "heading_subtitle": "This is you",
+        "actions_note": "Disable and delete are hidden on your own account. To remove yourself, have another administrator do it — or promote a new admin first.",
+        "change_password": "Change your password"
+      },
+      "not_found": {
+        "title": "User not found",
+        "body": "They may have been deleted by another administrator, or the link is incorrect.",
+        "back": "Back to users"
+      },
+      "sessions": {
+        "empty_disabled": {
+          "title": "No active sessions",
+          "body": "All sessions were terminated when this user was disabled."
+        }
+      }
     },
     "confirm": {
       "disable_title": "Disable this user?",
@@ -123,7 +162,22 @@
       "kill_all_sessions_title": "Terminate all sessions?",
       "kill_all_sessions_body": "Every device currently signed in as this user will be signed out. The user will need to sign in again on each device.",
       "kill_all_sessions_confirm": "Kill all sessions",
-      "cancel": "Cancel"
+      "cancel": "Cancel",
+      "reset_password": {
+        "title": "Reset password?",
+        "body": "A new temporary password will be generated. They'll be signed out everywhere and forced to change it on next sign-in.",
+        "confirm": "Reset password"
+      },
+      "terminate_all": {
+        "title": "Sign out of every device?",
+        "body": "They'll need to sign in again on each device. Their password is unchanged.",
+        "confirm": "Sign out everywhere"
+      },
+      "terminate_one": {
+        "title": "Sign out this device?",
+        "body": "This session will be terminated. Other sessions are unaffected.",
+        "confirm": "Sign out device"
+      }
     }
   },
   "errors": {
@@ -152,5 +206,11 @@
     "en": "English",
     "fr": "Français",
     "de": "Deutsch"
+  },
+  "user_menu": {
+    "theme": { "heading": "Theme", "light": "Light", "dark": "Dark", "system": "System" },
+    "language": { "heading": "Language" },
+    "change_password": "Change password",
+    "sign_out": "Sign out"
   }
 }

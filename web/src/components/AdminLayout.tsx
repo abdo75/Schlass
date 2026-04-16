@@ -1,67 +1,122 @@
-import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { NavLink, Link, Outlet } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Button } from "@/components/ui/button";
-import { useAuth } from "@/features/auth/AuthContext";
-import { ThemeToggle } from "@/components/ThemeToggle";
-import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { UserMenuPopover } from "@/components/UserMenuPopover";
+
+function UsersIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </svg>
+  );
+}
+
+function ChevronLeftIcon() {
+  return (
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <polyline points="15 18 9 12 15 6" />
+    </svg>
+  );
+}
+
+export function AdminSidebar() {
+  const { t } = useTranslation();
+  return (
+    <aside className="flex w-[220px] flex-col border-r border-border bg-sidebar px-4 py-6">
+      <div className="mb-6 flex items-center gap-3 px-3">
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-sm font-extrabold text-primary-foreground">
+          S
+        </div>
+        <span className="text-base font-bold tracking-tight">Schlass</span>
+      </div>
+      <nav className="flex flex-col gap-1.5">
+        <NavLink
+          to="/admin/users"
+          className={({ isActive }) =>
+            `flex h-8 items-center gap-2.5 rounded-lg px-3 text-sm font-semibold transition-colors ${
+              isActive
+                ? "bg-accent text-accent-foreground"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+            }`
+          }
+        >
+          <UsersIcon />
+          {t("users.title")}
+        </NavLink>
+      </nav>
+    </aside>
+  );
+}
 
 export function AdminLayout() {
-  const { t } = useTranslation();
-  const { user, logout } = useAuth();
-  const location = useLocation();
-  const navigate = useNavigate();
-
-  const handleLogout = async () => {
-    await logout();
-    void navigate("/login", { replace: true });
-  };
-
-  const navLinkClass = (path: string) =>
-    `block px-3 py-2 rounded-md text-sm transition ${
-      location.pathname.startsWith(path)
-        ? "bg-accent text-accent-foreground font-medium"
-        : "text-muted-foreground hover:bg-muted"
-    }`;
-
   return (
-    <div className="min-h-screen flex">
-      <aside className="w-56 border-r bg-card p-4 flex flex-col">
-        <div className="font-bold text-lg mb-6">Schlass</div>
-        <nav className="flex-1 space-y-1">
-          <Link to="/admin/users" className={navLinkClass("/admin/users")}>
-            {t("dashboard.nav.users")}
-          </Link>
-          <div className="block px-3 py-2 text-sm text-muted-foreground opacity-50">
-            {t("dashboard.nav.clients")}{" "}
-            <span className="text-xs">({t("dashboard.nav.soon")})</span>
-          </div>
-          <div className="block px-3 py-2 text-sm text-muted-foreground opacity-50">
-            {t("dashboard.nav.audit")}{" "}
-            <span className="text-xs">({t("dashboard.nav.soon")})</span>
-          </div>
-        </nav>
-        <div className="border-t pt-3 space-y-2">
-          <div className="px-3 text-xs text-muted-foreground">{user?.email}</div>
-          <div className="px-3 text-xs text-muted-foreground opacity-70">{user?.role}</div>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="w-full justify-start"
-            onClick={() => {
-              void handleLogout();
-            }}
-          >
-            {t("dashboard.nav.signout")}
-          </Button>
-          <div className="flex gap-1 px-3">
-            <ThemeToggle />
-            <LanguageSwitcher />
-          </div>
-        </div>
-      </aside>
-      <main className="flex-1 p-6 bg-background overflow-auto">
+    <div className="flex min-h-screen bg-sidebar">
+      <AdminSidebar />
+      <main className="flex min-w-0 flex-1 flex-col bg-background">
         <Outlet />
       </main>
     </div>
   );
+}
+
+interface AdminPageHeaderProps {
+  breadcrumb?: { label: string; to: string };
+  title?: string;
+  subtitle?: string;
+  primaryAction?: React.ReactNode;
+}
+
+export function AdminPageHeader({ breadcrumb, title, subtitle, primaryAction }: AdminPageHeaderProps) {
+  return (
+    <div className="flex items-center justify-between gap-6 border-b border-border bg-background px-8 py-4">
+      <div className="min-w-0">
+        {breadcrumb && (
+          <Link
+            to={breadcrumb.to}
+            className="inline-flex items-center gap-1 text-[13px] leading-none text-muted-foreground hover:text-foreground"
+          >
+            <ChevronLeftIcon />
+            {breadcrumb.label}
+          </Link>
+        )}
+        {title && (
+          <div className="mt-0.5 text-lg font-semibold leading-tight tracking-tight">{title}</div>
+        )}
+        {subtitle && (
+          <div className="mt-0.5 text-[13px] leading-snug text-muted-foreground">{subtitle}</div>
+        )}
+      </div>
+      <div className="flex shrink-0 items-center gap-3">
+        {primaryAction}
+        {primaryAction && <div className="h-6 w-px bg-border" />}
+        <UserMenuPopover />
+      </div>
+    </div>
+  );
+}
+
+export function AdminPageContent({ children }: { children: React.ReactNode }) {
+  return <div className="min-w-0 flex-1 bg-sidebar px-8 py-7">{children}</div>;
 }

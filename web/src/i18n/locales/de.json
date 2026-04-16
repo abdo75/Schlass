@@ -35,27 +35,34 @@
     "confirm_new_password": "Neues Passwort bestätigen",
     "submit_change_password": "Passwort ändern",
     "submitting_change_password": "Passwort wird geändert...",
-    "password_mismatch": "Das neue Passwort und die Bestätigung stimmen nicht überein."
+    "password_mismatch": "Das neue Passwort und die Bestätigung stimmen nicht überein.",
+    "change_password": {
+      "confirm": "Bestätigen",
+      "title_admin": "Passwort ändern",
+      "title_card": "Passwort ändern",
+      "self_service": {
+        "subtitle": "Sie bleiben auf diesem Gerät angemeldet. Alle anderen aktiven Sitzungen werden beendet."
+      },
+      "forced": {
+        "subtitle": "Ihr Administrator hat Sie gebeten, vor dem Fortfahren ein neues Passwort festzulegen."
+      }
+    }
   },
   "dashboard": {
     "title": "Admin-Dashboard",
-    "welcome": "Willkommen, {{email}}",
-    "nav": {
-      "users": "Benutzer",
-      "clients": "Clients",
-      "audit": "Audit-Protokoll",
-      "settings": "Einstellungen",
-      "signout": "Abmelden",
-      "soon": "bald"
-    }
+    "welcome": "Willkommen, {{email}}"
   },
   "users": {
     "title": "Benutzer",
     "create_button": "Benutzer anlegen",
     "search_placeholder": "Nach E-Mail suchen",
-    "pagination": "Seite {{current}} von {{total}} ({{count}} Benutzer)",
     "pagination_prev": "Vorherige Seite",
     "pagination_next": "Nächste Seite",
+    "pagination": {
+      "showing": "Zeige {{from}} bis {{to}} von {{total}}",
+      "prev": "Zurück",
+      "next": "Weiter"
+    },
     "columns": {
       "email": "E-Mail",
       "role": "Rolle",
@@ -70,16 +77,31 @@
       "active": "Aktiv",
       "disabled": "Deaktiviert"
     },
+    "list": {
+      "you": "du"
+    },
     "create": {
-      "title": "Benutzer anlegen",
-      "description": "Legen Sie ein neues Konto an. Der Benutzer muss sein Passwort bei der ersten Anmeldung ändern.",
+      "title": "Neuen Benutzer anlegen",
+      "description": "Ein temporäres Passwort wird generiert und einmalig angezeigt. Der Benutzer muss es bei der ersten Anmeldung ändern.",
       "email_label": "E-Mail",
       "password_label": "Temporäres Passwort",
       "password_hint": "Mindestens 12 Zeichen, mindestens ein Großbuchstabe und eine Ziffer.",
       "role_label": "Rolle",
+      "role_description": {
+        "user": "Standardkonto ohne Administratorzugriff.",
+        "super_admin": "Vollzugriff — kann Benutzer verwalten."
+      },
       "submit": "Benutzer anlegen",
       "submitting": "Wird erstellt...",
-      "cancel": "Abbrechen"
+      "cancel": "Abbrechen",
+      "temp_password_modal": {
+        "title": "Temporäres Passwort",
+        "subtitle": "Für {{email}}",
+        "warning": "Wird nur einmal angezeigt. Bei Verlust muss zurückgesetzt werden.",
+        "copy": "Kopieren",
+        "copied": "Kopiert",
+        "done": "Fertig"
+      }
     },
     "detail": {
       "back": "Zurück zu Benutzern",
@@ -89,6 +111,7 @@
       "email_label": "E-Mail",
       "role_label": "Rolle",
       "status_label": "Status",
+      "disabled_subtitle": "Deaktiviert von {{actor}} · {{time}}",
       "edit": "Bearbeiten",
       "save": "Speichern",
       "saving": "Wird gespeichert...",
@@ -111,7 +134,23 @@
         "actions": "Aktionen"
       },
       "kill_session": "Sitzung beenden",
-      "kill_all_sessions": "Alle Sitzungen beenden"
+      "kill_all_sessions": "Alle Sitzungen beenden",
+      "self": {
+        "heading_subtitle": "Das sind Sie",
+        "actions_note": "Deaktivieren und Löschen sind für Ihr eigenes Konto ausgeblendet. Um sich selbst zu entfernen, beauftragen Sie einen anderen Administrator — oder befördern Sie zuerst einen neuen Admin.",
+        "change_password": "Ihr Passwort ändern"
+      },
+      "not_found": {
+        "title": "Benutzer nicht gefunden",
+        "body": "Er wurde möglicherweise von einem anderen Administrator gelöscht, oder der Link ist ungültig.",
+        "back": "Zurück zu Benutzern"
+      },
+      "sessions": {
+        "empty_disabled": {
+          "title": "Keine aktiven Sitzungen",
+          "body": "Alle Sitzungen wurden bei der Deaktivierung dieses Benutzers beendet."
+        }
+      }
     },
     "confirm": {
       "disable_title": "Diesen Benutzer deaktivieren?",
@@ -123,7 +162,22 @@
       "kill_all_sessions_title": "Alle Sitzungen beenden?",
       "kill_all_sessions_body": "Alle Geräte, die derzeit als dieser Benutzer angemeldet sind, werden abgemeldet. Der Benutzer muss sich auf jedem Gerät neu anmelden.",
       "kill_all_sessions_confirm": "Alle Sitzungen beenden",
-      "cancel": "Abbrechen"
+      "cancel": "Abbrechen",
+      "reset_password": {
+        "title": "Passwort zurücksetzen?",
+        "body": "Ein neues temporäres Passwort wird generiert. Der Benutzer wird überall abgemeldet und muss es bei der nächsten Anmeldung ändern.",
+        "confirm": "Passwort zurücksetzen"
+      },
+      "terminate_all": {
+        "title": "Von allen Geräten abmelden?",
+        "body": "Der Benutzer muss sich auf jedem Gerät neu anmelden. Das Passwort bleibt unverändert.",
+        "confirm": "Überall abmelden"
+      },
+      "terminate_one": {
+        "title": "Dieses Gerät abmelden?",
+        "body": "Diese Sitzung wird beendet. Andere Sitzungen sind nicht betroffen.",
+        "confirm": "Gerät abmelden"
+      }
     }
   },
   "errors": {
@@ -152,5 +206,11 @@
     "en": "English",
     "fr": "Français",
     "de": "Deutsch"
+  },
+  "user_menu": {
+    "theme": { "heading": "Design", "light": "Hell", "dark": "Dunkel", "system": "System" },
+    "language": { "heading": "Sprache" },
+    "change_password": "Passwort ändern",
+    "sign_out": "Abmelden"
   }
 }

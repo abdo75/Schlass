@@ -1,8 +1,13 @@
 import { apiFetch } from "@/lib/api";
 import type { AuthUser } from "@/features/auth/api";
 
+export interface UserRow extends AuthUser {
+  status: "active" | "disabled";
+  created_at: string;
+}
+
 export interface UsersListResponse {
-  users: AuthUser[];
+  users: UserRow[];
   total: number;
   limit: number;
   offset: number;
@@ -17,8 +22,17 @@ export interface UserSession {
 }
 
 export interface UserDetailResponse {
-  user: AuthUser;
+  user: UserRow;
   sessions: UserSession[];
+}
+
+export interface CreateUserResponse {
+  user: AuthUser;
+  temporary_password: string;
+}
+
+export interface ResetPasswordResponse {
+  temporary_password: string;
 }
 
 export function listUsers(
@@ -36,13 +50,12 @@ export function listUsers(
 
 export function createUser(
   email: string,
-  password: string,
   role: "super_admin" | "user",
-): Promise<{ user: AuthUser }> {
-  return apiFetch<{ user: AuthUser }>("/api/users", {
+): Promise<CreateUserResponse> {
+  return apiFetch<CreateUserResponse>("/api/users", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password, role }),
+    body: JSON.stringify({ email, role }),
   });
 }
 
@@ -69,11 +82,11 @@ export function enableUser(id: string): Promise<void> {
   return apiFetch<void>(`/api/users/${id}/enable`, { method: "POST" });
 }
 
-export function resetUserPassword(id: string, password: string): Promise<void> {
-  return apiFetch<void>(`/api/users/${id}/reset-password`, {
+export function resetUserPassword(id: string): Promise<ResetPasswordResponse> {
+  return apiFetch<ResetPasswordResponse>(`/api/users/${id}/reset-password`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ password }),
+    body: JSON.stringify({}),
   });
 }
 

@@ -35,27 +35,34 @@
     "confirm_new_password": "Confirmer le nouveau mot de passe",
     "submit_change_password": "Changer le mot de passe",
     "submitting_change_password": "Modification du mot de passe...",
-    "password_mismatch": "Le nouveau mot de passe et la confirmation ne correspondent pas."
+    "password_mismatch": "Le nouveau mot de passe et la confirmation ne correspondent pas.",
+    "change_password": {
+      "confirm": "Confirmer",
+      "title_admin": "Changer le mot de passe",
+      "title_card": "Changez votre mot de passe",
+      "self_service": {
+        "subtitle": "Vous resterez connecté sur cet appareil. Toutes les autres sessions actives seront terminées."
+      },
+      "forced": {
+        "subtitle": "Votre administrateur vous a demandé de définir un nouveau mot de passe avant de continuer."
+      }
+    }
   },
   "dashboard": {
     "title": "Tableau de bord administrateur",
-    "welcome": "Bienvenue, {{email}}",
-    "nav": {
-      "users": "Utilisateurs",
-      "clients": "Clients",
-      "audit": "Journal d'audit",
-      "settings": "Paramètres",
-      "signout": "Se déconnecter",
-      "soon": "bientôt"
-    }
+    "welcome": "Bienvenue, {{email}}"
   },
   "users": {
     "title": "Utilisateurs",
     "create_button": "Créer un utilisateur",
     "search_placeholder": "Rechercher par e-mail",
-    "pagination": "Page {{current}} sur {{total}} ({{count}} utilisateurs)",
     "pagination_prev": "Page précédente",
     "pagination_next": "Page suivante",
+    "pagination": {
+      "showing": "Affichage de {{from}} à {{to}} sur {{total}}",
+      "prev": "Préc.",
+      "next": "Suiv."
+    },
     "columns": {
       "email": "E-mail",
       "role": "Rôle",
@@ -70,16 +77,31 @@
       "active": "Actif",
       "disabled": "Désactivé"
     },
+    "list": {
+      "you": "vous"
+    },
     "create": {
-      "title": "Créer un utilisateur",
-      "description": "Provisionnez un nouveau compte. L'utilisateur devra changer son mot de passe lors de sa première connexion.",
+      "title": "Créer un nouvel utilisateur",
+      "description": "Un mot de passe temporaire sera généré et affiché une seule fois. L'utilisateur devra le changer lors de sa première connexion.",
       "email_label": "E-mail",
       "password_label": "Mot de passe temporaire",
       "password_hint": "Minimum 12 caractères, au moins une lettre majuscule et un chiffre.",
       "role_label": "Rôle",
+      "role_description": {
+        "user": "Compte standard sans accès administrateur.",
+        "super_admin": "Accès complet — peut gérer les utilisateurs."
+      },
       "submit": "Créer l'utilisateur",
       "submitting": "Création...",
-      "cancel": "Annuler"
+      "cancel": "Annuler",
+      "temp_password_modal": {
+        "title": "Mot de passe temporaire",
+        "subtitle": "Pour {{email}}",
+        "warning": "Affiché une seule fois. En cas de perte, il faudra réinitialiser.",
+        "copy": "Copier",
+        "copied": "Copié",
+        "done": "Terminé"
+      }
     },
     "detail": {
       "back": "Retour aux utilisateurs",
@@ -89,6 +111,7 @@
       "email_label": "E-mail",
       "role_label": "Rôle",
       "status_label": "Statut",
+      "disabled_subtitle": "Désactivé par {{actor}} · {{time}}",
       "edit": "Modifier",
       "save": "Enregistrer",
       "saving": "Enregistrement...",
@@ -111,7 +134,23 @@
         "actions": "Actions"
       },
       "kill_session": "Terminer la session",
-      "kill_all_sessions": "Terminer toutes les sessions"
+      "kill_all_sessions": "Terminer toutes les sessions",
+      "self": {
+        "heading_subtitle": "C'est vous",
+        "actions_note": "Désactiver et supprimer sont masqués sur votre propre compte. Pour vous retirer, demandez à un autre administrateur — ou promouvez d'abord un nouvel administrateur.",
+        "change_password": "Changer votre mot de passe"
+      },
+      "not_found": {
+        "title": "Utilisateur introuvable",
+        "body": "Il a peut-être été supprimé par un autre administrateur, ou le lien est incorrect.",
+        "back": "Retour aux utilisateurs"
+      },
+      "sessions": {
+        "empty_disabled": {
+          "title": "Aucune session active",
+          "body": "Toutes les sessions ont été terminées lors de la désactivation de cet utilisateur."
+        }
+      }
     },
     "confirm": {
       "disable_title": "Désactiver cet utilisateur ?",
@@ -123,7 +162,22 @@
       "kill_all_sessions_title": "Terminer toutes les sessions ?",
       "kill_all_sessions_body": "Tous les appareils actuellement connectés sous cet utilisateur seront déconnectés. L'utilisateur devra se reconnecter sur chaque appareil.",
       "kill_all_sessions_confirm": "Terminer toutes les sessions",
-      "cancel": "Annuler"
+      "cancel": "Annuler",
+      "reset_password": {
+        "title": "Réinitialiser le mot de passe ?",
+        "body": "Un nouveau mot de passe temporaire sera généré. L'utilisateur sera déconnecté partout et devra le changer à la prochaine connexion.",
+        "confirm": "Réinitialiser le mot de passe"
+      },
+      "terminate_all": {
+        "title": "Déconnecter de tous les appareils ?",
+        "body": "L'utilisateur devra se reconnecter sur chaque appareil. Son mot de passe reste inchangé.",
+        "confirm": "Déconnecter partout"
+      },
+      "terminate_one": {
+        "title": "Déconnecter cet appareil ?",
+        "body": "Cette session sera terminée. Les autres sessions ne sont pas affectées.",
+        "confirm": "Déconnecter l'appareil"
+      }
     }
   },
   "errors": {
@@ -152,5 +206,11 @@
     "en": "English",
     "fr": "Français",
     "de": "Deutsch"
+  },
+  "user_menu": {
+    "theme": { "heading": "Thème", "light": "Clair", "dark": "Sombre", "system": "Système" },
+    "language": { "heading": "Langue" },
+    "change_password": "Changer le mot de passe",
+    "sign_out": "Se déconnecter"
   }
 }

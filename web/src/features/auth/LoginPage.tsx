@@ -12,7 +12,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { AuthLayout } from "@/components/AuthLayout";
-import { ThemeToggle } from "@/components/ThemeToggle";
 import { useAuth } from "./AuthContext";
 
 export function LoginPage() {
@@ -77,16 +76,15 @@ export function LoginPage() {
 
   return (
     <AuthLayout>
-      <ThemeToggle />
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle className="text-2xl">{t("auth.login_title")}</CardTitle>
-          <CardDescription>{t("auth.login_description")}</CardDescription>
+      <Card className="w-full overflow-hidden border-border">
+        <CardHeader className="px-8 pt-8 pb-5">
+          <CardTitle className="text-2xl font-semibold tracking-tight leading-tight">{t("auth.login_title")}</CardTitle>
+          <CardDescription className="mt-2 text-[13px] leading-relaxed">{t("auth.login_description")}</CardDescription>
         </CardHeader>
-        <CardContent>
-          <form onSubmit={(e) => { void handleSubmit(e); }} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="email">{t("auth.email")}</Label>
+        <CardContent className="px-8 pb-7">
+          <form onSubmit={(e) => { void handleSubmit(e); }} className="flex flex-col gap-[18px]">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="email" className="text-[13px] font-medium">{t("auth.email")}</Label>
               <Input
                 id="email"
                 type="email"
@@ -98,8 +96,8 @@ export function LoginPage() {
               />
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="password">{t("auth.password")}</Label>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="password" className="text-[13px] font-medium">{t("auth.password")}</Label>
               <Input
                 id="password"
                 type="password"
@@ -111,14 +109,16 @@ export function LoginPage() {
             </div>
 
             {errorCode && (
-              <p className="text-destructive text-sm" role="alert">
+              <p className="text-sm text-destructive" role="alert">
                 {renderErrorMessage()}
               </p>
             )}
 
-            <Button type="submit" className="w-full" disabled={submitting}>
-              {submitting ? t("auth.submitting") : t("auth.submit")}
-            </Button>
+            <div className="border-t border-border px-8 py-7 -mx-8">
+              <Button type="submit" className="h-9 w-full" disabled={submitting}>
+                {submitting ? t("auth.submitting") : t("auth.submit")}
+              </Button>
+            </div>
           </form>
         </CardContent>
       </Card>

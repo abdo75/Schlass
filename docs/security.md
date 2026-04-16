@@ -7,6 +7,10 @@ Each entry names a control, what it defends, and the file(s) implementing it. Pa
 - **Password hashing (Argon2id)** — Argon2id at 19 MiB, 2 iterations, parallelism 1, with per-password random salt and PHC-encoded output. Defends against offline cracking of stolen hashes. `internal/crypto/password.go`
 - **Encryption at rest for sensitive config** — AES-256-GCM with a 32-byte key from `SCHLASS_ENCRYPTION_KEY`, used for `smtp_password` and `totp_secret` rows in `instance_config`. Defends against database-dump disclosure of secrets. `internal/crypto/encryption.go`, `internal/config/config_service.go`
 
+## Temporary password generation
+
+Admins never type passwords when creating or resetting users. The server generates a 16-character password from a base58-minus-ambiguous alphabet (~93 bits entropy) via `crypto/rand`. The plaintext exists only in the HTTP response; it is never stored, logged, cached, or written to audit rows. `force_password_change=true` ensures the user rotates it on first sign-in. Implementation: `internal/crypto/password.go:GenerateTemporaryPassword`.
+
 ## Authentication
 
 - **Opaque session tokens** — 32 bytes from `crypto/rand`, base64url-encoded, stored only in Valkey under `session:<token>`. No JWTs, no client-side claims to forge. `internal/session/`, `internal/handler/auth.go`

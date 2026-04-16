@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -21,7 +22,6 @@ import (
 	"github.com/abdo75/Schlass/internal/config"
 	"github.com/abdo75/Schlass/internal/crypto"
 	"github.com/abdo75/Schlass/internal/middleware"
-	"github.com/abdo75/Schlass/internal/model"
 	"github.com/abdo75/Schlass/internal/session"
 	"github.com/abdo75/Schlass/internal/store"
 )
@@ -155,9 +155,8 @@ func uniqueViolationAsEmailConflict(w http.ResponseWriter, err error) bool {
 // --- Stub methods — 501 NOT_IMPLEMENTED until Tasks 6–11 replace them. ---
 
 type createUserRequest struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
-	Role     string `json:"role"`
+	Email string `json:"email"`
+	Role  string `json:"role"`
 }
 
 // List handles GET /api/users.
@@ -232,24 +231,14 @@ func (h *UsersHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Password policy check.
-	policy, err := h.configService.GetPasswordPolicy(r.Context(), h.pool)
+	tempPassword, err := crypto.GenerateTemporaryPassword()
 	if err != nil {
-		slog.Error("load password policy", "error", err)
+		slog.Error("generate temporary password", "error", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 		return
 	}
-	if err := model.ValidatePassword(req.Password, policy); err != nil {
-		var policyErr *model.PasswordPolicyError
-		if errors.As(err, &policyErr) {
-			writeError(w, http.StatusBadRequest, "PASSWORD_POLICY_VIOLATION", err.Error())
-			return
-		}
-		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
-		return
-	}
 
-	hash, err := crypto.HashPassword(req.Password)
+	hash, err := crypto.HashPassword(tempPassword)
 	if err != nil {
 		slog.Error("hash password", "error", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
@@ -309,7 +298,10 @@ func (h *UsersHandler) Create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"user": userDTO(fresh)})
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"user":               userDTO(fresh),
+		"temporary_password": tempPassword,
+	})
 }
 
 // Get handles GET /api/users/:id. Returns the user DTO plus the list of
@@ -682,43 +674,36 @@ func (h *UsersHandler) Enable(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// ResetPassword handles POST /api/users/:id/reset-password. The admin provides
-// a new temporary password; we policy-validate it, hash it, write the update
-// inside a tx with force_password_change=true so the user must change it on
-// next login, audit the operation, commit, and then best-effort revoke every
-// active session for the target so they're kicked out and must re-log in with
-// the temp and walk the forced-change flow.
+// ResetPassword handles POST /api/users/:id/reset-password. The server
+// generates a fresh temporary password (any client-supplied body is drained
+// and discarded), hashes it, writes the update inside a tx with
+// force_password_change=true so the user must change it on next login, audits
+// the operation, commits, and then best-effort revokes every active session for
+// the target so they're kicked out and must re-log in with the temp and walk
+// the forced-change flow. Returns the plaintext temp password in a 200 body —
+// that is the single place the plaintext ever appears.
 func (h *UsersHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	id, ok := parseUserID(w, r)
 	if !ok {
 		return
 	}
 
-	var req struct {
-		Password string `json:"password"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body.")
+	if h.rejectSelfOp(w, r, id) {
 		return
 	}
 
-	policy, err := h.configService.GetPasswordPolicy(r.Context(), h.pool)
+	// Drain and discard any client-supplied body — the password is generated
+	// server-side; whatever the client sends is irrelevant.
+	_, _ = io.Copy(io.Discard, r.Body)
+
+	tempPassword, err := crypto.GenerateTemporaryPassword()
 	if err != nil {
-		slog.Error("users.ResetPassword: load password policy", "error", err)
+		slog.Error("users.ResetPassword: generate temp password", "error", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 		return
 	}
-	if err := model.ValidatePassword(req.Password, policy); err != nil {
-		var policyErr *model.PasswordPolicyError
-		if errors.As(err, &policyErr) {
-			writeError(w, http.StatusBadRequest, "PASSWORD_POLICY_VIOLATION", err.Error())
-			return
-		}
-		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
-		return
-	}
 
-	hash, err := crypto.HashPassword(req.Password)
+	hash, err := crypto.HashPassword(tempPassword)
 	if err != nil {
 		slog.Error("users.ResetPassword: hash password", "error", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
@@ -791,7 +776,7 @@ func (h *UsersHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("users.ResetPassword: session revocation degraded", "error", err, "user_id", id) //nolint:gosec // G706: slog structured logging is not susceptible to log injection
 	}
 
-	w.WriteHeader(http.StatusNoContent)
+	writeJSON(w, http.StatusOK, map[string]any{"temporary_password": tempPassword})
 }
 
 // Delete handles DELETE /api/users/:id. Hard-deletes the target row from the
@@ -942,15 +927,11 @@ func (h *UsersHandler) ListSessions(w http.ResponseWriter, r *http.Request) {
 
 // TerminateAllSessions serves DELETE /api/users/:id/sessions. Nuclear
 // force-terminate: kills every active session for the target user. Self-op
-// is rejected — an admin wanting to sign out their own current session
-// should use POST /api/logout, which has the right semantics for the
-// caller's own cookie.
+// is allowed — an admin can sign themselves out of all devices (standard
+// IDP behavior: Okta, Auth0, Keycloak all permit this).
 func (h *UsersHandler) TerminateAllSessions(w http.ResponseWriter, r *http.Request) {
 	id, ok := parseUserID(w, r)
 	if !ok {
-		return
-	}
-	if h.rejectSelfOp(w, r, id) {
 		return
 	}
 

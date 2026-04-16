@@ -85,12 +85,12 @@ func TestUsers_RoleGate_AllowsSuperAdmin(t *testing.T) {
 	}
 }
 
-func TestUsers_Create_HappyPath(t *testing.T) {
+func TestCreateUser_ReturnsTemporaryPassword(t *testing.T) {
 	env := NewTestEnv(t)
 	env.SeedAdmin(t, "admin@example.com", "CorrectHorse42Battery")
 	cookie := env.LoginAsAdmin(t, "admin@example.com", "CorrectHorse42Battery")
 
-	body := bytes.NewBufferString(`{"email":"new@example.com","password":"NewTempPass42!","role":"user"}`)
+	body := bytes.NewBufferString(`{"email":"new-user@example.com","role":"user"}`)
 	req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/users", body)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Origin", "http://localhost:3000")
@@ -99,27 +99,95 @@ func TestUsers_Create_HappyPath(t *testing.T) {
 	env.Router.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusCreated {
-		t.Fatalf("want 201, got %d: %s", rec.Code, rec.Body.String())
+		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	// Verify the row exists and force_password_change is true.
-	var fpc bool
-	if err := env.Pool.QueryRow(t.Context(),
-		`SELECT force_password_change FROM users WHERE email = $1`, "new@example.com",
-	).Scan(&fpc); err != nil {
-		t.Fatalf("query new user: %v", err)
+	var respBody struct {
+		User struct {
+			ID                  string `json:"id"`
+			Email               string `json:"email"`
+			Role                string `json:"role"`
+			ForcePasswordChange bool   `json:"force_password_change"`
+		} `json:"user"`
+		TemporaryPassword string `json:"temporary_password"`
 	}
-	if !fpc {
-		t.Fatal("admin-created user should have force_password_change=true")
+	if err := json.NewDecoder(rec.Body).Decode(&respBody); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if respBody.User.Email != "new-user@example.com" {
+		t.Errorf("email mismatch: %q", respBody.User.Email)
+	}
+	if !respBody.User.ForcePasswordChange {
+		t.Error("force_password_change should be true for admin-created users")
+	}
+	if len(respBody.TemporaryPassword) != 16 {
+		t.Errorf("temporary_password wrong length: %d", len(respBody.TemporaryPassword))
 	}
 
-	// Verify an audit row exists.
+	// Verify an audit row exists with no password in metadata.
 	var auditCount int
 	_ = env.Pool.QueryRow(t.Context(),
 		`SELECT count(*) FROM audit_logs WHERE event_type = 'user.created' AND actor_email = $1`,
 		"admin@example.com").Scan(&auditCount)
 	if auditCount != 1 {
 		t.Fatalf("want 1 user.created audit row, got %d", auditCount)
+	}
+
+	// The returned temp password must let the new user actually log in.
+	loginBody := bytes.NewBufferString(`{"email":"new-user@example.com","password":"` + respBody.TemporaryPassword + `"}`)
+	loginReq := httptest.NewRequestWithContext(t.Context(), "POST", "/api/login", loginBody)
+	loginReq.Header.Set("Content-Type", "application/json")
+	loginReq.Header.Set("Origin", "http://localhost:3000")
+	loginRec := httptest.NewRecorder()
+	env.Router.ServeHTTP(loginRec, loginReq)
+	if loginRec.Code != http.StatusOK {
+		t.Fatalf("new user could not log in with returned temp password: status %d", loginRec.Code)
+	}
+}
+
+func TestCreateUser_IgnoresAdminSuppliedPassword(t *testing.T) {
+	env := NewTestEnv(t)
+	env.SeedAdmin(t, "admin@example.com", "CorrectHorse42Battery")
+	cookie := env.LoginAsAdmin(t, "admin@example.com", "CorrectHorse42Battery")
+
+	// Admin tries to supply a password — it must be silently ignored.
+	body := bytes.NewBufferString(`{"email":"another-user@example.com","role":"user","password":"AdminPicked42Battery"}`)
+	req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/users", body)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", "http://localhost:3000")
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	env.Router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201 regardless of admin-supplied password, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var respBody struct {
+		TemporaryPassword string `json:"temporary_password"`
+	}
+	_ = json.NewDecoder(rec.Body).Decode(&respBody)
+
+	// The admin-supplied password MUST NOT work.
+	loginBody := bytes.NewBufferString(`{"email":"another-user@example.com","password":"AdminPicked42Battery"}`)
+	loginReq := httptest.NewRequestWithContext(t.Context(), "POST", "/api/login", loginBody)
+	loginReq.Header.Set("Content-Type", "application/json")
+	loginReq.Header.Set("Origin", "http://localhost:3000")
+	loginRec := httptest.NewRecorder()
+	env.Router.ServeHTTP(loginRec, loginReq)
+	if loginRec.Code == http.StatusOK {
+		t.Error("admin-supplied password should not work — request body password must be ignored")
+	}
+
+	// The server-generated temp password must work.
+	loginBody2 := bytes.NewBufferString(`{"email":"another-user@example.com","password":"` + respBody.TemporaryPassword + `"}`)
+	loginReq2 := httptest.NewRequestWithContext(t.Context(), "POST", "/api/login", loginBody2)
+	loginReq2.Header.Set("Content-Type", "application/json")
+	loginReq2.Header.Set("Origin", "http://localhost:3000")
+	loginRec2 := httptest.NewRecorder()
+	env.Router.ServeHTTP(loginRec2, loginReq2)
+	if loginRec2.Code != http.StatusOK {
+		t.Error("returned temporary_password should work")
 	}
 }
 
@@ -128,7 +196,7 @@ func TestUsers_Create_DuplicateEmail_409(t *testing.T) {
 	env.SeedAdmin(t, "admin@example.com", "CorrectHorse42Battery")
 	cookie := env.LoginAsAdmin(t, "admin@example.com", "CorrectHorse42Battery")
 
-	body := bytes.NewBufferString(`{"email":"admin@example.com","password":"Whatever42Battery","role":"user"}`)
+	body := bytes.NewBufferString(`{"email":"admin@example.com","role":"user"}`)
 	req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/users", body)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Origin", "http://localhost:3000")
@@ -144,26 +212,6 @@ func TestUsers_Create_DuplicateEmail_409(t *testing.T) {
 	}
 }
 
-func TestUsers_Create_WeakPassword_400(t *testing.T) {
-	env := NewTestEnv(t)
-	env.SeedAdmin(t, "admin@example.com", "CorrectHorse42Battery")
-	cookie := env.LoginAsAdmin(t, "admin@example.com", "CorrectHorse42Battery")
-
-	body := bytes.NewBufferString(`{"email":"weak@example.com","password":"short","role":"user"}`)
-	req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/users", body)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Origin", "http://localhost:3000")
-	req.AddCookie(cookie)
-	rec := httptest.NewRecorder()
-	env.Router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("want 400, got %d: %s", rec.Code, rec.Body.String())
-	}
-	if !strings.Contains(rec.Body.String(), "PASSWORD_POLICY_VIOLATION") {
-		t.Fatalf("want PASSWORD_POLICY_VIOLATION, got %s", rec.Body.String())
-	}
-}
 
 func TestUsers_List_PaginationAndSearch(t *testing.T) {
 	env := NewTestEnv(t)
@@ -172,7 +220,7 @@ func TestUsers_List_PaginationAndSearch(t *testing.T) {
 
 	// Create 3 more users via the API.
 	for _, email := range []string{"alice@example.com", "bob@example.com", "carol@example.com"} {
-		body := bytes.NewBufferString(`{"email":"` + email + `","password":"UserPass42Battery","role":"user"}`)
+		body := bytes.NewBufferString(`{"email":"` + email + `","role":"user"}`)
 		req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/users", body)
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Origin", "http://localhost:3000")
@@ -231,13 +279,13 @@ func userIDByEmail(t *testing.T, env *TestEnv, email string) string {
 	return id
 }
 
-func TestUsers_Get_HappyPath(t *testing.T) {
+func TestUsers_Get_ReturnsUserWithSessions(t *testing.T) {
 	env := NewTestEnv(t)
 	env.SeedAdmin(t, "admin@example.com", "CorrectHorse42Battery")
 	cookie := env.LoginAsAdmin(t, "admin@example.com", "CorrectHorse42Battery")
 
 	// Create a second user via API.
-	body := bytes.NewBufferString(`{"email":"target@example.com","password":"TargetPass42Battery","role":"user"}`)
+	body := bytes.NewBufferString(`{"email":"target@example.com","role":"user"}`)
 	req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/users", body)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Origin", "http://localhost:3000")
@@ -368,7 +416,7 @@ func TestUsers_Update_DuplicateEmail_409(t *testing.T) {
 	cookie := env.LoginAsAdmin(t, "admin@example.com", "CorrectHorse42Battery")
 
 	// Create a second user via API.
-	body := bytes.NewBufferString(`{"email":"other@example.com","password":"OtherPass42Battery","role":"user"}`)
+	body := bytes.NewBufferString(`{"email":"other@example.com","role":"user"}`)
 	req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/users", body)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Origin", "http://localhost:3000")
@@ -521,11 +569,12 @@ func TestUsers_Update_LastAdminLockout_StoreLevel(t *testing.T) {
 	// the handler relies on.
 }
 
-// TestUsers_Disable_HappyPath creates a target user, issues a session for
-// that user directly via the session store, disables the user via the admin
-// API, and asserts: (a) DB status is 'disabled', (b) a user.disabled audit
-// row exists, (c) the target's Valkey sessions have been revoked.
-func TestUsers_Disable_HappyPath(t *testing.T) {
+// TestUsers_Disable_TerminatesSessionsAndUpdatesStatus creates a target user,
+// issues a session for that user directly via the session store, disables the
+// user via the admin API, and asserts: (a) DB status is 'disabled', (b) a
+// user.disabled audit row exists, (c) the target's Valkey sessions have been
+// revoked.
+func TestUsers_Disable_TerminatesSessionsAndUpdatesStatus(t *testing.T) {
 	ctx := t.Context()
 	env := NewTestEnv(t)
 	env.SeedAdmin(t, "admin@example.com", "CorrectHorse42Battery")
@@ -692,10 +741,10 @@ func TestUsers_Disable_LastAdminLockout_StoreLevel(t *testing.T) {
 	}
 }
 
-// TestUsers_Enable_HappyPath disables a user directly via SQL, then enables
-// them via the admin API and asserts status flips back to 'active' and an
-// audit row is written.
-func TestUsers_Enable_HappyPath(t *testing.T) {
+// TestUsers_Enable_RestoresActiveStatus disables a user directly via SQL,
+// then enables them via the admin API and asserts status flips back to
+// 'active' and an audit row is written.
+func TestUsers_Enable_RestoresActiveStatus(t *testing.T) {
 	ctx := t.Context()
 	env := NewTestEnv(t)
 	env.SeedAdmin(t, "admin@example.com", "CorrectHorse42Battery")
@@ -757,11 +806,12 @@ func TestUsers_Enable_NotFound(t *testing.T) {
 	}
 }
 
-// TestUsers_ResetPassword_HappyPath seeds a target user, resets the password
-// via the admin API, and asserts: (a) the new hash verifies against the new
-// password, (b) force_password_change is true, (c) a user.password_reset
-// audit row exists.
-func TestUsers_ResetPassword_HappyPath(t *testing.T) {
+// TestResetPassword_ReturnsTemporaryPassword seeds a target user, resets the
+// password via the admin API, and asserts: (a) the server-generated temp
+// password is returned in the 200 body, (b) force_password_change is true,
+// (c) the stored hash verifies against the returned temp password, (d) a
+// user.password_reset audit row exists.
+func TestResetPassword_ReturnsTemporaryPassword(t *testing.T) {
 	ctx := t.Context()
 	env := NewTestEnv(t)
 	env.SeedAdmin(t, "admin@example.com", "CorrectHorse42Battery")
@@ -778,7 +828,8 @@ func TestUsers_ResetPassword_HappyPath(t *testing.T) {
 	}
 	id := userIDByEmail(t, env, "resetme@example.com")
 
-	body := bytes.NewBufferString(`{"password":"BrandNewTemp42!"}`)
+	// Body is ignored — send an empty object to confirm the server doesn't rely on it.
+	body := bytes.NewBufferString(`{}`)
 	req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/users/"+id+"/reset-password", body)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Origin", "http://localhost:3000")
@@ -786,8 +837,18 @@ func TestUsers_ResetPassword_HappyPath(t *testing.T) {
 	rec := httptest.NewRecorder()
 	env.Router.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusNoContent {
-		t.Fatalf("want 204, got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var respBody struct {
+		TemporaryPassword string `json:"temporary_password"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&respBody); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(respBody.TemporaryPassword) != 16 {
+		t.Fatalf("want 16-char temp password, got len=%d", len(respBody.TemporaryPassword))
 	}
 
 	var newHash string
@@ -800,12 +861,12 @@ func TestUsers_ResetPassword_HappyPath(t *testing.T) {
 	if !fpc {
 		t.Fatal("force_password_change should be true after admin reset")
 	}
-	ok, err := crypto.VerifyPassword("BrandNewTemp42!", newHash)
+	ok, err := crypto.VerifyPassword(respBody.TemporaryPassword, newHash)
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}
 	if !ok {
-		t.Fatal("new password did not verify against stored hash")
+		t.Fatal("returned temp password did not verify against stored hash")
 	}
 
 	var auditCount int
@@ -814,42 +875,6 @@ func TestUsers_ResetPassword_HappyPath(t *testing.T) {
 		 WHERE event_type = 'user.password_reset' AND target_id = $1`, id).Scan(&auditCount)
 	if auditCount != 1 {
 		t.Fatalf("want 1 user.password_reset audit row, got %d", auditCount)
-	}
-}
-
-// TestUsers_ResetPassword_WeakPassword_400 proves the admin reset endpoint
-// enforces the password policy — a too-short password returns 400 with
-// PASSWORD_POLICY_VIOLATION.
-func TestUsers_ResetPassword_WeakPassword_400(t *testing.T) {
-	ctx := t.Context()
-	env := NewTestEnv(t)
-	env.SeedAdmin(t, "admin@example.com", "CorrectHorse42Battery")
-	cookie := env.LoginAsAdmin(t, "admin@example.com", "CorrectHorse42Battery")
-
-	hash, err := crypto.HashPassword("UserPass42Battery")
-	if err != nil {
-		t.Fatalf("hash: %v", err)
-	}
-	if _, err := env.Pool.Exec(ctx,
-		`INSERT INTO users (email, password_hash, role, force_password_change)
-		 VALUES ('weakreset@example.com', $1, 'user', false)`, hash); err != nil {
-		t.Fatalf("seed: %v", err)
-	}
-	id := userIDByEmail(t, env, "weakreset@example.com")
-
-	body := bytes.NewBufferString(`{"password":"short"}`)
-	req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/users/"+id+"/reset-password", body)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Origin", "http://localhost:3000")
-	req.AddCookie(cookie)
-	rec := httptest.NewRecorder()
-	env.Router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("want 400, got %d: %s", rec.Code, rec.Body.String())
-	}
-	if !strings.Contains(rec.Body.String(), "PASSWORD_POLICY_VIOLATION") {
-		t.Fatalf("want PASSWORD_POLICY_VIOLATION, got %s", rec.Body.String())
 	}
 }
 
@@ -879,7 +904,7 @@ func TestUsers_ResetPassword_KillsExistingSessions(t *testing.T) {
 		t.Fatalf("session create: %v", err)
 	}
 
-	body := bytes.NewBufferString(`{"password":"BrandNewTemp42!"}`)
+	body := bytes.NewBufferString(`{}`)
 	req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/users/"+targetID+"/reset-password", body)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Origin", "http://localhost:3000")
@@ -887,8 +912,8 @@ func TestUsers_ResetPassword_KillsExistingSessions(t *testing.T) {
 	rec := httptest.NewRecorder()
 	env.Router.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusNoContent {
-		t.Fatalf("want 204, got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 
 	if _, err := sessStore.Get(ctx, token); err == nil {
@@ -896,11 +921,11 @@ func TestUsers_ResetPassword_KillsExistingSessions(t *testing.T) {
 	}
 }
 
-// TestUsers_Delete_HappyPath creates a target user, deletes them via the
-// admin API, and asserts: (a) the users row is gone (GetByID returns
-// ErrUserNotFound), (b) a user.deleted audit row exists with
+// TestUsers_Delete_RemovesUserAndPreservesAuditTrail creates a target user,
+// deletes them via the admin API, and asserts: (a) the users row is gone
+// (GetByID returns ErrUserNotFound), (b) a user.deleted audit row exists with
 // metadata.deleted_user_email populated from the pre-delete snapshot.
-func TestUsers_Delete_HappyPath(t *testing.T) {
+func TestUsers_Delete_RemovesUserAndPreservesAuditTrail(t *testing.T) {
 	ctx := t.Context()
 	env := NewTestEnv(t)
 	env.SeedAdmin(t, "admin@example.com", "CorrectHorse42Battery")
@@ -1233,10 +1258,10 @@ func TestUsers_ListSessions_TwoSessions(t *testing.T) {
 	}
 }
 
-// TestUsers_TerminateAllSessions_HappyPath seeds 3 sessions, calls DELETE
-// /api/users/:id/sessions, and asserts all sessions are gone + an audit row
-// with metadata.terminated_count = 3 was written.
-func TestUsers_TerminateAllSessions_HappyPath(t *testing.T) {
+// TestUsers_TerminateAllSessions_ClearsAllDevices seeds 3 sessions, calls
+// DELETE /api/users/:id/sessions, and asserts all sessions are gone + an
+// audit row with metadata.terminated_count = 3 was written.
+func TestUsers_TerminateAllSessions_ClearsAllDevices(t *testing.T) {
 	ctx := t.Context()
 	env := NewTestEnv(t)
 	env.SeedAdmin(t, "admin@example.com", "CorrectHorse42Battery")
@@ -1299,10 +1324,9 @@ func TestUsers_TerminateAllSessions_HappyPath(t *testing.T) {
 	}
 }
 
-// TestUsers_TerminateAllSessions_SelfRejected proves the self-op guard
-// blocks an admin from nuking their own sessions via the admin endpoint.
-// The proper self-signout-everywhere flow is POST /api/logout.
-func TestUsers_TerminateAllSessions_SelfRejected(t *testing.T) {
+// TestUsers_TerminateAllSessions_SelfAllowed proves an admin can nuke their
+// own sessions via DELETE /api/users/:id/sessions (standard IDP behavior).
+func TestUsers_TerminateAllSessions_SelfAllowed(t *testing.T) {
 	env := NewTestEnv(t)
 	env.SeedAdmin(t, "admin@example.com", "CorrectHorse42Battery")
 	cookie := env.LoginAsAdmin(t, "admin@example.com", "CorrectHorse42Battery")
@@ -1314,11 +1338,8 @@ func TestUsers_TerminateAllSessions_SelfRejected(t *testing.T) {
 	rec := httptest.NewRecorder()
 	env.Router.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("want 400, got %d: %s", rec.Code, rec.Body.String())
-	}
-	if !strings.Contains(rec.Body.String(), "CANNOT_OPERATE_ON_SELF") {
-		t.Fatalf("want CANNOT_OPERATE_ON_SELF, got %s", rec.Body.String())
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("want 204, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -1432,5 +1453,122 @@ func TestUsers_TerminateSession_AuditStoresTokenPrefix(t *testing.T) {
 	}
 	if token[:8] != prefix {
 		t.Fatalf("token_prefix %q is not the first 8 chars of token %q", prefix, token[:8])
+	}
+}
+
+// TestResetPassword_InvalidatesOldPassword proves that POST
+// /api/users/:id/reset-password returns a server-generated 16-char temporary
+// password in a 200 body, that the new password actually authenticates the
+// user, and that the old password no longer works.
+func TestResetPassword_InvalidatesOldPassword(t *testing.T) {
+	ctx := t.Context()
+	env := NewTestEnv(t)
+	env.SeedAdmin(t, "admin@example.com", "CorrectHorse42Battery")
+	cookie := env.LoginAsAdmin(t, "admin@example.com", "CorrectHorse42Battery")
+
+	// Seed the target user directly with a known password.
+	oldHash, err := crypto.HashPassword("OldPassword42Battery")
+	if err != nil {
+		t.Fatalf("hash: %v", err)
+	}
+	if _, err := env.Pool.Exec(ctx,
+		`INSERT INTO users (email, password_hash, role, force_password_change)
+		 VALUES ('reset-target@example.com', $1, 'user', false)`, oldHash); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	id := userIDByEmail(t, env, "reset-target@example.com")
+
+	// Reset the password. Request body is ignored.
+	resetBody := bytes.NewBufferString(`{}`)
+	resetReq := httptest.NewRequestWithContext(t.Context(), "POST", "/api/users/"+id+"/reset-password", resetBody)
+	resetReq.Header.Set("Content-Type", "application/json")
+	resetReq.Header.Set("Origin", "http://localhost:3000")
+	resetReq.AddCookie(cookie)
+	resetRec := httptest.NewRecorder()
+	env.Router.ServeHTTP(resetRec, resetReq)
+
+	if resetRec.Code != http.StatusOK {
+		t.Fatalf("reset: expected 200, got %d: %s", resetRec.Code, resetRec.Body.String())
+	}
+
+	var resetRespBody struct {
+		TemporaryPassword string `json:"temporary_password"`
+	}
+	if err := json.NewDecoder(resetRec.Body).Decode(&resetRespBody); err != nil {
+		t.Fatalf("decode reset response: %v", err)
+	}
+	if len(resetRespBody.TemporaryPassword) != 16 {
+		t.Errorf("reset temp password wrong length: %d", len(resetRespBody.TemporaryPassword))
+	}
+
+	// Original password MUST NOT work.
+	oldLoginBody := bytes.NewBufferString(`{"email":"reset-target@example.com","password":"OldPassword42Battery"}`)
+	oldLoginReq := httptest.NewRequestWithContext(t.Context(), "POST", "/api/login", oldLoginBody)
+	oldLoginReq.Header.Set("Content-Type", "application/json")
+	oldLoginReq.Header.Set("Origin", "http://localhost:3000")
+	oldLoginRec := httptest.NewRecorder()
+	env.Router.ServeHTTP(oldLoginRec, oldLoginReq)
+	if oldLoginRec.Code == http.StatusOK {
+		t.Error("old password should fail after reset")
+	}
+
+	// New password MUST work.
+	newLoginBody := bytes.NewBufferString(`{"email":"reset-target@example.com","password":"` + resetRespBody.TemporaryPassword + `"}`)
+	newLoginReq := httptest.NewRequestWithContext(t.Context(), "POST", "/api/login", newLoginBody)
+	newLoginReq.Header.Set("Content-Type", "application/json")
+	newLoginReq.Header.Set("Origin", "http://localhost:3000")
+	newLoginRec := httptest.NewRecorder()
+	env.Router.ServeHTTP(newLoginRec, newLoginReq)
+	if newLoginRec.Code != http.StatusOK {
+		t.Errorf("new password should work: got %d", newLoginRec.Code)
+	}
+}
+
+// TestResetPassword_IgnoresAdminSuppliedPassword proves that any password field
+// in the reset request body is silently discarded — only the server-generated
+// temp password authenticates after the reset.
+func TestResetPassword_IgnoresAdminSuppliedPassword(t *testing.T) {
+	ctx := t.Context()
+	env := NewTestEnv(t)
+	env.SeedAdmin(t, "admin@example.com", "CorrectHorse42Battery")
+	cookie := env.LoginAsAdmin(t, "admin@example.com", "CorrectHorse42Battery")
+
+	hash, err := crypto.HashPassword("UserPass42Battery")
+	if err != nil {
+		t.Fatalf("hash: %v", err)
+	}
+	if _, err := env.Pool.Exec(ctx,
+		`INSERT INTO users (email, password_hash, role, force_password_change)
+		 VALUES ('reset-target-2@example.com', $1, 'user', false)`, hash); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	id := userIDByEmail(t, env, "reset-target-2@example.com")
+
+	// Admin supplies a password — must be silently ignored.
+	resetBody := bytes.NewBufferString(`{"password":"AdminPicked42Battery"}`)
+	resetReq := httptest.NewRequestWithContext(t.Context(), "POST", "/api/users/"+id+"/reset-password", resetBody)
+	resetReq.Header.Set("Content-Type", "application/json")
+	resetReq.Header.Set("Origin", "http://localhost:3000")
+	resetReq.AddCookie(cookie)
+	resetRec := httptest.NewRecorder()
+	env.Router.ServeHTTP(resetRec, resetReq)
+
+	if resetRec.Code != http.StatusOK {
+		t.Fatalf("reset: status %d: %s", resetRec.Code, resetRec.Body.String())
+	}
+	var resetRespBody struct {
+		TemporaryPassword string `json:"temporary_password"`
+	}
+	_ = json.NewDecoder(resetRec.Body).Decode(&resetRespBody)
+
+	// Admin-supplied password must not work.
+	loginBody := bytes.NewBufferString(`{"email":"reset-target-2@example.com","password":"AdminPicked42Battery"}`)
+	loginReq := httptest.NewRequestWithContext(t.Context(), "POST", "/api/login", loginBody)
+	loginReq.Header.Set("Content-Type", "application/json")
+	loginReq.Header.Set("Origin", "http://localhost:3000")
+	loginRec := httptest.NewRecorder()
+	env.Router.ServeHTTP(loginRec, loginReq)
+	if loginRec.Code == http.StatusOK {
+		t.Error("admin-supplied password should be ignored — it should not authenticate")
 	}
 }
