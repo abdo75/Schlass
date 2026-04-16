@@ -70,12 +70,16 @@
       "you": "vous"
     },
     "create": {
-      "title": "Créer un utilisateur",
-      "description": "Provisionnez un nouveau compte. L'utilisateur devra changer son mot de passe lors de sa première connexion.",
+      "title": "Créer un nouvel utilisateur",
+      "description": "Un mot de passe temporaire sera généré et affiché une seule fois. L'utilisateur devra le changer lors de sa première connexion.",
       "email_label": "E-mail",
       "password_label": "Mot de passe temporaire",
       "password_hint": "Minimum 12 caractères, au moins une lettre majuscule et un chiffre.",
       "role_label": "Rôle",
+      "role_description": {
+        "user": "Compte standard sans accès administrateur.",
+        "super_admin": "Accès complet — peut gérer les utilisateurs."
+      },
       "submit": "Créer l'utilisateur",
       "submitting": "Création...",
       "cancel": "Annuler",

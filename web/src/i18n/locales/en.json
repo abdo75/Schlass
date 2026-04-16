@@ -70,12 +70,16 @@
       "you": "you"
     },
     "create": {
-      "title": "Create user",
-      "description": "Provision a new account. The user will be required to change their password on first sign-in.",
+      "title": "Create a new user",
+      "description": "A temporary password will be generated and shown once. The user will be required to change it on first sign-in.",
       "email_label": "Email",
       "password_label": "Temporary password",
       "password_hint": "Minimum 12 characters, at least one uppercase letter and one digit.",
       "role_label": "Role",
+      "role_description": {
+        "user": "Standard account with no admin access.",
+        "super_admin": "Full access — can manage users."
+      },
       "submit": "Create user",
       "submitting": "Creating...",
       "cancel": "Cancel",
