@@ -156,5 +156,11 @@
     "en": "English",
     "fr": "Français",
     "de": "Deutsch"
+  },
+  "user_menu": {
+    "theme": { "heading": "Thème", "light": "Clair", "dark": "Sombre", "system": "Système" },
+    "language": { "heading": "Langue" },
+    "change_password": "Changer le mot de passe",
+    "sign_out": "Se déconnecter"
   }
 }
