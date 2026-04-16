@@ -27,11 +27,104 @@
     "password": "Password",
     "submit": "Sign in",
     "submitting": "Signing in...",
-    "logout": "Sign out"
+    "logout": "Sign out",
+    "change_password_title": "Change password",
+    "change_password_description": "Enter your current password and choose a new one.",
+    "current_password": "Current password",
+    "new_password": "New password",
+    "confirm_new_password": "Confirm new password",
+    "submit_change_password": "Change password",
+    "submitting_change_password": "Changing password...",
+    "password_mismatch": "The new password and confirmation do not match."
   },
   "dashboard": {
     "title": "Admin dashboard",
-    "welcome": "Welcome, {{email}}"
+    "welcome": "Welcome, {{email}}",
+    "nav": {
+      "users": "Users",
+      "clients": "Clients",
+      "audit": "Audit log",
+      "settings": "Settings",
+      "signout": "Sign out",
+      "soon": "soon"
+    }
+  },
+  "users": {
+    "title": "Users",
+    "create_button": "Create user",
+    "search_placeholder": "Search by email",
+    "pagination": "Page {{current}} of {{total}} ({{count}} users)",
+    "pagination_prev": "Previous page",
+    "pagination_next": "Next page",
+    "columns": {
+      "email": "Email",
+      "role": "Role",
+      "status": "Status",
+      "created_at": "Created"
+    },
+    "role": {
+      "super_admin": "Admin",
+      "user": "User"
+    },
+    "status": {
+      "active": "Active",
+      "disabled": "Disabled"
+    },
+    "create": {
+      "title": "Create user",
+      "description": "Provision a new account. The user will be required to change their password on first sign-in.",
+      "email_label": "Email",
+      "password_label": "Temporary password",
+      "password_hint": "Minimum 12 characters, at least one uppercase letter and one digit.",
+      "role_label": "Role",
+      "submit": "Create user",
+      "submitting": "Creating...",
+      "cancel": "Cancel"
+    },
+    "detail": {
+      "back": "Back to users",
+      "loading": "Loading user...",
+      "force_password_change": "Must change password on next sign-in",
+      "created_at_label": "Created",
+      "email_label": "Email",
+      "role_label": "Role",
+      "status_label": "Status",
+      "edit": "Edit",
+      "save": "Save",
+      "saving": "Saving...",
+      "cancel": "Cancel",
+      "actions_heading": "Actions",
+      "reset_password": "Reset password",
+      "new_password_label": "New temporary password",
+      "reset_password_submit": "Set password",
+      "reset_password_success": "Password reset. The user will be required to change it on next sign-in.",
+      "disable": "Disable user",
+      "enable": "Enable user",
+      "delete": "Delete user",
+      "sessions_heading": "Active sessions",
+      "no_sessions": "No active sessions.",
+      "sessions_columns": {
+        "ip": "IP",
+        "user_agent": "User agent",
+        "created_at": "Started",
+        "last_seen_at": "Last seen",
+        "actions": "Actions"
+      },
+      "kill_session": "Kill session",
+      "kill_all_sessions": "Kill all sessions"
+    },
+    "confirm": {
+      "disable_title": "Disable this user?",
+      "disable_body": "The user will no longer be able to sign in, and all of their active sessions will be terminated immediately. You can re-enable them at any time.",
+      "disable_confirm": "Disable",
+      "delete_title": "Delete this user permanently?",
+      "delete_body": "This cannot be undone. The user account will be removed and all of their sessions terminated. Audit logs of their past activity will be preserved.",
+      "delete_confirm": "Delete permanently",
+      "kill_all_sessions_title": "Terminate all sessions?",
+      "kill_all_sessions_body": "Every device currently signed in as this user will be signed out. The user will need to sign in again on each device.",
+      "kill_all_sessions_confirm": "Kill all sessions",
+      "cancel": "Cancel"
+    }
   },
   "errors": {
     "SETUP_ALREADY_COMPLETE": "Setup has already been completed.",
@@ -46,6 +139,12 @@
     "INVALID_SESSION": "Your session has expired. Please sign in again.",
     "INVALID_ORIGIN": "Request origin not allowed.",
     "SERVICE_UNAVAILABLE": "Service temporarily unavailable. Please try again.",
+    "EMAIL_ALREADY_EXISTS": "A user with that email already exists.",
+    "USER_NOT_FOUND": "User not found. They may have been deleted.",
+    "CANNOT_OPERATE_ON_SELF": "You cannot perform this action on your own account.",
+    "LAST_ADMIN_LOCKOUT": "This would leave the instance with no administrators. Promote another user first.",
+    "FORBIDDEN": "You don't have permission to perform this action.",
+    "WRONG_CURRENT_PASSWORD": "Current password is incorrect.",
     "passwordMismatch": "Passwords do not match.",
     "unexpected": "An unexpected error occurred."
   },

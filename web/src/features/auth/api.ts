@@ -30,3 +30,11 @@ export function logout(): Promise<void> {
 export function getMe(): Promise<MeResponse> {
   return apiFetch<MeResponse>("/api/me", { method: "GET" });
 }
+
+export function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+  return apiFetch<void>("/api/change-password", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+  });
+}

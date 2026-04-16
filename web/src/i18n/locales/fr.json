@@ -27,11 +27,104 @@
     "password": "Mot de passe",
     "submit": "Se connecter",
     "submitting": "Connexion en cours...",
-    "logout": "Se déconnecter"
+    "logout": "Se déconnecter",
+    "change_password_title": "Changer le mot de passe",
+    "change_password_description": "Saisissez votre mot de passe actuel et choisissez-en un nouveau.",
+    "current_password": "Mot de passe actuel",
+    "new_password": "Nouveau mot de passe",
+    "confirm_new_password": "Confirmer le nouveau mot de passe",
+    "submit_change_password": "Changer le mot de passe",
+    "submitting_change_password": "Modification du mot de passe...",
+    "password_mismatch": "Le nouveau mot de passe et la confirmation ne correspondent pas."
   },
   "dashboard": {
     "title": "Tableau de bord administrateur",
-    "welcome": "Bienvenue, {{email}}"
+    "welcome": "Bienvenue, {{email}}",
+    "nav": {
+      "users": "Utilisateurs",
+      "clients": "Clients",
+      "audit": "Journal d'audit",
+      "settings": "Paramètres",
+      "signout": "Se déconnecter",
+      "soon": "bientôt"
+    }
+  },
+  "users": {
+    "title": "Utilisateurs",
+    "create_button": "Créer un utilisateur",
+    "search_placeholder": "Rechercher par e-mail",
+    "pagination": "Page {{current}} sur {{total}} ({{count}} utilisateurs)",
+    "pagination_prev": "Page précédente",
+    "pagination_next": "Page suivante",
+    "columns": {
+      "email": "E-mail",
+      "role": "Rôle",
+      "status": "Statut",
+      "created_at": "Créé le"
+    },
+    "role": {
+      "super_admin": "Administrateur",
+      "user": "Utilisateur"
+    },
+    "status": {
+      "active": "Actif",
+      "disabled": "Désactivé"
+    },
+    "create": {
+      "title": "Créer un utilisateur",
+      "description": "Provisionnez un nouveau compte. L'utilisateur devra changer son mot de passe lors de sa première connexion.",
+      "email_label": "E-mail",
+      "password_label": "Mot de passe temporaire",
+      "password_hint": "Minimum 12 caractères, au moins une lettre majuscule et un chiffre.",
+      "role_label": "Rôle",
+      "submit": "Créer l'utilisateur",
+      "submitting": "Création...",
+      "cancel": "Annuler"
+    },
+    "detail": {
+      "back": "Retour aux utilisateurs",
+      "loading": "Chargement de l'utilisateur...",
+      "force_password_change": "Doit changer son mot de passe à la prochaine connexion",
+      "created_at_label": "Créé le",
+      "email_label": "E-mail",
+      "role_label": "Rôle",
+      "status_label": "Statut",
+      "edit": "Modifier",
+      "save": "Enregistrer",
+      "saving": "Enregistrement...",
+      "cancel": "Annuler",
+      "actions_heading": "Actions",
+      "reset_password": "Réinitialiser le mot de passe",
+      "new_password_label": "Nouveau mot de passe temporaire",
+      "reset_password_submit": "Définir le mot de passe",
+      "reset_password_success": "Mot de passe réinitialisé. L'utilisateur devra le changer lors de sa prochaine connexion.",
+      "disable": "Désactiver l'utilisateur",
+      "enable": "Réactiver l'utilisateur",
+      "delete": "Supprimer l'utilisateur",
+      "sessions_heading": "Sessions actives",
+      "no_sessions": "Aucune session active.",
+      "sessions_columns": {
+        "ip": "IP",
+        "user_agent": "Agent utilisateur",
+        "created_at": "Début",
+        "last_seen_at": "Dernière activité",
+        "actions": "Actions"
+      },
+      "kill_session": "Terminer la session",
+      "kill_all_sessions": "Terminer toutes les sessions"
+    },
+    "confirm": {
+      "disable_title": "Désactiver cet utilisateur ?",
+      "disable_body": "L'utilisateur ne pourra plus se connecter et toutes ses sessions actives seront terminées immédiatement. Vous pourrez le réactiver à tout moment.",
+      "disable_confirm": "Désactiver",
+      "delete_title": "Supprimer cet utilisateur définitivement ?",
+      "delete_body": "Cette action est irréversible. Le compte sera supprimé et toutes ses sessions terminées. Les journaux d'audit de son activité passée seront conservés.",
+      "delete_confirm": "Supprimer définitivement",
+      "kill_all_sessions_title": "Terminer toutes les sessions ?",
+      "kill_all_sessions_body": "Tous les appareils actuellement connectés sous cet utilisateur seront déconnectés. L'utilisateur devra se reconnecter sur chaque appareil.",
+      "kill_all_sessions_confirm": "Terminer toutes les sessions",
+      "cancel": "Annuler"
+    }
   },
   "errors": {
     "SETUP_ALREADY_COMPLETE": "La configuration a déjà été effectuée.",
@@ -46,6 +139,12 @@
     "INVALID_SESSION": "Votre session a expiré. Veuillez vous reconnecter.",
     "INVALID_ORIGIN": "Origine de la requête non autorisée.",
     "SERVICE_UNAVAILABLE": "Service temporairement indisponible. Veuillez réessayer.",
+    "EMAIL_ALREADY_EXISTS": "Un utilisateur avec cet e-mail existe déjà.",
+    "USER_NOT_FOUND": "Utilisateur introuvable. Il a peut-être été supprimé.",
+    "CANNOT_OPERATE_ON_SELF": "Vous ne pouvez pas effectuer cette action sur votre propre compte.",
+    "LAST_ADMIN_LOCKOUT": "Cela laisserait l'instance sans administrateur. Promouvez d'abord un autre utilisateur.",
+    "FORBIDDEN": "Vous n'avez pas l'autorisation d'effectuer cette action.",
+    "WRONG_CURRENT_PASSWORD": "Le mot de passe actuel est incorrect.",
     "passwordMismatch": "Les mots de passe ne correspondent pas.",
     "unexpected": "Une erreur inattendue s'est produite."
   },

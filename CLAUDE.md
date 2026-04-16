@@ -84,6 +84,12 @@ The auth middleware (`internal/middleware/auth.go`) reads the cookie, fetches th
 
 End-user (third-party client) OIDC sessions are a separate mechanism to be built in Sprint 6+; admin web sessions never interact with them.
 
+### Authorization (Sprint 3+)
+
+`middleware.RequireRole(roles ...string)` is the role-gate, wrapped *after* `middleware.Auth` in the chain so the user is already in context. It returns 403 `FORBIDDEN` when the authenticated user's role is not in the allowed set, and 401 `INVALID_SESSION` if no user is in context (a wiring bug). All `/api/users/*` routes are gated by `RequireRole("super_admin")` in `internal/server/router.go`; the only authed-but-unrestricted exception is `POST /api/change-password`, which is self-service. Handlers must never re-check `user.Role` — the middleware already decided.
+
+Destructive handlers (disable, delete, role-demote PATCH) call `rejectSelfOp` as their first action: it's cheap, fails fast with 400 `CANNOT_OPERATE_ON_SELF`, and avoids any DB work for the obvious cases. Last-admin lockout is enforced with a `SELECT id FROM users WHERE role = 'super_admin' FOR UPDATE` that serializes concurrent destructive operations on the admin set, followed by a post-operation count check inside the same transaction as the correctness backstop. The lock deliberately omits `status = 'active'` so it also serializes against concurrent enable/disable flips — narrowing it would let a parallel re-enable slip past the count check. The shared helpers — `lockSuperAdminsForUpdate`, `remainingActiveSuperAdmins`, `enforceLastAdminLockout`, and `rejectSelfOp` — all live in `internal/handler/users.go`. Sprint 4's client-management routes will reuse the same `RequireRole` wrapper unchanged.
+
 ## Database
 
 ### Two Roles

@@ -6,6 +6,7 @@ interface AuthState {
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthState | undefined>(undefined);
@@ -47,8 +48,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   };
 
+  const refreshUser = async () => {
+    try {
+      const res = await getMe();
+      setUser(res.user);
+    } catch (err) {
+      // Clearing on any error is a safe default: a 401 legitimately means the
+      // session is gone, and a transient 500 will re-resolve on the next
+      // AuthGuard check after the /login bounce. Log so transient failures
+      // surface in devtools instead of looking like a silent logout.
+      console.error("refreshUser failed", err);
+      setUser(null);
+    }
+  };
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );
