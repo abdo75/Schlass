@@ -22,7 +22,7 @@ export interface UserSession {
 }
 
 export interface UserDetailResponse {
-  user: AuthUser;
+  user: UserRow;
   sessions: UserSession[];
 }
 
