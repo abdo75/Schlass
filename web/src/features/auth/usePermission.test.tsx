@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { renderHook } from "@testing-library/react";
+import React from "react";
 import type { ReactNode } from "react";
 import { AuthContext } from "./AuthContext";
 import { usePermission } from "./usePermission";
@@ -14,7 +15,7 @@ interface AuthState {
   refreshUser: () => Promise<void>;
 }
 
-function wrapperWith(user: AuthUser | null): (props: { children: ReactNode }) => JSX.Element {
+function wrapperWith(user: AuthUser | null): (props: { children: ReactNode }) => React.ReactElement {
   return ({ children }) => (
     <AuthContext.Provider
       value={
