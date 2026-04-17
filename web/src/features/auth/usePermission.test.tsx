@@ -7,26 +7,17 @@ import { usePermission } from "./usePermission";
 import { PERMISSIONS } from "./permissions";
 import type { AuthUser } from "./api";
 
-interface AuthState {
-  user: AuthUser | null;
-  loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
-  logout: () => Promise<void>;
-  refreshUser: () => Promise<void>;
-}
-
 function wrapperWith(user: AuthUser | null): (props: { children: ReactNode }) => React.ReactElement {
   return ({ children }) => (
     <AuthContext.Provider
-      value={
-        {
-          user,
-          loading: false,
-          login: async () => {},
-          logout: async () => {},
-          refreshUser: async () => {},
-        } as AuthState
-      }
+      value={{
+        user,
+        loading: false,
+        // eslint-disable-next-line @typescript-eslint/require-await
+        login: async () => (user ?? ({ id: "", email: "", role: "user", force_password_change: false } as AuthUser)),
+        logout: async () => {},
+        refreshUser: async () => {},
+      }}
     >
       {children}
     </AuthContext.Provider>

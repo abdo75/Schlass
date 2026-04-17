@@ -4,7 +4,7 @@ import { getMe, login as apiLogin, logout as apiLogout, type AuthUser } from "./
 interface AuthState {
   user: AuthUser | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<AuthUser>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -39,9 +39,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("schlass:unauthorized", handler);
   }, []);
 
-  const login = async (email: string, password: string) => {
+  const login = async (email: string, password: string): Promise<AuthUser> => {
     const res = await apiLogin(email, password);
     setUser(res.user);
+    return res.user;
   };
 
   const logout = async () => {

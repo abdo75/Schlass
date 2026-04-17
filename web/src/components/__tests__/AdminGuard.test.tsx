@@ -8,7 +8,7 @@ import type { AuthUser } from "@/features/auth/api";
 interface AuthState {
   user: AuthUser | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<AuthUser>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -17,7 +17,8 @@ function renderAtPath(path: string, user: AuthUser | null, loading = false) {
   const value: AuthState = {
     user,
     loading,
-    login: async () => {},
+    // eslint-disable-next-line @typescript-eslint/require-await
+    login: async () => (user ?? ({ id: "", email: "", role: "user", force_password_change: false } as AuthUser)),
     logout: async () => {},
     refreshUser: async () => {},
   };

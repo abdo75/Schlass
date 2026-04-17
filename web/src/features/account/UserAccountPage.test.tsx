@@ -20,7 +20,8 @@ function withProviders(
         value={{
           user,
           loading: false,
-          login: async () => {},
+          // eslint-disable-next-line @typescript-eslint/require-await
+          login: async () => (user ?? ({ id: "", email: "", role: "user", force_password_change: false } as AuthUser)),
           logout,
           refreshUser: async () => {},
         }}
