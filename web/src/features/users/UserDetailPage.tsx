@@ -10,6 +10,7 @@ import {
   Laptop,
   Smartphone,
   ChevronDown,
+  ShieldOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -41,11 +42,14 @@ import {
   enableUser,
   deleteUser,
   resetUserPassword,
+  resetMfa,
   terminateSession,
   terminateAllSessions,
   type UserDetailResponse,
   type UserSession,
 } from "./api";
+import { usePermission } from "@/features/auth/usePermission";
+import { PERMISSIONS } from "@/features/auth/permissions";
 
 type Role = "super_admin" | "user";
 
@@ -94,6 +98,7 @@ export function UserDetailPage() {
   const navigate = useNavigate();
   const { id = "" } = useParams<{ id: string }>();
   const { user: me } = useAuth();
+  const canResetMfa = usePermission(PERMISSIONS.USERS_RESET_MFA);
 
   const [data, setData] = useState<UserDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -117,6 +122,8 @@ export function UserDetailPage() {
     token: string;
     label: string;
   } | null>(null);
+  const [resetMfaOpen, setResetMfaOpen] = useState(false);
+  const [resetMfaSubmitting, setResetMfaSubmitting] = useState(false);
 
   // Reset password flow
   const [tempPassword, setTempPassword] = useState<string | null>(null);
@@ -237,6 +244,20 @@ export function UserDetailPage() {
       await refetch();
     } catch (err: unknown) {
       setErrorCode(extractErrorCode(err));
+    }
+  };
+
+  const handleResetMfa = async () => {
+    setResetMfaSubmitting(true);
+    setErrorCode(null);
+    try {
+      await resetMfa(id);
+      await refetch();
+      setResetMfaOpen(false);
+    } catch (err: unknown) {
+      setErrorCode(extractErrorCode(err));
+    } finally {
+      setResetMfaSubmitting(false);
     }
   };
 
@@ -417,12 +438,15 @@ export function UserDetailPage() {
                 ) : (
                   <OtherUserActions
                     isActive={isActive}
+                    totpEnrolledAt={user.totp_enrolled_at ?? null}
+                    canResetMfa={canResetMfa}
                     onResetOpen={() => setResetOpen(true)}
                     onDisableOpen={() => setDisableOpen(true)}
                     onEnableOpen={() => {
                       void handleEnable();
                     }}
                     onDeleteOpen={() => setDeleteOpen(true)}
+                    onResetMfaOpen={() => setResetMfaOpen(true)}
                     t={t}
                   />
                 )}
@@ -532,6 +556,23 @@ export function UserDetailPage() {
           }}
         />
       )}
+
+      <ConfirmDialog
+        open={resetMfaOpen}
+        onOpenChange={(open) => {
+          if (!resetMfaSubmitting) setResetMfaOpen(open);
+        }}
+        title={t("mfa.admin_reset.dialog_title")}
+        body={t("mfa.admin_reset.dialog_description", { email: user.email })}
+        confirmLabel={
+          resetMfaSubmitting
+            ? t("common.loading")
+            : t("mfa.admin_reset.dialog_confirm")
+        }
+        onConfirm={() => {
+          void handleResetMfa();
+        }}
+      />
 
       {/* ---- Temp password modal ---- */}
       {tempPassword && (
@@ -757,19 +798,25 @@ function SelfActions() {
 
 interface OtherUserActionsProps {
   isActive: boolean;
+  totpEnrolledAt: string | null;
+  canResetMfa: boolean;
   onResetOpen: () => void;
   onDisableOpen: () => void;
   onEnableOpen: () => void;
   onDeleteOpen: () => void;
+  onResetMfaOpen: () => void;
   t: (key: string) => string;
 }
 
 function OtherUserActions({
   isActive,
+  totpEnrolledAt,
+  canResetMfa,
   onResetOpen,
   onDisableOpen,
   onEnableOpen,
   onDeleteOpen,
+  onResetMfaOpen,
   t,
 }: OtherUserActionsProps) {
   return (
@@ -799,6 +846,17 @@ function OtherUserActions({
         >
           <Check className="size-4" />
           {t("users.detail.enable")}
+        </Button>
+      )}
+
+      {totpEnrolledAt && canResetMfa && (
+        <Button
+          variant="outline"
+          className="w-full justify-start gap-2.5 border-destructive/35 text-destructive hover:bg-destructive/5 hover:text-destructive"
+          onClick={onResetMfaOpen}
+        >
+          <ShieldOff className="size-4" />
+          {t("mfa.admin_reset.button_label")}
         </Button>
       )}
 

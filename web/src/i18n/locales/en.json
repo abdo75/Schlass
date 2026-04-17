@@ -184,11 +184,23 @@
     "title": "Your account",
     "subtitle": "Signed in as {{email}}",
     "password_heading": "Password",
-    "password_hint": "You can change your account password at any time.",
+    "password_hint": "Last changed today.",
     "change_password": "Change password",
     "totp_heading": "Two-factor authentication",
-    "totp_placeholder": "Two-factor enrollment will be available in a future release.",
-    "sign_out": "Sign out"
+    "totp_placeholder": "Protect your account with an authenticator app.",
+    "sign_out": "Sign out",
+    "security_heading": "Security",
+    "password_label": "Password",
+    "change_button": "Change",
+    "totp_label": "Two-factor authentication",
+    "totp_setup_button": "Set up",
+    "session_heading": "Session",
+    "signout_label": "Sign out",
+    "signout_description": "End your session on this device."
+  },
+  "role": {
+    "admin": "Admin",
+    "user": "User"
   },
   "errors": {
     "SETUP_ALREADY_COMPLETE": "Setup has already been completed.",

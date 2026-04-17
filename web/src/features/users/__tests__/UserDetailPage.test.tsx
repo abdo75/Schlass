@@ -360,6 +360,61 @@ describe("UserDetailPage", () => {
     });
   });
 
+  it("shows Reset MFA button when target user is enrolled and current user has permission", async () => {
+    vi.mocked(usersApi.getUser).mockResolvedValue(
+      makeDetail({ totp_enrolled_at: "2026-04-17T10:00:00Z" }),
+    );
+    vi.mocked(usersApi.resetMfa).mockResolvedValue({
+      user: makeDetail({ totp_enrolled_at: null }).user,
+    });
+
+    renderPage();
+    await screen.findByTestId("actions-card");
+
+    expect(
+      screen.getByRole("button", { name: /reset mfa/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("does not show Reset MFA button when target user is not enrolled", async () => {
+    vi.mocked(usersApi.getUser).mockResolvedValue(
+      makeDetail({ totp_enrolled_at: undefined }),
+    );
+
+    renderPage();
+    await screen.findByTestId("actions-card");
+
+    expect(
+      screen.queryByRole("button", { name: /reset mfa/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("Reset MFA flow: confirm dialog then calls resetMfa", async () => {
+    vi.mocked(usersApi.getUser).mockResolvedValue(
+      makeDetail({ totp_enrolled_at: "2026-04-17T10:00:00Z" }),
+    );
+    vi.mocked(usersApi.resetMfa).mockResolvedValue({
+      user: makeDetail({ totp_enrolled_at: null }).user,
+    });
+
+    renderPage();
+    const user = userEvent.setup();
+    await screen.findByTestId("actions-card");
+
+    await user.click(screen.getByRole("button", { name: /reset mfa/i }));
+
+    // Confirm dialog appears
+    const dialog = await screen.findByRole("dialog");
+    const confirmBtn = within(dialog).getByRole("button", {
+      name: /reset mfa/i,
+    });
+    await user.click(confirmBtn);
+
+    await waitFor(() => {
+      expect(usersApi.resetMfa).toHaveBeenCalledWith("user-1");
+    });
+  });
+
   it("terminate all sessions calls terminateAllSessions and refetches", async () => {
     vi.mocked(usersApi.getUser).mockResolvedValue(
       makeDetail({}, [

@@ -1,3 +1,4 @@
+import type React from "react";
 import { NavLink, Link, Outlet } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { UserMenuPopover } from "@/components/UserMenuPopover";
@@ -70,12 +71,17 @@ export function AdminSidebar() {
   );
 }
 
-export function AdminLayout() {
+interface AdminLayoutProps {
+  hideSidebar?: boolean;
+  children?: React.ReactNode;
+}
+
+export function AdminLayout({ hideSidebar = false, children }: AdminLayoutProps) {
   return (
     <div className="flex min-h-screen bg-sidebar">
-      <AdminSidebar />
+      {!hideSidebar && <AdminSidebar />}
       <main className="flex min-w-0 flex-1 flex-col bg-background">
-        <Outlet />
+        {children ?? <Outlet />}
       </main>
     </div>
   );

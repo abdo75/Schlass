@@ -184,11 +184,23 @@
     "title": "Ihr Konto",
     "subtitle": "Angemeldet als {{email}}",
     "password_heading": "Passwort",
-    "password_hint": "Sie können Ihr Kontopasswort jederzeit ändern.",
+    "password_hint": "Heute geändert.",
     "change_password": "Passwort ändern",
     "totp_heading": "Zwei-Faktor-Authentifizierung",
-    "totp_placeholder": "Die Zwei-Faktor-Authentifizierung wird in einer späteren Version verfügbar sein.",
-    "sign_out": "Abmelden"
+    "totp_placeholder": "Schützen Sie Ihr Konto mit einer Authenticator-App.",
+    "sign_out": "Abmelden",
+    "security_heading": "Sicherheit",
+    "password_label": "Passwort",
+    "change_button": "Ändern",
+    "totp_label": "Zwei-Faktor-Authentifizierung",
+    "totp_setup_button": "Einrichten",
+    "session_heading": "Sitzung",
+    "signout_label": "Abmelden",
+    "signout_description": "Ihre Sitzung auf diesem Gerät beenden."
+  },
+  "role": {
+    "admin": "Administrator",
+    "user": "Benutzer"
   },
   "errors": {
     "SETUP_ALREADY_COMPLETE": "Die Einrichtung wurde bereits abgeschlossen.",

@@ -41,6 +41,16 @@ const regularUser: AuthUser = {
   force_mfa_enrollment: false,
 };
 
+const enrolledUser: AuthUser = {
+  id: "u2",
+  email: "bob@example.com",
+  role: "super_admin",
+  force_password_change: false,
+  force_mfa_enrollment: false,
+  totp_enrolled_at: "2026-04-17T10:00:00Z",
+  mfa: { unused_recovery_codes: 7 },
+};
+
 describe("UserAccountPage", () => {
   it("displays the signed-in user's email", () => {
     const wrap = withProviders(regularUser);
@@ -51,7 +61,7 @@ describe("UserAccountPage", () => {
   it("has a change-password link pointing to /change-password", () => {
     const wrap = withProviders(regularUser);
     render(wrap(<UserAccountPage />));
-    const link = screen.getByRole("link", { name: /change password/i });
+    const link = screen.getByRole("link", { name: /^change$/i });
     expect(link).toHaveAttribute("href", "/change-password");
   });
 
@@ -62,5 +72,43 @@ describe("UserAccountPage", () => {
     const button = screen.getByRole("button", { name: /sign out/i });
     await userEvent.click(button);
     expect(logout).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows SECURITY and SESSION section labels", () => {
+    const wrap = withProviders(regularUser);
+    render(wrap(<UserAccountPage />));
+    expect(screen.getByText("Security")).toBeInTheDocument();
+    expect(screen.getByText("Session")).toBeInTheDocument();
+  });
+
+  it("shows 'Enabled' badge and recovery code count when user has totp_enrolled_at", () => {
+    const wrap = withProviders(enrolledUser);
+    render(wrap(<UserAccountPage />));
+    // The Enabled badge is a span with uppercase styling
+    const badge = screen.getAllByText(/enabled/i).find(
+      (el) => el.tagName === "SPAN",
+    );
+    expect(badge).toBeInTheDocument();
+    // Recovery codes text
+    expect(screen.getByText(/7 recovery codes? remaining/i)).toBeInTheDocument();
+    // Admin contact footnote
+    expect(screen.getByText(/contact an administrator/i)).toBeInTheDocument();
+  });
+
+  it("does not show 'Enabled' badge when user has no totp_enrolled_at", () => {
+    const wrap = withProviders(regularUser);
+    render(wrap(<UserAccountPage />));
+    // No span with "Enabled" badge text
+    const badge = screen.queryAllByText(/^enabled$/i).find(
+      (el) => el.tagName === "SPAN",
+    );
+    expect(badge).toBeUndefined();
+  });
+
+  it("shows Set up link pointing to /setup-mfa when not enrolled", () => {
+    const wrap = withProviders(regularUser);
+    render(wrap(<UserAccountPage />));
+    const link = screen.getByRole("link", { name: /set up/i });
+    expect(link).toHaveAttribute("href", "/setup-mfa");
   });
 });

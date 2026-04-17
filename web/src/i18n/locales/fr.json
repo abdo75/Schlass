@@ -184,11 +184,23 @@
     "title": "Votre compte",
     "subtitle": "Session ouverte : {{email}}",
     "password_heading": "Mot de passe",
-    "password_hint": "Vous pouvez modifier votre mot de passe à tout moment.",
+    "password_hint": "Modifié aujourd'hui.",
     "change_password": "Modifier le mot de passe",
     "totp_heading": "Authentification à deux facteurs",
-    "totp_placeholder": "L'inscription à l'authentification à deux facteurs sera disponible dans une version ultérieure.",
-    "sign_out": "Se déconnecter"
+    "totp_placeholder": "Protégez votre compte avec une application d'authentification.",
+    "sign_out": "Se déconnecter",
+    "security_heading": "Sécurité",
+    "password_label": "Mot de passe",
+    "change_button": "Modifier",
+    "totp_label": "Authentification à deux facteurs",
+    "totp_setup_button": "Configurer",
+    "session_heading": "Session",
+    "signout_label": "Se déconnecter",
+    "signout_description": "Terminer votre session sur cet appareil."
+  },
+  "role": {
+    "admin": "Administrateur",
+    "user": "Utilisateur"
   },
   "errors": {
     "SETUP_ALREADY_COMPLETE": "La configuration a déjà été effectuée.",
