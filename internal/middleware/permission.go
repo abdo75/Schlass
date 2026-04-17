@@ -63,7 +63,7 @@ func RequirePermission(perm string) func(http.Handler) http.Handler {
 				writeAuthError(w, http.StatusUnauthorized, "INVALID_SESSION", "Not authenticated.")
 				return
 			}
-			if slices.Contains(rolePermissions[user.Role], perm) {
+			if slices.Contains(PermissionsForRole(user.Role), perm) {
 				next.ServeHTTP(w, r)
 				return
 			}

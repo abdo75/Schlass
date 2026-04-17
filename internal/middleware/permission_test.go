@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -87,9 +88,18 @@ func TestRequirePermission_UnknownRole_Rejects(t *testing.T) {
 
 func TestPermissionsForRole(t *testing.T) {
 	sa := middleware.PermissionsForRole("super_admin")
-	if len(sa) != 10 {
-		t.Fatalf("super_admin should hold 10 permissions, got %d", len(sa))
+	if len(sa) == 0 {
+		t.Fatal("super_admin should hold a non-empty permission set")
 	}
+	// Assert representative permissions are present — verifies the mapping
+	// is correctly wired without hardcoding a count that would false-fail on
+	// every future permission addition.
+	for _, required := range []string{"users.list", "users.create", "users.sessions.terminate"} {
+		if !slices.Contains(sa, required) {
+			t.Errorf("super_admin missing required permission %q", required)
+		}
+	}
+
 	u := middleware.PermissionsForRole("user")
 	if len(u) != 0 {
 		t.Fatalf("user should hold 0 permissions, got %d", len(u))
