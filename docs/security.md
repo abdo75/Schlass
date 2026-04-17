@@ -26,7 +26,8 @@ Admins never type passwords when creating or resetting users. The server generat
 
 ## Authorization
 
-- **Role-gate middleware** — `RequireRole("super_admin")` wraps every `/api/users/*` route after `Auth`, returning 403 `FORBIDDEN` for non-super-admins. `internal/middleware/role.go`, `internal/server/router.go`
+- **Permission-gate middleware** — `RequirePermission("<resource>.<action>")` wraps every protected route after `Auth`, returning 403 `FORBIDDEN` for users whose role does not grant the permission. V1 hardcodes `super_admin` → all 10 `users.*` permissions and `user` → none in `internal/middleware/permission.go`; v2 will replace the in-process map with a `roles` / `role_permissions` DB lookup. Handler-side permission strings do not change across that migration. `internal/middleware/permission.go`, `internal/server/router.go`
+- **Role-aware SPA routing** — `<AdminGuard>` in `web/src/components/AdminGuard.tsx` redirects non-super_admin users from `/admin/*` to `/account` before the admin shell renders. Complements `<AuthGuard>` (which only checks authentication). `LoginPage` and `ChangePasswordForm` branch post-auth navigation on `user.role` so a `role=user` never lands on a route they cannot use. `web/src/components/AdminGuard.tsx`, `web/src/features/auth/LoginPage.tsx`, `web/src/features/auth/ChangePasswordForm.tsx`, `web/src/App.tsx`
 - **Self-operation guard** — `rejectSelfOp` is the first check in disable, delete, and role-demote handlers, blocking an admin from locking themselves out one operation at a time. `internal/handler/users.go`
 - **Last-admin lockout protection** — `lockSuperAdminsForUpdate` takes a row-level lock on every super_admin row to serialize concurrent destructive operations; `enforceLastAdminLockout` then counts remaining active super_admins inside the same transaction and aborts if the count would reach zero. `internal/handler/users.go`
 
@@ -35,6 +36,7 @@ Admins never type passwords when creating or resetting users. The server generat
 - **Audit-in-transaction rule** — login success/failure, logout, setup, and every Sprint 3 user-management mutation write their `audit_logs` row inside the same Postgres transaction as the state change, so "state change with no audit" is impossible. See CLAUDE.md "Audit-in-tx rule" for the full property statement. `internal/handler/auth.go`, `internal/handler/setup.go`, `internal/handler/users.go`
 - **Append-only audit log at the database level** — RLS enabled with only SELECT and INSERT policies; UPDATE and DELETE revoked from PUBLIC; `schlass_app` granted only SELECT + INSERT. This is a load-bearing compliance claim. `internal/database/migrations/000007_create_audit_logs.up.sql`, `internal/database/migrations/000010_grant_app_privileges.up.sql`
 - **Denormalized actor email** — `audit_logs.actor_email` is stored at write time and the `actor_id` foreign key was dropped in migration 11, so the audit trail survives user deletion. `internal/database/migrations/000011_drop_audit_actor_fk.up.sql`, `internal/store/audit_store.go`
+- **Correlation ID in audit rows** — every audit row's `metadata.correlation_id` carries the UUIDv4 injected by `middleware.RequestLogging` into the request context (stored via `internal/requestcontext/correlation.go`). The same ID appears in the structured access log (`slog` attribute `correlation_id`), so forensic investigation can pivot between audit trail and access log with a single ID lookup. `internal/requestcontext/correlation.go`, `internal/middleware/logging.go`, `internal/store/audit_store.go`
 
 ## Database isolation
 
@@ -45,6 +47,10 @@ Admins never type passwords when creating or resetting users. The server generat
 
 - **Security headers middleware** — sets HSTS, CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, and Permissions-Policy on every response. `internal/middleware/security_headers.go`
 - **Structured request logging** — JSON `slog` on every request with method, path, status, duration, and client IP; no text mode in any environment so dev and prod log the same shape. `internal/middleware/logging.go`
+
+## Data hygiene
+
+- **Email canonicalization** — emails are lowercased at the handler boundary before any store call (`internal/handler/setup.go`, `internal/handler/users.go` Create/Update, `internal/handler/auth.go` PostLogin). The database enforces the canonicalization with a functional unique index `UNIQUE INDEX users_email_lower_key ON users(LOWER(email))` (migration 000012), so a direct SQL insert that bypasses the handler still fails loudly instead of creating a phantom duplicate. Defends against user-identity duplication and against authentication bypass via case variation.
 
 ## Defaults
 
