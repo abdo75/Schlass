@@ -210,7 +210,16 @@
     "FORBIDDEN": "Sie haben keine Berechtigung, diese Aktion durchzuführen.",
     "WRONG_CURRENT_PASSWORD": "Das aktuelle Passwort ist falsch.",
     "passwordMismatch": "Die Passwörter stimmen nicht überein.",
-    "unexpected": "Ein unerwarteter Fehler ist aufgetreten."
+    "unexpected": "Ein unerwarteter Fehler ist aufgetreten.",
+    "MFA_ENROLLMENT_REQUIRED": "Die Zwei-Faktor-Authentifizierung ist erforderlich.",
+    "MFA_ENROLLMENT_EXPIRED": "Die Registrierungssitzung für Zwei-Faktor-Authentifizierung ist abgelaufen — bitte erneut anmelden.",
+    "MFA_INVALID_CODE": "Ungültiger Code.",
+    "MFA_INVALID_RECOVERY_CODE": "Ungültiger Wiederherstellungscode.",
+    "MFA_CHALLENGE_REQUIRED": "Zwei-Faktor-Verifizierung erforderlich.",
+    "MFA_CHALLENGE_EXPIRED": "Anmeldungssitzung abgelaufen — bitte erneut anmelden.",
+    "MFA_CHALLENGE_MAX_ATTEMPTS": "Zu viele fehlgeschlagene Versuche — bitte erneut anmelden.",
+    "MFA_NOT_ENROLLED": "Dieser Benutzer hat sich nicht für Zwei-Faktor-Authentifizierung registriert.",
+    "MFA_ALREADY_ENROLLED": "Dieses Konto hat bereits Zwei-Faktor-Authentifizierung aktiviert."
   },
   "mfa": {
     "enrollment": {
@@ -238,6 +247,31 @@
       "acknowledgement": "Ich habe diese Codes an einem sicheren Ort gespeichert.",
       "finish_button": "Einrichtung abschließen",
       "finish_submitting": "Abschließen…"
+    },
+    "challenge": {
+      "title": "Zwei-Faktor-Code",
+      "email_echo": "Anmeldung als {{email}}",
+      "code_input_label": "Authentificator-Code",
+      "expires_in": "Verfällt in {{time}}",
+      "verify_button": "Verifizieren",
+      "verify_submitting": "Wird verifiziert…",
+      "use_recovery_link": "Wiederherstellungscode verwenden",
+      "back_to_code_link": "Stattdessen einen 6-stelligen Code eingeben",
+      "recovery_input_label": "Wiederherstellungscode"
+    },
+    "account": {
+      "enabled_badge": "Aktiviert",
+      "enrolled_on": "Aktiviert am {{date}}",
+      "codes_remaining_one": "{{count}} Wiederherstellungscode verbleibend",
+      "codes_remaining_other": "{{count}} Wiederherstellungscodes verbleibend",
+      "reset_contact_admin": "Kontaktieren Sie einen Administrator, um die Zwei-Faktor-Authentifizierung zurückzusetzen."
+    },
+    "admin_reset": {
+      "button_label": "2FA zurücksetzen",
+      "dialog_title": "Zwei-Faktor-Authentifizierung zurücksetzen?",
+      "dialog_description": "Dies setzt den Authenticator und die Wiederherstellungscodes von {{email}} zurück. Sie müssen sich bei der nächsten Anmeldung erneut registrieren und werden von allen aktiven Sitzungen abgemeldet.",
+      "dialog_confirm": "2FA zurücksetzen",
+      "dialog_cancel": "Abbrechen"
     }
   },
   "language": {

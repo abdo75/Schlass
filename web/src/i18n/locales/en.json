@@ -210,7 +210,16 @@
     "FORBIDDEN": "You don't have permission to perform this action.",
     "WRONG_CURRENT_PASSWORD": "Current password is incorrect.",
     "passwordMismatch": "Passwords do not match.",
-    "unexpected": "An unexpected error occurred."
+    "unexpected": "An unexpected error occurred.",
+    "MFA_ENROLLMENT_REQUIRED": "Two-factor setup is required.",
+    "MFA_ENROLLMENT_EXPIRED": "Two-factor setup session expired — please sign in again.",
+    "MFA_INVALID_CODE": "Invalid code.",
+    "MFA_INVALID_RECOVERY_CODE": "Invalid recovery code.",
+    "MFA_CHALLENGE_REQUIRED": "Two-factor verification required.",
+    "MFA_CHALLENGE_EXPIRED": "Sign-in session expired — please sign in again.",
+    "MFA_CHALLENGE_MAX_ATTEMPTS": "Too many failed attempts — please sign in again.",
+    "MFA_NOT_ENROLLED": "This user has not enrolled in two-factor authentication.",
+    "MFA_ALREADY_ENROLLED": "This account already has two-factor authentication enabled."
   },
   "mfa": {
     "enrollment": {
@@ -238,6 +247,31 @@
       "acknowledgement": "I've saved these codes somewhere safe.",
       "finish_button": "Finish setup",
       "finish_submitting": "Finishing…"
+    },
+    "challenge": {
+      "title": "Two-factor code",
+      "email_echo": "Signing in as {{email}}",
+      "code_input_label": "Authenticator code",
+      "expires_in": "Expires in {{time}}",
+      "verify_button": "Verify",
+      "verify_submitting": "Verifying…",
+      "use_recovery_link": "Use a recovery code instead",
+      "back_to_code_link": "Enter a 6-digit code instead",
+      "recovery_input_label": "Recovery code"
+    },
+    "account": {
+      "enabled_badge": "Enabled",
+      "enrolled_on": "Enabled on {{date}}",
+      "codes_remaining_one": "{{count}} recovery code remaining",
+      "codes_remaining_other": "{{count}} recovery codes remaining",
+      "reset_contact_admin": "Contact an administrator to reset two-factor authentication."
+    },
+    "admin_reset": {
+      "button_label": "Reset MFA",
+      "dialog_title": "Reset two-factor authentication?",
+      "dialog_description": "This clears {{email}}'s authenticator and recovery codes. They will re-enroll on their next sign-in and be signed out of any active sessions.",
+      "dialog_confirm": "Reset MFA",
+      "dialog_cancel": "Cancel"
     }
   },
   "language": {
