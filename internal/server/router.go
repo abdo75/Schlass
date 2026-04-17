@@ -24,13 +24,14 @@ import (
 // the "audit write failure rolls back login tx" contract without touching
 // production code.
 type RouterDeps struct {
-	Cfg           *config.Config
-	Pool          *pgxpool.Pool
-	ValkeyClient  *redis.Client
-	ConfigStore   *store.ConfigStore
-	UserStore     *store.UserStore
-	AuditStore    handler.AuditLogger
-	ConfigService *config.ConfigService
+	Cfg               *config.Config
+	Pool              *pgxpool.Pool
+	ValkeyClient      *redis.Client
+	ConfigStore       *store.ConfigStore
+	UserStore         *store.UserStore
+	RecoveryCodeStore *store.RecoveryCodeStore
+	AuditStore        handler.AuditLogger
+	ConfigService     *config.ConfigService
 
 	// LoginRateLimit overrides the per-IP /api/login rate-limit cap. Zero (the
 	// production default path) means "use 5/min". Tests that need to drive many
@@ -60,6 +61,13 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 
 	usersHandler := handler.NewUsersHandler(d.Pool, d.UserStore, d.AuditStore, sessionStore, d.ConfigService)
 
+	mfaHandler := handler.NewMfaHandler(
+		d.Pool, d.ValkeyClient, d.UserStore, d.RecoveryCodeStore,
+		d.AuditStore, sessionStore, d.ConfigService,
+		d.Cfg.EncryptionKey,
+		d.Cfg.SchlassPublicURL,
+	)
+
 	gated := func(perm string, h http.Handler) http.Handler {
 		return authMW(middleware.RequirePermission(perm)(h))
 	}
@@ -79,6 +87,7 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 	setupGetRL := middleware.NewRateLimiter(d.ValkeyClient, "ratelimit:setup:get", setupGetLimit, time.Minute)
 	setupPostRL := middleware.NewRateLimiter(d.ValkeyClient, "ratelimit:setup:post", setupPostLimit, time.Minute)
 	loginRL := middleware.NewRateLimiter(d.ValkeyClient, "ratelimit:login", loginLimit, time.Minute)
+	mfaChallengeRL := middleware.NewRateLimiter(d.ValkeyClient, "ratelimit:mfa", 5, time.Minute)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", healthHandler.GetHealth)
@@ -101,6 +110,16 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 	mux.Handle("GET /api/users/{id}/sessions", gated("users.sessions.read", http.HandlerFunc(usersHandler.ListSessions)))
 	mux.Handle("DELETE /api/users/{id}/sessions", gated("users.sessions.terminate", http.HandlerFunc(usersHandler.TerminateAllSessions)))
 	mux.Handle("DELETE /api/users/{id}/sessions/{token}", gated("users.sessions.terminate", http.HandlerFunc(usersHandler.TerminateSession)))
+
+	// Enrollment endpoints are gated only by possession of the schlass_mfa_enroll
+	// cookie (validated inside each handler). No middleware.Auth wrapper — the
+	// user is NOT authenticated yet at enrollment time.
+	mux.Handle("POST /api/mfa/enrollment/start", http.HandlerFunc(mfaHandler.PostEnrollmentStart))
+	mux.Handle("POST /api/mfa/enrollment/verify", http.HandlerFunc(mfaHandler.PostEnrollmentVerify))
+	mux.Handle("POST /api/mfa/enrollment/complete", http.HandlerFunc(mfaHandler.PostEnrollmentComplete))
+
+	// Challenge endpoint rate-limited per IP — primary brute-force surface.
+	mux.Handle("POST /api/mfa/challenge", mfaChallengeRL.Middleware(http.HandlerFunc(mfaHandler.PostChallenge)))
 
 	mux.Handle("/", web.SPAHandler())
 

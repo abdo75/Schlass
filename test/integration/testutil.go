@@ -27,15 +27,16 @@ import (
 )
 
 type TestEnv struct {
-	Pool            *pgxpool.Pool
-	MigrationsPool  *pgxpool.Pool
-	ValkeyClient    *redis.Client
-	AppConnString   string
-	MigrConnString  string
-	Router          http.Handler
-	Cfg             *config.Config
-	pgContainer     testcontainers.Container
-	valkeyContainer testcontainers.Container
+	Pool              *pgxpool.Pool
+	MigrationsPool    *pgxpool.Pool
+	ValkeyClient      *redis.Client
+	AppConnString     string
+	MigrConnString    string
+	Router            http.Handler
+	Cfg               *config.Config
+	RecoveryCodeStore *store.RecoveryCodeStore
+	pgContainer       testcontainers.Container
+	valkeyContainer   testcontainers.Container
 }
 
 // Cleanup is a no-op — t.Cleanup registered in NewTestEnv handles teardown.
@@ -108,14 +109,15 @@ func NewTestEnv(t *testing.T) *TestEnv {
 	}
 
 	env := &TestEnv{
-		Pool:            pool,
-		MigrationsPool:  migrPool,
-		ValkeyClient:    valkeyClient,
-		AppConnString:   appConnString,
-		MigrConnString:  migrConnString,
-		Cfg:             cfg,
-		pgContainer:     pgContainer,
-		valkeyContainer: valkeyContainer,
+		Pool:              pool,
+		MigrationsPool:    migrPool,
+		ValkeyClient:      valkeyClient,
+		AppConnString:     appConnString,
+		MigrConnString:    migrConnString,
+		Cfg:               cfg,
+		RecoveryCodeStore: store.NewRecoveryCodeStore(),
+		pgContainer:       pgContainer,
+		valkeyContainer:   valkeyContainer,
 	}
 
 	// Build the router via the same path main.go uses.
@@ -149,13 +151,14 @@ func setupIntegrationEnv(t *testing.T) *TestEnv {
 func (e *TestEnv) BuildDeps() server.RouterDeps {
 	configStore := store.NewConfigStore()
 	return server.RouterDeps{
-		Cfg:           e.Cfg,
-		Pool:          e.Pool,
-		ValkeyClient:  e.ValkeyClient,
-		ConfigStore:   configStore,
-		UserStore:     store.NewUserStore(),
-		AuditStore:    store.NewAuditStore(),
-		ConfigService: config.NewConfigService(configStore, e.Cfg.EncryptionKey),
+		Cfg:               e.Cfg,
+		Pool:              e.Pool,
+		ValkeyClient:      e.ValkeyClient,
+		ConfigStore:       configStore,
+		UserStore:         store.NewUserStore(),
+		RecoveryCodeStore: store.NewRecoveryCodeStore(),
+		AuditStore:        store.NewAuditStore(),
+		ConfigService:     config.NewConfigService(configStore, e.Cfg.EncryptionKey),
 		// Tests drive many login attempts from the same virtual client IP
 		// (httptest uses 192.0.2.1 for every request). Raise the login
 		// rate-limit cap so the production 5/min guard doesn't mask the

@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 )
 
 func writeJSON(w http.ResponseWriter, status int, data any) {
@@ -18,4 +19,11 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 		"error":   code,
 		"message": message,
 	})
+}
+
+// isSecureURL returns true iff publicURL starts with "https://". Used by
+// handler constructors to derive the Secure flag on Set-Cookie headers so
+// cookies are not sent over plaintext connections in production.
+func isSecureURL(publicURL string) bool {
+	return strings.HasPrefix(publicURL, "https://")
 }

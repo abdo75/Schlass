@@ -68,7 +68,7 @@ func NewAuthHandler(
 		configStore:   configStore,
 		configService: configService,
 		publicURL:     publicURL,
-		cookieSecure:  strings.HasPrefix(publicURL, "https://"),
+		cookieSecure:  isSecureURL(publicURL),
 		dummyHash:     dummy,
 	}, nil
 }
