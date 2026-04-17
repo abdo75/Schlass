@@ -1,7 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { AuthProvider } from "@/features/auth/AuthContext";
-import { useAuth } from "@/features/auth/AuthContext";
+import { AuthProvider, useAuth } from "@/features/auth/AuthContext";
 import { AuthGuard } from "@/components/AuthGuard";
 import { AdminGuard } from "@/components/AdminGuard";
 import { AdminLayout } from "@/components/AdminLayout";
@@ -111,7 +110,7 @@ export default function App() {
             <Route path="users/new" element={<UserCreatePage />} />
             <Route path="users/:id" element={<UserDetailPage />} />
           </Route>
-          <Route path="/" element={<RootRedirect />} />
+          <Route path="/" element={<Bootstrap><RootRedirect /></Bootstrap>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </AuthProvider>

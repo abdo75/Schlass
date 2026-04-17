@@ -182,7 +182,7 @@
   },
   "account": {
     "title": "Votre compte",
-    "subtitle": "Connecté en tant que {{email}}",
+    "subtitle": "Session ouverte : {{email}}",
     "password_heading": "Mot de passe",
     "password_hint": "Vous pouvez modifier votre mot de passe à tout moment.",
     "change_password": "Modifier le mot de passe",

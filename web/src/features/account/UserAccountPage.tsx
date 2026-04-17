@@ -1,5 +1,6 @@
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Link, Navigate, useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Card,
@@ -23,12 +24,24 @@ export function UserAccountPage() {
   const { t } = useTranslation();
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const [signOutErrorCode, setSignOutErrorCode] = useState<string | null>(null);
 
-  if (!user) return <Navigate to="/login" replace />;
+  // AuthGuard in App.tsx guarantees user is non-null here. If it is ever null
+  // we are in a wiring bug; render nothing rather than crash.
+  if (!user) return null;
 
   const handleSignOut = async () => {
-    await logout();
-    void navigate("/login", { replace: true });
+    setSignOutErrorCode(null);
+    try {
+      await logout();
+      void navigate("/login", { replace: true });
+    } catch (err: unknown) {
+      const code =
+        err && typeof err === "object" && "code" in err
+          ? String((err as { code: unknown }).code)
+          : "INTERNAL_ERROR";
+      setSignOutErrorCode(code);
+    }
   };
 
   return (
@@ -61,15 +74,21 @@ export function UserAccountPage() {
               {t("account.totp_placeholder")}
             </p>
           </section>
-          <div className="-mx-8 border-t border-border" />
-          <Button
-            type="button"
-            variant="outline"
-            className="h-9 self-start"
-            onClick={() => void handleSignOut()}
-          >
-            {t("account.sign_out")}
-          </Button>
+          {signOutErrorCode && (
+            <p className="text-sm text-destructive" role="alert">
+              {t(`errors.${signOutErrorCode}`)}
+            </p>
+          )}
+          <div className="border-t border-border px-8 py-7 -mx-8">
+            <Button
+              type="button"
+              variant="outline"
+              className="h-9 w-full"
+              onClick={() => void handleSignOut()}
+            >
+              {t("account.sign_out")}
+            </Button>
+          </div>
         </CardContent>
       </Card>
     </AuthLayout>

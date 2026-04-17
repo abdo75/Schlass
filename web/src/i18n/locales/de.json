@@ -187,7 +187,7 @@
     "password_hint": "Sie können Ihr Kontopasswort jederzeit ändern.",
     "change_password": "Passwort ändern",
     "totp_heading": "Zwei-Faktor-Authentifizierung",
-    "totp_placeholder": "Die Einrichtung der Zwei-Faktor-Authentifizierung wird in einer zukünftigen Version verfügbar sein.",
+    "totp_placeholder": "Die Zwei-Faktor-Authentifizierung wird in einer späteren Version verfügbar sein.",
     "sign_out": "Abmelden"
   },
   "errors": {
