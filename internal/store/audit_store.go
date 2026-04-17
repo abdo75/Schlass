@@ -6,7 +6,9 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+
 	"github.com/abdo75/Schlass/internal/database"
+	"github.com/abdo75/Schlass/internal/requestcontext"
 )
 
 type AuditEntry struct {
@@ -28,10 +30,25 @@ func NewAuditStore() *AuditStore {
 }
 
 func (s *AuditStore) Log(ctx context.Context, q database.Querier, entry AuditEntry) error {
+	// Merge the request correlation ID into metadata so audit rows can be
+	// joined against the structured access log by correlation_id. The value
+	// is populated by middleware.RequestLogging; in contexts that bypass
+	// that middleware (CLI tools, tests that fabricate a context), the ID is
+	// empty and we omit the key rather than write a misleading "".
+	metadata := entry.Metadata
+	if cid := requestcontext.CorrelationID(ctx); cid != "" {
+		merged := make(map[string]any, len(metadata)+1)
+		for k, v := range metadata {
+			merged[k] = v
+		}
+		merged["correlation_id"] = cid
+		metadata = merged
+	}
+
 	var metadataJSON []byte
-	if entry.Metadata != nil {
+	if metadata != nil {
 		var err error
-		metadataJSON, err = json.Marshal(entry.Metadata)
+		metadataJSON, err = json.Marshal(metadata)
 		if err != nil {
 			return fmt.Errorf("audit log: failed to marshal metadata: %w", err)
 		}

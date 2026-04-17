@@ -1,24 +1,14 @@
 package middleware
 
 import (
-	"context"
 	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/abdo75/Schlass/internal/requestcontext"
 )
-
-type contextKey string
-
-const correlationIDKey contextKey = "correlation_id"
-
-func CorrelationID(ctx context.Context) string {
-	if id, ok := ctx.Value(correlationIDKey).(string); ok {
-		return id
-	}
-	return ""
-}
 
 type responseWriter struct {
 	http.ResponseWriter
@@ -35,7 +25,7 @@ func RequestLogging(next http.Handler) http.Handler {
 		start := time.Now()
 		id := uuid.New().String()
 
-		ctx := context.WithValue(r.Context(), correlationIDKey, id)
+		ctx := requestcontext.WithCorrelationID(r.Context(), id)
 		r = r.WithContext(ctx)
 
 		rw := &responseWriter{ResponseWriter: w, status: http.StatusOK}
