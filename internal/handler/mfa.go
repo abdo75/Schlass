@@ -74,14 +74,14 @@ const (
 
 // Valkey TTLs.
 const (
-	mfaEnrollTTL    = 10 * time.Minute    //nolint:unused // used by Tasks 7-11
-	mfaChallengeTTL = 120 * time.Second   //nolint:unused // used by Tasks 7-11
+	mfaEnrollTTL    = 10 * time.Minute
+	mfaChallengeTTL = 120 * time.Second //nolint:unused // used by Task 12 (PostLogin integration)
 )
 
 // Attempt caps for the enrollment-verify and challenge endpoints.
 const (
 	mfaEnrollVerifyMaxAttempts = 5
-	mfaChallengeMaxAttempts    = 5 //nolint:unused // used by Tasks 10-11
+	mfaChallengeMaxAttempts    = 5
 )
 
 // Valkey key prefixes. Intentionally not the same prefix as the opaque-
@@ -89,7 +89,7 @@ const (
 // separate from admin sessions.
 const (
 	mfaEnrollKeyPrefix    = "mfa:enroll:"
-	mfaChallengeKeyPrefix = "mfa:challenge:" //nolint:unused // used by Tasks 10-11
+	mfaChallengeKeyPrefix = "mfa:challenge:"
 )
 
 func (h *MfaHandler) PostEnrollmentStart(w http.ResponseWriter, r *http.Request) {
@@ -382,7 +382,199 @@ func (h *MfaHandler) PostEnrollmentComplete(w http.ResponseWriter, r *http.Reque
 }
 
 func (h *MfaHandler) PostChallenge(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusNotImplemented, "NOT_IMPLEMENTED", "MFA challenge not yet implemented.")
+	tokenCookie, err := r.Cookie(MfaChallengeCookieName)
+	if err != nil || tokenCookie.Value == "" {
+		writeError(w, http.StatusUnauthorized, "MFA_CHALLENGE_EXPIRED", "Sign-in session expired — please sign in again.")
+		return
+	}
+	token := tokenCookie.Value
+	key := mfaChallengeKeyPrefix + token
+
+	var req struct {
+		Code         string `json:"code"`
+		RecoveryCode string `json:"recovery_code"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body.")
+		return
+	}
+
+	// Atomic decrement-fetch. Decrement before any other work so concurrent
+	// requests can't slip through by racing on the same counter value.
+	remaining, err := h.valkey.HIncrBy(r.Context(), key, "attempts_remaining", -1).Result()
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "MFA_CHALLENGE_EXPIRED", "Sign-in session expired — please sign in again.")
+		return
+	}
+	if remaining < 0 {
+		h.valkey.Del(r.Context(), key)
+		h.writeChallengeFailedAudit(r, "", "max_attempts")
+		writeError(w, http.StatusUnauthorized, "MFA_CHALLENGE_MAX_ATTEMPTS", "Too many failed attempts — please sign in again.")
+		return
+	}
+
+	userIDStr, err := h.valkey.HGet(r.Context(), key, "user_id").Result()
+	if err != nil || userIDStr == "" {
+		writeError(w, http.StatusUnauthorized, "MFA_CHALLENGE_EXPIRED", "Sign-in session expired — please sign in again.")
+		return
+	}
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	user, err := h.userStore.GetByID(r.Context(), h.pool, userID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	// Dispatch on which input field is populated. Recovery path lands in Task 11.
+	if req.RecoveryCode != "" {
+		h.verifyRecoveryCode(w, r, user, req.RecoveryCode, token, key)
+		return
+	}
+	if len(req.Code) != 6 {
+		if remaining == 0 {
+			h.valkey.Del(r.Context(), key)
+		}
+		h.writeChallengeFailedAudit(r, userID.String(), "invalid_code")
+		writeError(w, http.StatusUnauthorized, "MFA_INVALID_CODE", "Invalid code.")
+		return
+	}
+
+	secret, err := crypto.Decrypt(user.TOTPSecretEncrypted, h.encryptionKey)
+	if err != nil {
+		slog.Error("mfa challenge: Decrypt failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	matched, step, err := crypto.ValidateTOTP(req.Code, string(secret), user.LastUsedTOTPCounter)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if !matched {
+		if remaining == 0 {
+			h.valkey.Del(r.Context(), key)
+		}
+		h.writeChallengeFailedAudit(r, userID.String(), "invalid_code")
+		writeError(w, http.StatusUnauthorized, "MFA_INVALID_CODE", "Invalid code.")
+		return
+	}
+
+	// Success tx: advance counter + login.succeeded + mfa.challenge_succeeded.
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	defer func() { _ = tx.Rollback(r.Context()) }()
+
+	if err := h.userStore.AdvanceTOTPCounter(r.Context(), tx, userID, step); err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	ip := extractClientIP(r)
+	if err := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+		EventType:  "login.succeeded",
+		ActorID:    &userID,
+		ActorEmail: user.Email,
+		TargetType: "user",
+		TargetID:   userID.String(),
+		IPAddress:  ip,
+		Outcome:    "success",
+	}); err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if err := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+		EventType:  "mfa.challenge_succeeded",
+		ActorID:    &userID,
+		ActorEmail: user.Email,
+		TargetType: "user",
+		TargetID:   userID.String(),
+		IPAddress:  ip,
+		Outcome:    "success",
+		Metadata:   map[string]any{"method": "totp"},
+	}); err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	// Post-tx: destroy challenge token, clear cookie, create session.
+	h.valkey.Del(r.Context(), key)
+	http.SetCookie(w, &http.Cookie{
+		Name:     MfaChallengeCookieName,
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+		Secure:   h.secureCookie,
+		MaxAge:   -1,
+	})
+
+	sessionToken, err := h.sessionStore.Create(r.Context(), userID.String(), ip, r.Header.Get("User-Agent"))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	setSessionCookie(w, sessionToken, h.secureCookie)
+	writeJSON(w, http.StatusOK, map[string]any{"user": userDTO(user)})
+}
+
+// writeChallengeFailedAudit writes an mfa.challenge_failed audit row.
+// Best-effort: uses its own tx, logs on failure but does not block the caller.
+func (h *MfaHandler) writeChallengeFailedAudit(r *http.Request, userID, reason string) {
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		slog.Error("mfa challenge: audit tx begin failed", "error", err)
+		return
+	}
+	defer func() { _ = tx.Rollback(r.Context()) }()
+
+	var actorID *uuid.UUID
+	actorEmail := ""
+	if userID != "" {
+		if u, err := uuid.Parse(userID); err == nil {
+			actorID = &u
+			if user, err := h.userStore.GetByID(r.Context(), tx, u); err == nil {
+				actorEmail = user.Email
+			}
+		}
+	}
+	if err := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+		EventType:  "mfa.challenge_failed",
+		ActorID:    actorID,
+		ActorEmail: actorEmail,
+		TargetType: "user",
+		TargetID:   userID,
+		IPAddress:  extractClientIP(r),
+		Outcome:    "failure",
+		Metadata:   map[string]any{"reason": reason},
+	}); err != nil {
+		slog.Error("mfa challenge: audit write failed", "error", err)
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		slog.Error("mfa challenge: audit tx commit failed", "error", err)
+	}
+}
+
+// verifyRecoveryCode is the recovery-path branch of PostChallenge.
+// Implementation lands in Task 11.
+func (h *MfaHandler) verifyRecoveryCode(w http.ResponseWriter, r *http.Request, user *store.User, plaintext, token, key string) {
+	_ = user      // prevent "unused param" lints; Task 11 will consume these.
+	_ = plaintext
+	_ = token
+	_ = key
+	writeError(w, http.StatusNotImplemented, "NOT_IMPLEMENTED", "Recovery code path lands in Task 11.")
 }
 
 // issuerFromPublicURL extracts a human-readable issuer for the otpauth://
