@@ -180,6 +180,16 @@
       }
     }
   },
+  "account": {
+    "title": "Votre compte",
+    "subtitle": "Connecté en tant que {{email}}",
+    "password_heading": "Mot de passe",
+    "password_hint": "Vous pouvez modifier votre mot de passe à tout moment.",
+    "change_password": "Modifier le mot de passe",
+    "totp_heading": "Authentification à deux facteurs",
+    "totp_placeholder": "L'inscription à l'authentification à deux facteurs sera disponible dans une version ultérieure.",
+    "sign_out": "Se déconnecter"
+  },
   "errors": {
     "SETUP_ALREADY_COMPLETE": "La configuration a déjà été effectuée.",
     "VALIDATION_ERROR": "Saisie invalide.",
