@@ -229,7 +229,15 @@
       "verify_button": "Verifizieren",
       "verify_submitting": "Wird verifiziert...",
       "verify_helper_one": "Einfügen aus Zwischenablage unterstützt · {{count}} Versuch verbleibend",
-      "verify_helper_other": "Einfügen aus Zwischenablage unterstützt · {{count}} Versuche verbleibend"
+      "verify_helper_other": "Einfügen aus Zwischenablage unterstützt · {{count}} Versuche verbleibend",
+      "step3_warning": "Speichern Sie sie jetzt — sie können nicht wiederhergestellt werden.",
+      "copy_all": "Alle kopieren",
+      "download": "Herunterladen",
+      "print": "Drucken",
+      "copy_code_aria": "Code {{code}} kopieren",
+      "acknowledgement": "Ich habe diese Codes an einem sicheren Ort gespeichert.",
+      "finish_button": "Einrichtung abschließen",
+      "finish_submitting": "Abschließen…"
     }
   },
   "language": {

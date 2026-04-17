@@ -229,7 +229,15 @@
       "verify_button": "Vérifier",
       "verify_submitting": "Vérification...",
       "verify_helper_one": "Coller depuis le presse-papiers · {{count}} tentative restante",
-      "verify_helper_other": "Coller depuis le presse-papiers · {{count}} tentatives restantes"
+      "verify_helper_other": "Coller depuis le presse-papiers · {{count}} tentatives restantes",
+      "step3_warning": "Enregistrez-les maintenant — elles ne pourront pas être récupérées.",
+      "copy_all": "Tout copier",
+      "download": "Télécharger",
+      "print": "Imprimer",
+      "copy_code_aria": "Copier le code {{code}}",
+      "acknowledgement": "J'ai enregistré ces codes en lieu sûr.",
+      "finish_button": "Terminer",
+      "finish_submitting": "Finalisation…"
     }
   },
   "language": {

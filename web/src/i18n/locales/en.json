@@ -229,7 +229,15 @@
       "verify_button": "Verify",
       "verify_submitting": "Verifying...",
       "verify_helper_one": "Paste from clipboard supported · {{count}} attempt remaining",
-      "verify_helper_other": "Paste from clipboard supported · {{count}} attempts remaining"
+      "verify_helper_other": "Paste from clipboard supported · {{count}} attempts remaining",
+      "step3_warning": "Save these now — they cannot be recovered.",
+      "copy_all": "Copy all",
+      "download": "Download",
+      "print": "Print",
+      "copy_code_aria": "Copy code {{code}}",
+      "acknowledgement": "I've saved these codes somewhere safe.",
+      "finish_button": "Finish setup",
+      "finish_submitting": "Finishing…"
     }
   },
   "language": {

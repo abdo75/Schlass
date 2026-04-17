@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { AuthLayout } from "@/components/AuthLayout";
@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/card";
 import { EnrollStepScan } from "./EnrollStepScan";
 import { EnrollStepVerify } from "./EnrollStepVerify";
+import { EnrollStepRecoveryCodes } from "./EnrollStepRecoveryCodes";
 import type { EnrollmentStartResponse } from "./api";
 
 type Step = 1 | 2 | 3;
@@ -79,7 +80,7 @@ export function TotpEnrollmentWizard() {
   const navigate = useNavigate();
   const [step, setStep] = useState<Step>(1);
   const [enrollment, setEnrollment] = useState<EnrollmentStartResponse | null>(null);
-  const [, setRecoveryCodes] = useState<string[]>([]);
+  const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
 
   const titleKey = `mfa.enrollment.step${step}_title`;
   const descKey = `mfa.enrollment.step${step}_description`;
@@ -107,7 +108,10 @@ export function TotpEnrollmentWizard() {
             <EnrollStepVerify onNext={(codes) => { setRecoveryCodes(codes); setStep(3); }} />
           )}
           {step === 3 && (
-            <StepStub kind="recovery" onComplete={() => void navigate("/account", { replace: true })} />
+            <EnrollStepRecoveryCodes
+              codes={recoveryCodes}
+              onComplete={() => void navigate("/account", { replace: true })}
+            />
           )}
         </CardContent>
       </Card>
@@ -115,13 +119,3 @@ export function TotpEnrollmentWizard() {
   );
 }
 
-// StepStub is a placeholder for Steps 2 and 3 — they land in Tasks 16 and 17.
-// Wired to the onNext/onComplete callbacks so the wizard state machine works
-// end-to-end as soon as those tasks replace this stub.
-function StepStub(props: { kind: "verify" | "recovery"; onNext?: (codes: string[]) => void; onComplete?: () => void }): ReactNode {
-  return (
-    <div className="text-[12px] text-muted-foreground">
-      Placeholder for step: {props.kind}. Replaced in Task {props.kind === "verify" ? "16" : "17"}.
-    </div>
-  );
-}
