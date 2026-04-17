@@ -212,6 +212,26 @@
     "passwordMismatch": "Passwords do not match.",
     "unexpected": "An unexpected error occurred."
   },
+  "mfa": {
+    "enrollment": {
+      "step1_label": "Scan",
+      "step2_label": "Verify",
+      "step3_label": "Codes",
+      "step1_title": "Set up two-factor authentication",
+      "step1_description": "Scan the QR code with your authenticator app.",
+      "step2_title": "Verify your authenticator",
+      "step2_description": "Enter the 6-digit code shown in your app.",
+      "step3_title": "Save your recovery codes",
+      "step3_description": "Store these codes somewhere safe — they're your backup if you lose access.",
+      "cannot_scan_link": "Can't scan? Enter the key manually",
+      "hide_manual_secret": "Hide manual key",
+      "next_button": "Next",
+      "verify_button": "Verify",
+      "verify_submitting": "Verifying...",
+      "verify_helper_one": "Paste from clipboard supported · {{count}} attempt remaining",
+      "verify_helper_other": "Paste from clipboard supported · {{count}} attempts remaining"
+    }
+  },
   "language": {
     "en": "English",
     "fr": "Français",

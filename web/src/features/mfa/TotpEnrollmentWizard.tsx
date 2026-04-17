@@ -10,6 +10,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { EnrollStepScan } from "./EnrollStepScan";
+import { EnrollStepVerify } from "./EnrollStepVerify";
 import type { EnrollmentStartResponse } from "./api";
 
 type Step = 1 | 2 | 3;
@@ -103,7 +104,7 @@ export function TotpEnrollmentWizard() {
             />
           )}
           {step === 2 && enrollment && (
-            <StepStub kind="verify" onNext={(codes) => { setRecoveryCodes(codes); setStep(3); }} />
+            <EnrollStepVerify onNext={(codes) => { setRecoveryCodes(codes); setStep(3); }} />
           )}
           {step === 3 && (
             <StepStub kind="recovery" onComplete={() => void navigate("/account", { replace: true })} />

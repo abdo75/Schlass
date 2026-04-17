@@ -31,6 +31,7 @@ describe("TotpEnrollmentWizard", () => {
       </I18nextProvider>,
     );
     // Step 1 label is displayed somewhere in the stepper
-    expect(await screen.findByText(/setup|scan/i)).toBeInTheDocument();
+    const matches = await screen.findAllByText(/setup|scan/i);
+    expect(matches.length).toBeGreaterThan(0);
   });
 });

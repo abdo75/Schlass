@@ -212,6 +212,26 @@
     "passwordMismatch": "Die Passwörter stimmen nicht überein.",
     "unexpected": "Ein unerwarteter Fehler ist aufgetreten."
   },
+  "mfa": {
+    "enrollment": {
+      "step1_label": "Scannen",
+      "step2_label": "Verifizieren",
+      "step3_label": "Codes",
+      "step1_title": "Zwei-Faktor-Authentifizierung einrichten",
+      "step1_description": "Scannen Sie den QR-Code mit Ihrer Authenticator-App.",
+      "step2_title": "Authenticator bestätigen",
+      "step2_description": "Geben Sie den 6-stelligen Code aus Ihrer App ein.",
+      "step3_title": "Wiederherstellungscodes speichern",
+      "step3_description": "Bewahren Sie diese Codes sicher auf — sie sind Ihr Backup, falls Sie den Zugang verlieren.",
+      "cannot_scan_link": "Kann nicht scannen? Schlüssel manuell eingeben",
+      "hide_manual_secret": "Manuellen Schlüssel ausblenden",
+      "next_button": "Weiter",
+      "verify_button": "Verifizieren",
+      "verify_submitting": "Wird verifiziert...",
+      "verify_helper_one": "Einfügen aus Zwischenablage unterstützt · {{count}} Versuch verbleibend",
+      "verify_helper_other": "Einfügen aus Zwischenablage unterstützt · {{count}} Versuche verbleibend"
+    }
+  },
   "language": {
     "en": "English",
     "fr": "Français",

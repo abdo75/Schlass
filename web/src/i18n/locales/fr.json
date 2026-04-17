@@ -212,6 +212,26 @@
     "passwordMismatch": "Les mots de passe ne correspondent pas.",
     "unexpected": "Une erreur inattendue s'est produite."
   },
+  "mfa": {
+    "enrollment": {
+      "step1_label": "Scanner",
+      "step2_label": "Vérifier",
+      "step3_label": "Codes",
+      "step1_title": "Configurer l'authentification à deux facteurs",
+      "step1_description": "Scannez le QR code avec votre application d'authentification.",
+      "step2_title": "Vérifiez votre application",
+      "step2_description": "Entrez le code à 6 chiffres affiché dans votre application.",
+      "step3_title": "Sauvegardez vos codes de récupération",
+      "step3_description": "Conservez ces codes en lieu sûr — ils sont votre secours si vous perdez l'accès.",
+      "cannot_scan_link": "Impossible de scanner ? Saisissez la clé manuellement",
+      "hide_manual_secret": "Masquer la clé manuelle",
+      "next_button": "Suivant",
+      "verify_button": "Vérifier",
+      "verify_submitting": "Vérification...",
+      "verify_helper_one": "Coller depuis le presse-papiers · {{count}} tentative restante",
+      "verify_helper_other": "Coller depuis le presse-papiers · {{count}} tentatives restantes"
+    }
+  },
   "language": {
     "en": "English",
     "fr": "Français",
