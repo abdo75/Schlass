@@ -29,7 +29,7 @@ func mustParseUUID(t *testing.T, s string) uuid.UUID {
 }
 
 // TestUsers_RoleGate_RejectsNonAdmin proves that a session belonging to a
-// non-super_admin user is rejected with 403 FORBIDDEN by the RequireRole
+// non-super_admin user is rejected with 403 FORBIDDEN by the RequirePermission
 // middleware wired into every /api/users/* route in Task 5.
 func TestUsers_RoleGate_RejectsNonAdmin(t *testing.T) {
 	ctx := context.Background()

@@ -132,3 +132,10 @@ func writeAuthError(w http.ResponseWriter, status int, code, message string) {
 		"message": message,
 	})
 }
+
+// InjectUserForTest lets tests populate the request context with a user
+// without going through the real Auth middleware. Only intended for unit
+// tests of middleware that depends on CurrentUser (e.g. RequirePermission).
+func InjectUserForTest(ctx context.Context, user *store.User) context.Context {
+	return context.WithValue(ctx, userCtxKey, user)
+}
