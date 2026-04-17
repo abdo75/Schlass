@@ -9,7 +9,8 @@ interface AuthState {
   refreshUser: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthState | undefined>(undefined);
+// eslint-disable-next-line react-refresh/only-export-components -- exported for testing (provider construction)
+export const AuthContext = createContext<AuthState | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
