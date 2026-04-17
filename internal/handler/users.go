@@ -226,6 +226,7 @@ func (h *UsersHandler) Create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid email.")
 		return
 	}
+	req.Email = strings.ToLower(req.Email)
 	if req.Role != "super_admin" && req.Role != "user" {
 		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "role must be 'super_admin' or 'user'.")
 		return
@@ -379,6 +380,8 @@ func (h *UsersHandler) Update(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid email.")
 			return
 		}
+		lower := strings.ToLower(*req.Email)
+		req.Email = &lower
 	}
 	if req.Role != nil {
 		if *req.Role != "super_admin" && *req.Role != "user" {

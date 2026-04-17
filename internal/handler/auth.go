@@ -117,6 +117,7 @@ func (h *AuthHandler) PostLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { _ = tx.Rollback(r.Context()) }() // non-actionable after a successful Commit (pgx returns ErrTxClosed)
 
+	req.Email = strings.ToLower(req.Email)
 	user, err := h.userStore.GetByEmail(r.Context(), tx, req.Email)
 	if err != nil && !errors.Is(err, store.ErrUserNotFound) {
 		slog.Error("GetByEmail failed", "error", err)

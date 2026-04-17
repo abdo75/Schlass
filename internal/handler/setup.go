@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -104,6 +105,11 @@ func (h *SetupHandler) PostSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer func() { _ = tx.Rollback(r.Context()) }() // error is non-actionable after a successful Commit (pgx returns ErrTxClosed)
+
+	// Canonicalize email to lowercase: Task 11 will add a LOWER(email)-
+	// unique constraint at the DB level; the handler boundary is the single
+	// chokepoint that guarantees every stored email is already lowercase.
+	req.Email = strings.ToLower(req.Email)
 
 	userID, err := h.userStore.Create(r.Context(), tx, req.Email, passwordHash, "super_admin", false)
 	if err != nil {
