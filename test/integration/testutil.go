@@ -195,8 +195,24 @@ func (e *TestEnv) SeedAdmin(t *testing.T, email, password string) uuid.UUID {
 // LoginAsAdmin performs a real POST /api/login against the test router and
 // returns the schlass_session cookie set on the response. Fails the test if
 // the login did not succeed or the cookie was not set.
+//
+// MFA is temporarily disabled for the duration of the login so this helper
+// always exercises the legacy 200-path. Callers that want to test MFA-gated
+// login should drive the full flow themselves rather than using this helper.
 func (e *TestEnv) LoginAsAdmin(t *testing.T, email, password string) *http.Cookie {
 	t.Helper()
+
+	// Disable MFA so we always get a session cookie on the first request.
+	if _, err := e.Pool.Exec(context.Background(), `UPDATE instance_config SET value = 'false' WHERE key = 'mfa_required'`); err != nil {
+		t.Fatalf("LoginAsAdmin: disable mfa: %v", err)
+	}
+	// Re-enable MFA after the login so the rest of the test sees the real setting.
+	t.Cleanup(func() {
+		if _, err := e.Pool.Exec(context.Background(), `UPDATE instance_config SET value = 'true' WHERE key = 'mfa_required'`); err != nil {
+			t.Logf("LoginAsAdmin cleanup: re-enable mfa: %v", err)
+		}
+	})
+
 	body := bytes.NewBufferString(`{"email":"` + email + `","password":"` + password + `"}`)
 	req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/login", body)
 	req.Header.Set("Content-Type", "application/json")

@@ -51,7 +51,7 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 	healthHandler := handler.NewHealthHandler(d.Pool, d.ValkeyClient)
 	setupHandler := handler.NewSetupHandler(d.Pool, d.ConfigService, d.ConfigStore, d.UserStore, d.AuditStore)
 	authHandler, err := handler.NewAuthHandler(
-		d.Pool, sessionStore, d.UserStore, d.AuditStore, d.ConfigStore, d.ConfigService, d.Cfg.SchlassPublicURL,
+		d.Pool, d.ValkeyClient, sessionStore, d.UserStore, d.AuditStore, d.ConfigStore, d.ConfigService, d.Cfg.SchlassPublicURL,
 	)
 	if err != nil {
 		return nil, err

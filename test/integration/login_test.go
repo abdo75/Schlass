@@ -19,6 +19,11 @@ func TestLogin_IssuesSessionCookieOnCorrectCredentials(t *testing.T) {
 	// Seed an admin user via the setup wizard (or direct store call)
 	env.SeedAdmin(t, "admin@example.com", "CorrectHorse42!")
 
+	// Disable MFA so this test exercises the legacy 200-path.
+	if _, err := env.Pool.Exec(t.Context(), `UPDATE instance_config SET value = 'false' WHERE key = 'mfa_required'`); err != nil {
+		t.Fatalf("disable mfa: %v", err)
+	}
+
 	body := bytes.NewBufferString(`{"email":"admin@example.com","password":"CorrectHorse42!"}`)
 	req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/login", body)
 	req.Header.Set("Content-Type", "application/json")
@@ -142,6 +147,11 @@ func TestLogin_LockoutCycle(t *testing.T) {
 		t.Fatalf("fast-forward update: %v", err)
 	}
 
+	// Disable MFA so the post-lockout attempt takes the legacy 200-path.
+	if _, err := env.Pool.Exec(context.Background(), `UPDATE instance_config SET value = 'false' WHERE key = 'mfa_required'`); err != nil {
+		t.Fatalf("disable mfa: %v", err)
+	}
+
 	// Correct attempt succeeds and resets counter
 	rec = attempt("CorrectHorse42!")
 	if rec.Code != 200 {
@@ -162,6 +172,11 @@ func TestLogin_OriginCheck(t *testing.T) {
 	env := setupIntegrationEnv(t)
 	defer env.Cleanup()
 	env.SeedAdmin(t, "admin@example.com", "CorrectHorse42!")
+
+	// Disable MFA so the correct-origin attempt takes the legacy 200-path.
+	if _, err := env.Pool.Exec(t.Context(), `UPDATE instance_config SET value = 'false' WHERE key = 'mfa_required'`); err != nil {
+		t.Fatalf("disable mfa: %v", err)
+	}
 
 	doWithOrigin := func(origin string) int {
 		body := bytes.NewBufferString(`{"email":"admin@example.com","password":"CorrectHorse42!"}`)
@@ -315,6 +330,12 @@ func TestLogin_AuditFailureRollsBack(t *testing.T) {
 	env := setupIntegrationEnv(t)
 	defer env.Cleanup()
 	env.SeedAdmin(t, "admin@example.com", "CorrectHorse42!")
+
+	// Disable MFA so the correct-password path reaches login.succeeded audit
+	// write (the legacy path) where the fake store will trigger the 500.
+	if _, err := env.Pool.Exec(t.Context(), `UPDATE instance_config SET value = 'false' WHERE key = 'mfa_required'`); err != nil {
+		t.Fatalf("disable mfa: %v", err)
+	}
 
 	// Swap in a fake audit store that always errors on Log
 	env.WithFakeAuditStore(t, func() error { return errors.New("simulated audit failure") })
