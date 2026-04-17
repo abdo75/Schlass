@@ -33,8 +33,9 @@ export function LoginPage() {
     setRetryAfterSeconds(null);
     setSubmitting(true);
     try {
-      await login(email, password);
-      void navigate("/admin", { replace: true });
+      const user = await login(email, password);
+      const destination = user.role === "super_admin" ? "/admin" : "/account";
+      void navigate(destination, { replace: true });
     } catch (err: unknown) {
       // apiFetch throws ApiRequestError with { code, message, status,
       // retryAfterSeconds? }. See web/src/lib/api.ts for the class definition.

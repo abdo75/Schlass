@@ -180,6 +180,16 @@
       }
     }
   },
+  "account": {
+    "title": "Ihr Konto",
+    "subtitle": "Angemeldet als {{email}}",
+    "password_heading": "Passwort",
+    "password_hint": "Sie können Ihr Kontopasswort jederzeit ändern.",
+    "change_password": "Passwort ändern",
+    "totp_heading": "Zwei-Faktor-Authentifizierung",
+    "totp_placeholder": "Die Zwei-Faktor-Authentifizierung wird in einer späteren Version verfügbar sein.",
+    "sign_out": "Abmelden"
+  },
   "errors": {
     "SETUP_ALREADY_COMPLETE": "Die Einrichtung wurde bereits abgeschlossen.",
     "VALIDATION_ERROR": "Ungültige Eingabe.",

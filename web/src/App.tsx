@@ -1,7 +1,8 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { AuthProvider } from "@/features/auth/AuthContext";
+import { AuthProvider, useAuth } from "@/features/auth/AuthContext";
 import { AuthGuard } from "@/components/AuthGuard";
+import { AdminGuard } from "@/components/AdminGuard";
 import { AdminLayout } from "@/components/AdminLayout";
 import { LoginPage } from "@/features/auth/LoginPage";
 import { ChangePasswordPage } from "@/features/auth/ChangePasswordPage";
@@ -9,6 +10,7 @@ import { SetupPage } from "@/features/setup/SetupPage";
 import { UsersPage } from "@/features/users/UsersPage";
 import { UserCreatePage } from "@/features/users/UserCreatePage";
 import { UserDetailPage } from "@/features/users/UserDetailPage";
+import { UserAccountPage } from "@/features/account/UserAccountPage";
 
 // GET /api/setup returns 200 when setup is incomplete (with a body) and 404
 // when setup is complete — matches the existing setup handler contract.
@@ -47,6 +49,17 @@ function Bootstrap({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
+// Role-aware root redirect: admins land at /admin, everyone else at
+// /account. Uses useAuth so it automatically respects auth loading state.
+function RootRedirect() {
+  const { user, loading } = useAuth();
+  if (loading) return null;
+  if (!user) return <Navigate to="/login" replace />;
+  return user.role === "super_admin"
+    ? <Navigate to="/admin" replace />
+    : <Navigate to="/account" replace />;
+}
+
 export default function App() {
   return (
     <BrowserRouter>
@@ -73,11 +86,21 @@ export default function App() {
             }
           />
           <Route
+            path="/account"
+            element={
+              <AuthGuard>
+                <UserAccountPage />
+              </AuthGuard>
+            }
+          />
+          <Route
             path="/admin"
             element={
               <Bootstrap>
                 <AuthGuard>
-                  <AdminLayout />
+                  <AdminGuard>
+                    <AdminLayout />
+                  </AdminGuard>
                 </AuthGuard>
               </Bootstrap>
             }
@@ -87,7 +110,7 @@ export default function App() {
             <Route path="users/new" element={<UserCreatePage />} />
             <Route path="users/:id" element={<UserDetailPage />} />
           </Route>
-          <Route path="/" element={<Navigate to="/admin" replace />} />
+          <Route path="/" element={<Bootstrap><RootRedirect /></Bootstrap>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </AuthProvider>

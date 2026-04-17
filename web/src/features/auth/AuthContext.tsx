@@ -4,12 +4,13 @@ import { getMe, login as apiLogin, logout as apiLogout, type AuthUser } from "./
 interface AuthState {
   user: AuthUser | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<AuthUser>;
   logout: () => Promise<void>;
-  refreshUser: () => Promise<void>;
+  refreshUser: () => Promise<AuthUser | null>;
 }
 
-const AuthContext = createContext<AuthState | undefined>(undefined);
+// eslint-disable-next-line react-refresh/only-export-components -- exported for testing (provider construction)
+export const AuthContext = createContext<AuthState | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -38,9 +39,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("schlass:unauthorized", handler);
   }, []);
 
-  const login = async (email: string, password: string) => {
+  const login = async (email: string, password: string): Promise<AuthUser> => {
     const res = await apiLogin(email, password);
     setUser(res.user);
+    return res.user;
   };
 
   const logout = async () => {
@@ -48,10 +50,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   };
 
-  const refreshUser = async () => {
+  const refreshUser = async (): Promise<AuthUser | null> => {
     try {
       const res = await getMe();
       setUser(res.user);
+      return res.user;
     } catch (err) {
       // Clearing on any error is a safe default: a 401 legitimately means the
       // session is gone, and a transient 500 will re-resolve on the next
@@ -59,6 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // surface in devtools instead of looking like a silent logout.
       console.error("refreshUser failed", err);
       setUser(null);
+      return null;
     }
   };
 

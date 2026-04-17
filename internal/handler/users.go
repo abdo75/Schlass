@@ -27,8 +27,8 @@ import (
 )
 
 // UsersHandler serves the admin-only /api/users/* endpoints. Constructed in
-// internal/server/router.go and wrapped with middleware.Auth +
-// middleware.RequireRole("super_admin") at wiring time.
+// internal/server/router.go and wrapped with middleware.Auth + a per-route
+// middleware.RequirePermission gate at wiring time.
 type UsersHandler struct {
 	pool          *pgxpool.Pool
 	userStore     *store.UserStore
@@ -226,6 +226,7 @@ func (h *UsersHandler) Create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid email.")
 		return
 	}
+	req.Email = strings.ToLower(req.Email)
 	if req.Role != "super_admin" && req.Role != "user" {
 		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "role must be 'super_admin' or 'user'.")
 		return
@@ -379,6 +380,8 @@ func (h *UsersHandler) Update(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid email.")
 			return
 		}
+		lower := strings.ToLower(*req.Email)
+		req.Email = &lower
 	}
 	if req.Role != nil {
 		if *req.Role != "super_admin" && *req.Role != "user" {

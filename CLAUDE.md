@@ -64,6 +64,12 @@ Never match on error message strings.
 
 Every state-changing operation must write to `audit_logs` with: event_type, actor_id, actor_email (denormalized), target_type, target_id, ip_address, outcome, metadata. The `actor_email` is stored directly so the audit trail survives user deletion.
 
+### Config mutation audit rule
+
+Every handler that writes to `instance_config` must audit `config.<key>.changed` inside the same Postgres transaction as the write, following the Audit-in-tx rule above. `instance_config` is where security policy lives (MFA requirement, password policy, lockout thresholds, signing key ops, SMTP, token TTLs — see `docs/v1-scope.md` §"Security & Instance Configuration"). Configuration changes are the audit trail item regulators scrutinize most; there is no acceptable "best-effort" exception analogous to middleware session revocation.
+
+This rule is currently aspirational — no post-setup config-write handler exists (setup is the only writer, and it audits `setup.completed`). When the first admin config-mutation endpoint lands in Sprint 4+, it must ship with an integration test that reads the row and asserts `event_type LIKE 'config.%.changed'` within the same request.
+
 ### Sessions & Auth (Sprint 2+)
 
 Admin UI uses a **first-party opaque-token session** — not OIDC. Login issues a 32-byte random token (base64url, `crypto/rand`), stored in Valkey as `session:<token>` → `{"user_id":"..."}` with a 24h sliding TTL. Cookie attributes: `HttpOnly; SameSite=Strict; Path=/; MaxAge=86400`; the `Secure` flag is toggled by the `SCHLASS_PUBLIC_URL` scheme at handler construction time (true iff `https://`).
@@ -86,9 +92,15 @@ End-user (third-party client) OIDC sessions are a separate mechanism to be built
 
 ### Authorization (Sprint 3+)
 
-`middleware.RequireRole(roles ...string)` is the role-gate, wrapped *after* `middleware.Auth` in the chain so the user is already in context. It returns 403 `FORBIDDEN` when the authenticated user's role is not in the allowed set, and 401 `INVALID_SESSION` if no user is in context (a wiring bug). All `/api/users/*` routes are gated by `RequireRole("super_admin")` in `internal/server/router.go`; the only authed-but-unrestricted exception is `POST /api/change-password`, which is self-service. Handlers must never re-check `user.Role` — the middleware already decided.
+Authorization is permission-string shaped at the middleware layer. Every protected route is gated by `middleware.RequirePermission("<resource>.<action>")` rather than a raw role check. The role→permissions mapping lives in `internal/middleware/permission.go` as a package-level `rolePermissions` map; v1 hardcodes `super_admin` → all 10 `users.*` permissions and `user` → none. Dynamic role management (operator-created roles, per-permission toggles, an admin UI) is a v2 deliverable — see `docs/v1-scope.md` line 33, "Org Admin deferred to v2". When v2 lands, `rolePermissions` is replaced by a DB lookup against `roles` / `role_permissions` tables; handler gates and SPA `usePermission()` calls survive unchanged.
 
-Destructive handlers (disable, delete, role-demote PATCH) call `rejectSelfOp` as their first action: it's cheap, fails fast with 400 `CANNOT_OPERATE_ON_SELF`, and avoids any DB work for the obvious cases. Last-admin lockout is enforced with a `SELECT id FROM users WHERE role = 'super_admin' FOR UPDATE` that serializes concurrent destructive operations on the admin set, followed by a post-operation count check inside the same transaction as the correctness backstop. The lock deliberately omits `status = 'active'` so it also serializes against concurrent enable/disable flips — narrowing it would let a parallel re-enable slip past the count check. The shared helpers — `lockSuperAdminsForUpdate`, `remainingActiveSuperAdmins`, `enforceLastAdminLockout`, and `rejectSelfOp` — all live in `internal/handler/users.go`. Sprint 4's client-management routes will reuse the same `RequireRole` wrapper unchanged.
+Handlers never inspect `user.Role` for authorization — the middleware has already decided. Handler-level role reads are permitted only for non-authorization purposes (e.g. a self-op guard that says "an admin cannot demote themselves"), and the call site must comment why.
+
+The SPA mirrors the contract via two layers: `<AdminGuard>` at the route level in `web/src/App.tsx` (redirects non-super_admin to `/account`, unauthenticated to `/login`), and the `usePermission(PERMISSIONS.XXX)` hook in `web/src/features/auth/usePermission.ts` for button-level gates. Today the `users.*` UI has no button-level gates — all admin-only routes are protected at the route level and every non-admin redirect happens before the admin UI is reached. `usePermission` exists for future features that want to render differently per permission within a single route (e.g., a read-only view for users without `users.update`). Role-string checks in the SPA are reserved for display surfaces (e.g. the `<RoleBadge>` component, admin-count metrics) and must not gate destructive or privileged actions.
+
+Post-authentication routing: `LoginPage.handleSubmit` branches on the authenticated user's role — `super_admin` → `/admin`, anyone else → `/account`. `ChangePasswordForm` applies the same branching after a forced password change so a `role=user` account isn't bounced to `/admin/users` and then redirected again by `AdminGuard`. The root `/` route uses a `RootRedirect` helper wrapped in `Bootstrap` that performs the same branching.
+
+Destructive handlers (disable, delete, role-demote PATCH) call `rejectSelfOp` as their first action: it's cheap, fails fast with 400 `CANNOT_OPERATE_ON_SELF`, and avoids any DB work for the obvious cases. Last-admin lockout is enforced with a `SELECT id FROM users WHERE role = 'super_admin' FOR UPDATE` that serializes concurrent destructive operations on the admin set, followed by a post-operation count check inside the same transaction as the correctness backstop. The lock deliberately omits `status = 'active'` so it also serializes against concurrent enable/disable flips — narrowing it would let a parallel re-enable slip past the count check. The shared helpers — `lockSuperAdminsForUpdate`, `remainingActiveSuperAdmins`, `enforceLastAdminLockout`, and `rejectSelfOp` — all live in `internal/handler/users.go`. Sprint 4's client-management routes will reuse the same `RequirePermission` pattern, declaring new `clients.*` permission strings at route-wiring time.
 
 ### Temporary Passwords (Sprint 3+)
 
@@ -121,6 +133,15 @@ This is a compliance claim — never weaken it.
 - Encryption key from `SCHLASS_ENCRYPTION_KEY` env var (32-byte base64)
 - Security headers on all responses (HSTS, CSP, X-Frame-Options, etc.)
 - Structured JSON logging always (no text mode, dev/prod parity)
+
+### Email canonicalization (Task 10/11)
+
+`users.email` is stored lowercase, enforced at two layers:
+
+- **Handler boundary** — `internal/handler/setup.go`, `internal/handler/users.go` (Create/Update), and `internal/handler/auth.go` (PostLogin) lowercase `req.Email` immediately after `ValidateEmail` and before any store call.
+- **Database** — migration 000012 replaces the inline `UNIQUE` on `email` with a functional `UNIQUE INDEX ON users(LOWER(email))`, so a direct SQL insert that bypasses the handler still fails loudly with 23505 instead of creating a case-variant duplicate.
+
+`Alice@example.com` and `alice@example.com` are the same user identity. Login is case-insensitive by construction. Never reintroduce a case-sensitive comparison on `users.email` — doing so would allow credential-recycling via case variation.
 
 ## Testing
 

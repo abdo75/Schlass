@@ -180,6 +180,16 @@
       }
     }
   },
+  "account": {
+    "title": "Your account",
+    "subtitle": "Signed in as {{email}}",
+    "password_heading": "Password",
+    "password_hint": "You can change your account password at any time.",
+    "change_password": "Change password",
+    "totp_heading": "Two-factor authentication",
+    "totp_placeholder": "Two-factor enrollment will be available in a future release.",
+    "sign_out": "Sign out"
+  },
   "errors": {
     "SETUP_ALREADY_COMPLETE": "Setup has already been completed.",
     "VALIDATION_ERROR": "Invalid input.",

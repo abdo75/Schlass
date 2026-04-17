@@ -22,7 +22,7 @@ interface ChangePasswordFormProps {
 export function ChangePasswordForm({ forced }: ChangePasswordFormProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { refreshUser } = useAuth();
+  const { refreshUser, user } = useAuth();
 
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -44,8 +44,13 @@ export function ChangePasswordForm({ forced }: ChangePasswordFormProps) {
       await changePassword(currentPassword, newPassword);
       // refreshUser re-reads /api/me so the cleared force_password_change flag
       // is visible to AuthGuard; otherwise it would bounce us back here.
-      await refreshUser();
-      void navigate("/admin/users", { replace: true });
+      const refreshedUser = await refreshUser();
+      // Use the refreshed user's role for navigation, not the pre-refresh
+      // closure value — that would be incorrect if password-change ever
+      // triggers a role mutation upstream.
+      const dest =
+        refreshedUser?.role === "super_admin" ? "/admin/users" : "/account";
+      void navigate(dest, { replace: true });
     } catch (err: unknown) {
       const code =
         err && typeof err === "object" && "code" in err
@@ -141,9 +146,11 @@ export function ChangePasswordForm({ forced }: ChangePasswordFormProps) {
                 type="button"
                 variant="outline"
                 className="h-8"
-                onClick={() =>
-                  void navigate("/admin/users", { replace: true })
-                }
+                onClick={() => {
+                  const dest =
+                    user?.role === "super_admin" ? "/admin/users" : "/account";
+                  void navigate(dest, { replace: true });
+                }}
               >
                 {t("users.confirm.cancel")}
               </Button>
