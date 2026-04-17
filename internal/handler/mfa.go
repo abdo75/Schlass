@@ -1,14 +1,17 @@
 package handler
 
 import (
+	"log/slog"
 	"net/http"
 	"net/url"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
 	"github.com/abdo75/Schlass/internal/config"
+	"github.com/abdo75/Schlass/internal/crypto"
 	"github.com/abdo75/Schlass/internal/session"
 	"github.com/abdo75/Schlass/internal/store"
 )
@@ -84,12 +87,78 @@ const (
 // session store (internal/session) to keep MFA transient state visibly
 // separate from admin sessions.
 const (
-	mfaEnrollKeyPrefix    = "mfa:enroll:"    //nolint:unused // used by Tasks 7-9
+	mfaEnrollKeyPrefix    = "mfa:enroll:"
 	mfaChallengeKeyPrefix = "mfa:challenge:" //nolint:unused // used by Tasks 10-11
 )
 
 func (h *MfaHandler) PostEnrollmentStart(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusNotImplemented, "NOT_IMPLEMENTED", "MFA enrollment start not yet implemented.")
+	// 1. Validate enrollment token from cookie.
+	tokenCookie, err := r.Cookie(MfaEnrollCookieName)
+	if err != nil || tokenCookie.Value == "" {
+		writeError(w, http.StatusUnauthorized, "MFA_ENROLLMENT_EXPIRED", "Enrollment session has expired.")
+		return
+	}
+	token := tokenCookie.Value
+	key := mfaEnrollKeyPrefix + token
+
+	// 2. Load enrollment state from Valkey.
+	userIDStr, err := h.valkey.HGet(r.Context(), key, "user_id").Result()
+	if err != nil || userIDStr == "" {
+		writeError(w, http.StatusUnauthorized, "MFA_ENROLLMENT_EXPIRED", "Enrollment session has expired.")
+		return
+	}
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		slog.Error("mfa enroll: malformed user_id in valkey")
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	// 3. Load user to build provision URI + check not already enrolled.
+	user, err := h.userStore.GetByID(r.Context(), h.pool, userID)
+	if err != nil {
+		slog.Error("mfa enroll: GetByID failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if user.TOTPEnrolledAt != nil {
+		writeError(w, http.StatusBadRequest, "MFA_ALREADY_ENROLLED", "This account already has two-factor authentication enabled.")
+		return
+	}
+
+	// 4. Generate fresh secret. Any pre-existing secret in Valkey (from a
+	//    prior /start on the same token — user refreshed mid-flow) is
+	//    overwritten; the new call is authoritative.
+	secret, err := crypto.GenerateTOTPSecret()
+	if err != nil {
+		slog.Error("mfa enroll: GenerateTOTPSecret failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	// 5. Persist secret into the same token key. TTL refresh to full 10 min.
+	if err := h.valkey.HSet(r.Context(), key, "secret_base32", secret).Err(); err != nil {
+		slog.Error("mfa enroll: HSet secret failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if err := h.valkey.Expire(r.Context(), key, mfaEnrollTTL).Err(); err != nil {
+		slog.Error("mfa enroll: Expire refresh failed", "error", err)
+		// Non-fatal — the key still has whatever TTL it had. Continue.
+	}
+
+	// 6. Build provision URI.
+	uri, err := crypto.BuildProvisionURI(h.issuer, user.Email, secret)
+	if err != nil {
+		slog.Error("mfa enroll: BuildProvisionURI failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"secret_base32": secret,
+		"provision_uri": uri,
+	})
 }
 
 func (h *MfaHandler) PostEnrollmentVerify(w http.ResponseWriter, r *http.Request) {

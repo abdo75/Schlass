@@ -3,6 +3,7 @@ package integration
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -30,6 +31,7 @@ type TestEnv struct {
 	Pool              *pgxpool.Pool
 	MigrationsPool    *pgxpool.Pool
 	ValkeyClient      *redis.Client
+	Valkey            *redis.Client // alias for ValkeyClient — MFA tests use this spelling
 	AppConnString     string
 	MigrConnString    string
 	Router            http.Handler
@@ -42,6 +44,9 @@ type TestEnv struct {
 // Cleanup is a no-op — t.Cleanup registered in NewTestEnv handles teardown.
 // Kept as a method so tests using `defer env.Cleanup()` compile cleanly.
 func (e *TestEnv) Cleanup() {}
+
+// Close is an alias for Cleanup — tests may use either spelling.
+func (e *TestEnv) Close() {}
 
 func NewTestEnv(t *testing.T) *TestEnv {
 	t.Helper()
@@ -112,6 +117,7 @@ func NewTestEnv(t *testing.T) *TestEnv {
 		Pool:              pool,
 		MigrationsPool:    migrPool,
 		ValkeyClient:      valkeyClient,
+		Valkey:            valkeyClient,
 		AppConnString:     appConnString,
 		MigrConnString:    migrConnString,
 		Cfg:               cfg,
@@ -264,4 +270,36 @@ func (e *TestEnv) StartValkey(t *testing.T) {
 	if err := e.valkeyContainer.Start(context.Background()); err != nil {
 		t.Fatalf("start valkey: %v", err)
 	}
+}
+
+// CompleteSetup calls POST /api/setup to initialise the instance with the
+// given admin email and password. Fails the test if setup does not return 200.
+func (e *TestEnv) CompleteSetup(t *testing.T, email, password string) {
+	t.Helper()
+	body, _ := json.Marshal(map[string]string{
+		"email":            email,
+		"password":         password,
+		"confirm_password": password,
+		"instance_name":    "Test Corp",
+	})
+	req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/setup", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	e.Router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("CompleteSetup: POST /api/setup returned %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// GetUserIDByEmail looks up the UUID for the user with the given email address.
+// Fails the test if the user is not found.
+func (e *TestEnv) GetUserIDByEmail(t *testing.T, email string) uuid.UUID {
+	t.Helper()
+	var id uuid.UUID
+	if err := e.Pool.QueryRow(context.Background(),
+		`SELECT id FROM users WHERE email = $1`, email,
+	).Scan(&id); err != nil {
+		t.Fatalf("GetUserIDByEmail(%q): %v", email, err)
+	}
+	return id
 }
