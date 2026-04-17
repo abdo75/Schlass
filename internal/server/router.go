@@ -59,7 +59,7 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 
 	authMW := middleware.Auth(sessionStore, d.UserStore, d.AuditStore, d.Pool)
 
-	usersHandler := handler.NewUsersHandler(d.Pool, d.UserStore, d.AuditStore, sessionStore, d.ConfigService)
+	usersHandler := handler.NewUsersHandler(d.Pool, d.UserStore, d.AuditStore, sessionStore, d.ConfigService, d.RecoveryCodeStore)
 
 	mfaHandler := handler.NewMfaHandler(
 		d.Pool, d.ValkeyClient, d.UserStore, d.RecoveryCodeStore,
@@ -106,6 +106,7 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 	mux.Handle("POST /api/users/{id}/disable", gated("users.disable", http.HandlerFunc(usersHandler.Disable)))
 	mux.Handle("POST /api/users/{id}/enable", gated("users.enable", http.HandlerFunc(usersHandler.Enable)))
 	mux.Handle("POST /api/users/{id}/reset-password", gated("users.reset_password", http.HandlerFunc(usersHandler.ResetPassword)))
+	mux.Handle("POST /api/users/{id}/reset-mfa", gated("users.reset_mfa", http.HandlerFunc(usersHandler.ResetMFA)))
 	mux.Handle("DELETE /api/users/{id}", gated("users.delete", http.HandlerFunc(usersHandler.Delete)))
 	mux.Handle("GET /api/users/{id}/sessions", gated("users.sessions.read", http.HandlerFunc(usersHandler.ListSessions)))
 	mux.Handle("DELETE /api/users/{id}/sessions", gated("users.sessions.terminate", http.HandlerFunc(usersHandler.TerminateAllSessions)))

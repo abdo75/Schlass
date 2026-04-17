@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -24,6 +25,7 @@ import (
 	"github.com/abdo75/Schlass/internal/database"
 	"github.com/abdo75/Schlass/internal/handler"
 	"github.com/abdo75/Schlass/internal/server"
+	"github.com/abdo75/Schlass/internal/session"
 	"github.com/abdo75/Schlass/internal/store"
 )
 
@@ -38,6 +40,7 @@ type TestEnv struct {
 	Cfg               *config.Config
 	UserStore         *store.UserStore
 	RecoveryCodeStore *store.RecoveryCodeStore
+	SessionStore      session.Store
 	pgContainer       testcontainers.Container
 	valkeyContainer   testcontainers.Container
 }
@@ -124,6 +127,7 @@ func NewTestEnv(t *testing.T) *TestEnv {
 		Cfg:               cfg,
 		UserStore:         store.NewUserStore(),
 		RecoveryCodeStore: store.NewRecoveryCodeStore(),
+		SessionStore:      session.NewValkeyStore(valkeyClient, 24*time.Hour),
 		pgContainer:       pgContainer,
 		valkeyContainer:   valkeyContainer,
 	}
@@ -320,4 +324,32 @@ func (e *TestEnv) GetUserIDByEmail(t *testing.T, email string) uuid.UUID {
 		t.Fatalf("GetUserIDByEmail(%q): %v", email, err)
 	}
 	return id
+}
+
+// DirectCreateUser inserts a user row directly (bypassing the API) for tests
+// that need a second user. Returns the UUID. Not a substitute for integration
+// testing POST /api/users — use only for test setup.
+func (e *TestEnv) DirectCreateUser(t *testing.T, email, role string) uuid.UUID {
+	t.Helper()
+	hash, err := crypto.HashPassword("test-placeholder-password")
+	if err != nil {
+		t.Fatalf("DirectCreateUser: hash password: %v", err)
+	}
+	id, err := e.UserStore.Create(context.Background(), e.Pool, strings.ToLower(email), hash, role, false)
+	if err != nil {
+		t.Fatalf("DirectCreateUser: %v", err)
+	}
+	return id
+}
+
+// DirectCreateSession creates a Valkey session for the given user without
+// going through POST /api/login. Returns a *http.Cookie ready to attach to
+// test requests.
+func (e *TestEnv) DirectCreateSession(t *testing.T, userID uuid.UUID) *http.Cookie {
+	t.Helper()
+	token, err := e.SessionStore.Create(context.Background(), userID.String(), "127.0.0.1", "test-agent")
+	if err != nil {
+		t.Fatalf("DirectCreateSession: %v", err)
+	}
+	return &http.Cookie{Name: "schlass_session", Value: token}
 }
