@@ -2,10 +2,10 @@ import { describe, it, expect } from "vitest";
 import { PERMISSIONS, permissionsForRole } from "./permissions";
 
 describe("permissions catalog", () => {
-  it("defines 10 permission strings", () => {
+  it("defines 11 permission strings", () => {
     const values = Object.values(PERMISSIONS);
-    expect(values.length).toBe(10);
-    expect(new Set(values).size).toBe(10); // all unique
+    expect(values.length).toBe(11);
+    expect(new Set(values).size).toBe(11); // all unique
   });
 
   it("uses dot-delimited names", () => {
@@ -16,8 +16,8 @@ describe("permissions catalog", () => {
 });
 
 describe("permissionsForRole", () => {
-  it("super_admin holds all 10 permissions", () => {
-    expect(permissionsForRole("super_admin").length).toBe(10);
+  it("super_admin holds all 11 permissions", () => {
+    expect(permissionsForRole("super_admin").length).toBe(11);
   });
 
   it("user holds no permissions", () => {

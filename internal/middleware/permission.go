@@ -28,6 +28,7 @@ var rolePermissions = map[string][]string{
 		"users.reset_password",
 		"users.sessions.read",
 		"users.sessions.terminate",
+		"users.reset_mfa",
 	},
 	"user": {},
 }

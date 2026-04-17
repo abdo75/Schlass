@@ -15,6 +15,7 @@ export const PERMISSIONS = {
   USERS_RESET_PASSWORD: "users.reset_password",
   USERS_SESSIONS_READ: "users.sessions.read",
   USERS_SESSIONS_TERMINATE: "users.sessions.terminate",
+  USERS_RESET_MFA: "users.reset_mfa",
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
