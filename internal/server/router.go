@@ -60,9 +60,8 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 
 	usersHandler := handler.NewUsersHandler(d.Pool, d.UserStore, d.AuditStore, sessionStore, d.ConfigService)
 
-	adminRoleGate := middleware.RequireRole("super_admin")
-	admin := func(h http.Handler) http.Handler {
-		return authMW(adminRoleGate(h))
+	gated := func(perm string, h http.Handler) http.Handler {
+		return authMW(middleware.RequirePermission(perm)(h))
 	}
 
 	setupGetLimit := int64(10)
@@ -91,17 +90,17 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 	mux.Handle("GET /api/me", authMW(http.HandlerFunc(authHandler.GetMe)))
 	mux.Handle("POST /api/change-password", authMW(http.HandlerFunc(authHandler.PostChangePassword)))
 
-	mux.Handle("GET /api/users", admin(http.HandlerFunc(usersHandler.List)))
-	mux.Handle("POST /api/users", admin(http.HandlerFunc(usersHandler.Create)))
-	mux.Handle("GET /api/users/{id}", admin(http.HandlerFunc(usersHandler.Get)))
-	mux.Handle("PATCH /api/users/{id}", admin(http.HandlerFunc(usersHandler.Update)))
-	mux.Handle("POST /api/users/{id}/disable", admin(http.HandlerFunc(usersHandler.Disable)))
-	mux.Handle("POST /api/users/{id}/enable", admin(http.HandlerFunc(usersHandler.Enable)))
-	mux.Handle("POST /api/users/{id}/reset-password", admin(http.HandlerFunc(usersHandler.ResetPassword)))
-	mux.Handle("DELETE /api/users/{id}", admin(http.HandlerFunc(usersHandler.Delete)))
-	mux.Handle("GET /api/users/{id}/sessions", admin(http.HandlerFunc(usersHandler.ListSessions)))
-	mux.Handle("DELETE /api/users/{id}/sessions", admin(http.HandlerFunc(usersHandler.TerminateAllSessions)))
-	mux.Handle("DELETE /api/users/{id}/sessions/{token}", admin(http.HandlerFunc(usersHandler.TerminateSession)))
+	mux.Handle("GET /api/users", gated("users.list", http.HandlerFunc(usersHandler.List)))
+	mux.Handle("POST /api/users", gated("users.create", http.HandlerFunc(usersHandler.Create)))
+	mux.Handle("GET /api/users/{id}", gated("users.read", http.HandlerFunc(usersHandler.Get)))
+	mux.Handle("PATCH /api/users/{id}", gated("users.update", http.HandlerFunc(usersHandler.Update)))
+	mux.Handle("POST /api/users/{id}/disable", gated("users.disable", http.HandlerFunc(usersHandler.Disable)))
+	mux.Handle("POST /api/users/{id}/enable", gated("users.enable", http.HandlerFunc(usersHandler.Enable)))
+	mux.Handle("POST /api/users/{id}/reset-password", gated("users.reset_password", http.HandlerFunc(usersHandler.ResetPassword)))
+	mux.Handle("DELETE /api/users/{id}", gated("users.delete", http.HandlerFunc(usersHandler.Delete)))
+	mux.Handle("GET /api/users/{id}/sessions", gated("users.sessions.read", http.HandlerFunc(usersHandler.ListSessions)))
+	mux.Handle("DELETE /api/users/{id}/sessions", gated("users.sessions.terminate", http.HandlerFunc(usersHandler.TerminateAllSessions)))
+	mux.Handle("DELETE /api/users/{id}/sessions/{token}", gated("users.sessions.terminate", http.HandlerFunc(usersHandler.TerminateSession)))
 
 	mux.Handle("/", web.SPAHandler())
 
