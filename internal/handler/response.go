@@ -27,3 +27,20 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 func isSecureURL(publicURL string) bool {
 	return strings.HasPrefix(publicURL, "https://")
 }
+
+// setSessionCookie writes the schlass_session cookie to w. Used by both
+// AuthHandler (PostLogin, PostChangePassword) and MfaHandler
+// (PostEnrollmentComplete) so the production cookie attributes stay in one
+// place: HttpOnly, SameSite=Strict, Path=/, 24h Max-Age, and the Secure flag
+// toggled by the public URL scheme.
+func setSessionCookie(w http.ResponseWriter, token string, secure bool) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "schlass_session",
+		Value:    token,
+		Path:     "/",
+		MaxAge:   86400,
+		HttpOnly: true,
+		Secure:   secure,
+		SameSite: http.SameSiteStrictMode,
+	})
+}

@@ -244,7 +244,141 @@ func (h *MfaHandler) PostEnrollmentVerify(w http.ResponseWriter, r *http.Request
 }
 
 func (h *MfaHandler) PostEnrollmentComplete(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusNotImplemented, "NOT_IMPLEMENTED", "MFA enrollment complete not yet implemented.")
+	tokenCookie, err := r.Cookie(MfaEnrollCookieName)
+	if err != nil || tokenCookie.Value == "" {
+		writeError(w, http.StatusUnauthorized, "MFA_ENROLLMENT_EXPIRED", "Enrollment session has expired.")
+		return
+	}
+	token := tokenCookie.Value
+	key := mfaEnrollKeyPrefix + token
+
+	var req struct {
+		Acknowledged bool `json:"acknowledged"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body.")
+		return
+	}
+	if !req.Acknowledged {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "You must acknowledge the recovery codes.")
+		return
+	}
+
+	// Pull full Valkey state in one round-trip.
+	state, err := h.valkey.HGetAll(r.Context(), key).Result()
+	if err != nil || len(state) == 0 {
+		writeError(w, http.StatusUnauthorized, "MFA_ENROLLMENT_EXPIRED", "Enrollment session has expired — please start again.")
+		return
+	}
+	userIDStr := state["user_id"]
+	secret := state["secret_base32"]
+	hashesJSON := state["recovery_hashes"]
+	if userIDStr == "" || secret == "" || hashesJSON == "" {
+		writeError(w, http.StatusBadRequest, "MFA_ENROLLMENT_EXPIRED", "Enrollment is not in a state to complete — please verify a code first.")
+		return
+	}
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		slog.Error("mfa complete: malformed user_id in valkey")
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	var hashStrings []string
+	if err := json.Unmarshal([]byte(hashesJSON), &hashStrings); err != nil {
+		slog.Error("mfa complete: unmarshal hashes failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if len(hashStrings) != 10 {
+		slog.Error("mfa complete: wrong number of recovery hashes", "count", len(hashStrings))
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	hashes := make([][]byte, len(hashStrings))
+	for i, s := range hashStrings {
+		hashes[i] = []byte(s)
+	}
+
+	encrypted, err := crypto.Encrypt([]byte(secret), h.encryptionKey)
+	if err != nil {
+		slog.Error("mfa complete: Encrypt failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	// PG tx: SetTOTPEnrolled + Insert recovery codes + audit, atomic commit.
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		slog.Error("mfa complete: Begin failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	defer func() { _ = tx.Rollback(r.Context()) }() // non-actionable after Commit
+
+	if err := h.userStore.SetTOTPEnrolled(r.Context(), tx, userID, encrypted); err != nil {
+		slog.Error("mfa complete: SetTOTPEnrolled failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if err := h.recoveryCodeStore.Insert(r.Context(), tx, userID, hashes); err != nil {
+		slog.Error("mfa complete: Insert recovery codes failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	user, err := h.userStore.GetByID(r.Context(), tx, userID)
+	if err != nil {
+		slog.Error("mfa complete: GetByID failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	ip := extractClientIP(r)
+	if err := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+		EventType:  "mfa.enrollment_completed",
+		ActorID:    &userID,
+		ActorEmail: user.Email,
+		TargetType: "user",
+		TargetID:   userID.String(),
+		IPAddress:  ip,
+		Outcome:    "success",
+		Metadata:   map[string]any{"method": "totp"},
+	}); err != nil {
+		slog.Error("mfa complete: audit write failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		slog.Error("mfa complete: Commit failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	// Post-tx: destroy enrollment token in Valkey, clear enrollment cookie,
+	// create session, set session cookie.
+	h.valkey.Del(r.Context(), key)
+	http.SetCookie(w, &http.Cookie{
+		Name:     MfaEnrollCookieName,
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+		Secure:   h.secureCookie,
+		MaxAge:   -1,
+	})
+
+	sessionToken, err := h.sessionStore.Create(r.Context(), userID.String(), ip, r.Header.Get("User-Agent"))
+	if err != nil {
+		slog.Error("mfa complete: session.Create failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	setSessionCookie(w, sessionToken, h.secureCookie)
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"user": userDTO(user),
+	})
 }
 
 func (h *MfaHandler) PostChallenge(w http.ResponseWriter, r *http.Request) {

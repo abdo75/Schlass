@@ -213,3 +213,136 @@ func TestMfaEnrollmentVerify_InvalidCode_FiveStrikes_Invalidates(t *testing.T) {
 		t.Fatal("enroll token key should be deleted after max attempts")
 	}
 }
+
+func TestMfaEnrollmentComplete_Happy(t *testing.T) {
+	env := NewTestEnv(t)
+	defer env.Close()
+	env.CompleteSetup(t, "admin@example.com", "CorrectHorse1Battery")
+	userID := env.GetUserIDByEmail(t, "admin@example.com")
+
+	token := "complete-happy-token"
+	key := "mfa:enroll:" + token
+	env.Valkey.HSet(t.Context(), key, "user_id", userID.String())
+	env.Valkey.Expire(t.Context(), key, 10*60)
+
+	// /start
+	startReq := httptest.NewRequestWithContext(t.Context(), "POST", "/api/mfa/enrollment/start", nil)
+	startReq.AddCookie(&http.Cookie{Name: "schlass_mfa_enroll", Value: token})
+	startRec := httptest.NewRecorder()
+	env.Router.ServeHTTP(startRec, startReq)
+	var startOut struct{ SecretBase32 string `json:"secret_base32"` }
+	_ = json.Unmarshal(startRec.Body.Bytes(), &startOut)
+
+	// /verify
+	code, _ := totp.GenerateCode(startOut.SecretBase32, time.Now())
+	vBody, _ := json.Marshal(map[string]string{"code": code})
+	vReq := httptest.NewRequestWithContext(t.Context(), "POST", "/api/mfa/enrollment/verify", bytes.NewReader(vBody))
+	vReq.Header.Set("Content-Type", "application/json")
+	vReq.AddCookie(&http.Cookie{Name: "schlass_mfa_enroll", Value: token})
+	vRec := httptest.NewRecorder()
+	env.Router.ServeHTTP(vRec, vReq)
+	if vRec.Code != http.StatusOK {
+		t.Fatalf("verify: want 200, got %d", vRec.Code)
+	}
+
+	// /complete
+	cBody, _ := json.Marshal(map[string]bool{"acknowledged": true})
+	cReq := httptest.NewRequestWithContext(t.Context(), "POST", "/api/mfa/enrollment/complete", bytes.NewReader(cBody))
+	cReq.Header.Set("Content-Type", "application/json")
+	cReq.AddCookie(&http.Cookie{Name: "schlass_mfa_enroll", Value: token})
+	cRec := httptest.NewRecorder()
+	env.Router.ServeHTTP(cRec, cReq)
+	if cRec.Code != http.StatusOK {
+		t.Fatalf("complete: want 200, got %d: %s", cRec.Code, cRec.Body.String())
+	}
+
+	// Session cookie must be set.
+	var sessionCookie *http.Cookie
+	for _, c := range cRec.Result().Cookies() {
+		if c.Name == "schlass_session" {
+			sessionCookie = c
+			break
+		}
+	}
+	if sessionCookie == nil || sessionCookie.Value == "" {
+		t.Fatal("no schlass_session cookie set after /complete")
+	}
+
+	// DB: totp_enrolled_at non-null, 10 recovery codes inserted.
+	user, err := env.UserStore.GetByID(t.Context(), env.Pool, userID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if user.TOTPEnrolledAt == nil {
+		t.Fatal("totp_enrolled_at still null after /complete")
+	}
+	if len(user.TOTPSecretEncrypted) == 0 {
+		t.Fatal("totp_secret_encrypted empty after /complete")
+	}
+	count, err := env.RecoveryCodeStore.CountUnused(t.Context(), env.Pool, userID)
+	if err != nil {
+		t.Fatalf("CountUnused: %v", err)
+	}
+	if count != 10 {
+		t.Fatalf("want 10 unused recovery codes, got %d", count)
+	}
+
+	// Audit: mfa.enrollment_completed row present.
+	var ev string
+	err = env.Pool.QueryRow(t.Context(),
+		`SELECT event_type FROM audit_logs WHERE event_type = 'mfa.enrollment_completed' ORDER BY created_at DESC LIMIT 1`,
+	).Scan(&ev)
+	if err != nil {
+		t.Fatalf("query audit: %v", err)
+	}
+
+	// Valkey token must be deleted.
+	exists, _ := env.Valkey.Exists(t.Context(), key).Result()
+	if exists != 0 {
+		t.Fatal("enrollment token should be deleted after /complete")
+	}
+}
+
+func TestMfaEnrollmentComplete_NotAcknowledged_400(t *testing.T) {
+	env := NewTestEnv(t)
+	defer env.Close()
+	env.CompleteSetup(t, "admin@example.com", "CorrectHorse1Battery")
+	userID := env.GetUserIDByEmail(t, "admin@example.com")
+
+	token := "complete-ack-token"
+	key := "mfa:enroll:" + token
+	env.Valkey.HSet(t.Context(), key, "user_id", userID.String())
+	env.Valkey.Expire(t.Context(), key, 10*60)
+
+	// start + verify to get to the final state
+	startReq := httptest.NewRequestWithContext(t.Context(), "POST", "/api/mfa/enrollment/start", nil)
+	startReq.AddCookie(&http.Cookie{Name: "schlass_mfa_enroll", Value: token})
+	startRec := httptest.NewRecorder()
+	env.Router.ServeHTTP(startRec, startReq)
+	var startOut struct{ SecretBase32 string `json:"secret_base32"` }
+	_ = json.Unmarshal(startRec.Body.Bytes(), &startOut)
+
+	code, _ := totp.GenerateCode(startOut.SecretBase32, time.Now())
+	vBody, _ := json.Marshal(map[string]string{"code": code})
+	vReq := httptest.NewRequestWithContext(t.Context(), "POST", "/api/mfa/enrollment/verify", bytes.NewReader(vBody))
+	vReq.Header.Set("Content-Type", "application/json")
+	vReq.AddCookie(&http.Cookie{Name: "schlass_mfa_enroll", Value: token})
+	env.Router.ServeHTTP(httptest.NewRecorder(), vReq)
+
+	// /complete with acknowledged=false
+	cBody, _ := json.Marshal(map[string]bool{"acknowledged": false})
+	cReq := httptest.NewRequestWithContext(t.Context(), "POST", "/api/mfa/enrollment/complete", bytes.NewReader(cBody))
+	cReq.Header.Set("Content-Type", "application/json")
+	cReq.AddCookie(&http.Cookie{Name: "schlass_mfa_enroll", Value: token})
+	cRec := httptest.NewRecorder()
+	env.Router.ServeHTTP(cRec, cReq)
+	if cRec.Code != http.StatusBadRequest {
+		t.Fatalf("want 400 when acknowledged=false, got %d", cRec.Code)
+	}
+
+	// User should NOT be enrolled.
+	u, _ := env.UserStore.GetByID(t.Context(), env.Pool, userID)
+	if u.TOTPEnrolledAt != nil {
+		t.Fatal("user should not be enrolled after failed /complete")
+	}
+}

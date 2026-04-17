@@ -36,6 +36,7 @@ type TestEnv struct {
 	MigrConnString    string
 	Router            http.Handler
 	Cfg               *config.Config
+	UserStore         *store.UserStore
 	RecoveryCodeStore *store.RecoveryCodeStore
 	pgContainer       testcontainers.Container
 	valkeyContainer   testcontainers.Container
@@ -121,6 +122,7 @@ func NewTestEnv(t *testing.T) *TestEnv {
 		AppConnString:     appConnString,
 		MigrConnString:    migrConnString,
 		Cfg:               cfg,
+		UserStore:         store.NewUserStore(),
 		RecoveryCodeStore: store.NewRecoveryCodeStore(),
 		pgContainer:       pgContainer,
 		valkeyContainer:   valkeyContainer,
