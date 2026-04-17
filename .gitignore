@@ -38,6 +38,9 @@ superpowers
 /docs/superpowers/
 /docs/
 
+# Git worktrees (isolated workspaces for feature branches)
+.worktrees/
+
 # Build artifacts
 bin/
 /schlass
