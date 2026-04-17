@@ -80,6 +80,24 @@ function renderSelfService() {
   );
 }
 
+function renderSelfServiceAsRegularUser() {
+  vi.mocked(authApi.getMe).mockResolvedValue({
+    user: {
+      id: "2",
+      email: "alice@example.com",
+      role: "user",
+      force_password_change: false,
+    },
+  });
+  return render(
+    <MemoryRouter initialEntries={["/change-password"]}>
+      <AuthProvider>
+        <ChangePasswordPage />
+      </AuthProvider>
+    </MemoryRouter>,
+  );
+}
+
 describe("ChangePasswordPage — forced mode", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -232,5 +250,54 @@ describe("ChangePasswordPage — self-service mode", () => {
     await waitForStableForm();
     await user.click(screen.getByRole("button", { name: /cancel/i }));
     expect(navigateMock).toHaveBeenCalledWith("/admin/users", { replace: true });
+  });
+
+  it("Cancel navigates to /account for role=user", async () => {
+    renderSelfServiceAsRegularUser();
+    const user = userEvent.setup();
+    await waitForStableForm();
+    await user.click(screen.getByRole("button", { name: /cancel/i }));
+    expect(navigateMock).toHaveBeenCalledWith("/account", { replace: true });
+  });
+
+  it("Success navigates to /account for role=user", async () => {
+    vi.mocked(authApi.changePassword).mockResolvedValue(undefined);
+    vi.mocked(authApi.getMe)
+      .mockResolvedValueOnce({
+        user: {
+          id: "2",
+          email: "alice@example.com",
+          role: "user",
+          force_password_change: false,
+        },
+      })
+      .mockResolvedValueOnce({
+        user: {
+          id: "2",
+          email: "alice@example.com",
+          role: "user",
+          force_password_change: false,
+        },
+      });
+
+    render(
+      <MemoryRouter initialEntries={["/change-password"]}>
+        <AuthProvider>
+          <ChangePasswordPage />
+        </AuthProvider>
+      </MemoryRouter>,
+    );
+
+    const user = userEvent.setup();
+    const { currentPw, newPw, confirmPw, confirmBtn } = await waitForStableForm();
+
+    await user.type(currentPw, "OldPassword123");
+    await user.type(newPw, "NewPassword123");
+    await user.type(confirmPw, "NewPassword123");
+    await user.click(confirmBtn);
+
+    await waitFor(() =>
+      expect(navigateMock).toHaveBeenCalledWith("/account", { replace: true }),
+    );
   });
 });

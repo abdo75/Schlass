@@ -16,7 +16,8 @@ function wrapperWith(user: AuthUser | null): (props: { children: ReactNode }) =>
         // eslint-disable-next-line @typescript-eslint/require-await
         login: async () => (user ?? ({ id: "", email: "", role: "user", force_password_change: false } as AuthUser)),
         logout: async () => {},
-        refreshUser: async () => {},
+        // eslint-disable-next-line @typescript-eslint/require-await
+        refreshUser: async () => null,
       }}
     >
       {children}

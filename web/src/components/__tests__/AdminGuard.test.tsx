@@ -10,7 +10,7 @@ interface AuthState {
   loading: boolean;
   login: (email: string, password: string) => Promise<AuthUser>;
   logout: () => Promise<void>;
-  refreshUser: () => Promise<void>;
+  refreshUser: () => Promise<AuthUser | null>;
 }
 
 function renderAtPath(path: string, user: AuthUser | null, loading = false) {
@@ -20,7 +20,8 @@ function renderAtPath(path: string, user: AuthUser | null, loading = false) {
     // eslint-disable-next-line @typescript-eslint/require-await
     login: async () => (user ?? ({ id: "", email: "", role: "user", force_password_change: false } as AuthUser)),
     logout: async () => {},
-    refreshUser: async () => {},
+    // eslint-disable-next-line @typescript-eslint/require-await
+    refreshUser: async () => null,
   };
   return render(
     <AuthContext.Provider value={value}>

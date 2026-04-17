@@ -106,9 +106,10 @@ func (h *SetupHandler) PostSetup(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { _ = tx.Rollback(r.Context()) }() // error is non-actionable after a successful Commit (pgx returns ErrTxClosed)
 
-	// Canonicalize email to lowercase: Task 11 will add a LOWER(email)-
-	// unique constraint at the DB level; the handler boundary is the single
-	// chokepoint that guarantees every stored email is already lowercase.
+	// Canonicalize email to lowercase before storage. The DB also enforces
+	// this via a functional UNIQUE INDEX on LOWER(email) (migration 000012);
+	// the handler boundary is the primary chokepoint, the index is the
+	// defense-in-depth backstop for any path that bypasses the handler.
 	req.Email = strings.ToLower(req.Email)
 
 	userID, err := h.userStore.Create(r.Context(), tx, req.Email, passwordHash, "super_admin", false)

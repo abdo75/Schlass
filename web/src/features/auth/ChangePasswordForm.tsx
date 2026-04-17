@@ -44,12 +44,12 @@ export function ChangePasswordForm({ forced }: ChangePasswordFormProps) {
       await changePassword(currentPassword, newPassword);
       // refreshUser re-reads /api/me so the cleared force_password_change flag
       // is visible to AuthGuard; otherwise it would bounce us back here.
-      await refreshUser();
-      // Route based on the current user's role (captured before the refresh
-      // so we fall back to the pre-change role if the refresh race fires).
-      // super_admins return to the admin panel; regular users go to /account.
+      const refreshedUser = await refreshUser();
+      // Use the refreshed user's role for navigation, not the pre-refresh
+      // closure value — that would be incorrect if password-change ever
+      // triggers a role mutation upstream.
       const dest =
-        user?.role === "super_admin" ? "/admin/users" : "/account";
+        refreshedUser?.role === "super_admin" ? "/admin/users" : "/account";
       void navigate(dest, { replace: true });
     } catch (err: unknown) {
       const code =

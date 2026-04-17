@@ -8,11 +8,9 @@ import (
 	"testing"
 )
 
-// TestPermissionGating_NonAdminBlockedFromAllUserRoutes asserts that a
-// non-super_admin user receives 403 FORBIDDEN on every /api/users/* route.
-// This test passes before the router swap (RequireRole already 403s non-admins)
-// and stays passing after — its purpose is to catch a future
-// RequirePermission-string typo in router.go in a single place.
+// Asserts that a non-super_admin receives 403 FORBIDDEN on every
+// /api/users/* admin route. A permission-string typo in router.go or a
+// gap in the RequirePermission middleware would surface here.
 func TestPermissionGating_NonAdminBlockedFromAllUserRoutes(t *testing.T) {
 	env := NewTestEnv(t)
 

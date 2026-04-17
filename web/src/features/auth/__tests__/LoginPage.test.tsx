@@ -8,6 +8,18 @@ import { AuthProvider } from "../AuthContext";
 
 vi.mock("../api");
 
+const navigateMock = vi.fn();
+vi.mock("react-router-dom", async () => {
+  const actual =
+    await vi.importActual<typeof import("react-router-dom")>(
+      "react-router-dom",
+    );
+  return {
+    ...actual,
+    useNavigate: () => navigateMock,
+  };
+});
+
 function renderLogin() {
   return render(
     <MemoryRouter>
@@ -21,6 +33,7 @@ function renderLogin() {
 describe("LoginPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    navigateMock.mockReset();
     // AuthProvider's getMe call on mount — reject so the context settles to "not authed"
     vi.mocked(authApi.getMe).mockRejectedValue(new Error("unauthorized"));
   });
@@ -116,6 +129,48 @@ describe("LoginPage", () => {
       expect(screen.getByRole("alert")).toHaveTextContent(
         /try again in a few minutes/i,
       ),
+    );
+  });
+
+  it("Success navigates to /admin for super_admin", async () => {
+    vi.mocked(authApi.login).mockResolvedValue({
+      user: {
+        id: "1",
+        email: "admin@example.com",
+        role: "super_admin",
+        force_password_change: false,
+      },
+    });
+    renderLogin();
+    const user = userEvent.setup();
+    await user.type(await screen.findByLabelText(/email/i), "admin@example.com");
+    await user.type(screen.getByLabelText(/password/i), "hunter2hunter2");
+    await user.click(
+      screen.getByRole("button", { name: /sign in|log in|submit/i }),
+    );
+    await waitFor(() =>
+      expect(navigateMock).toHaveBeenCalledWith("/admin", { replace: true }),
+    );
+  });
+
+  it("Success navigates to /account for role=user", async () => {
+    vi.mocked(authApi.login).mockResolvedValue({
+      user: {
+        id: "2",
+        email: "alice@example.com",
+        role: "user",
+        force_password_change: false,
+      },
+    });
+    renderLogin();
+    const user = userEvent.setup();
+    await user.type(await screen.findByLabelText(/email/i), "alice@example.com");
+    await user.type(screen.getByLabelText(/password/i), "hunter2hunter2");
+    await user.click(
+      screen.getByRole("button", { name: /sign in|log in|submit/i }),
+    );
+    await waitFor(() =>
+      expect(navigateMock).toHaveBeenCalledWith("/account", { replace: true }),
     );
   });
 });
