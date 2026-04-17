@@ -568,13 +568,116 @@ func (h *MfaHandler) writeChallengeFailedAudit(r *http.Request, userID, reason s
 }
 
 // verifyRecoveryCode is the recovery-path branch of PostChallenge.
-// Implementation lands in Task 11.
+// It iterates over ALL unused recovery codes in constant time (no short-
+// circuit on first match) to prevent timing-based enumeration of the
+// remaining-code count, then commits the burn + audit triple atomically.
 func (h *MfaHandler) verifyRecoveryCode(w http.ResponseWriter, r *http.Request, user *store.User, plaintext, token, key string) {
-	_ = user      // prevent "unused param" lints; Task 11 will consume these.
-	_ = plaintext
-	_ = token
-	_ = key
-	writeError(w, http.StatusNotImplemented, "NOT_IMPLEMENTED", "Recovery code path lands in Task 11.")
+	codes, err := h.recoveryCodeStore.ListUnused(r.Context(), h.pool, user.ID)
+	if err != nil {
+		slog.Error("mfa challenge: ListUnused failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	// CONSTANT-TIME ITERATION — do not short-circuit on first match. The
+	// variable-time-with-mismatch path would leak the count of unused codes
+	// to an attacker timing repeated failures. Accept the ~100ms cost of 10
+	// Argon2id verifies per attempt.
+	var matchedID *uuid.UUID
+	for _, c := range codes {
+		ok, err := crypto.VerifyPassword(plaintext, string(c.CodeHash))
+		if err != nil {
+			slog.Error("mfa challenge: VerifyPassword failed", "error", err)
+			continue
+		}
+		if ok && matchedID == nil {
+			id := c.ID
+			matchedID = &id
+		}
+		// Continue iterating — keep timing uniform even after first match.
+	}
+
+	if matchedID == nil {
+		h.writeChallengeFailedAudit(r, user.ID.String(), "invalid_recovery_code")
+		writeError(w, http.StatusUnauthorized, "MFA_INVALID_RECOVERY_CODE", "Invalid recovery code.")
+		return
+	}
+
+	// Success tx: mark used + login.succeeded + mfa.challenge_succeeded + mfa.recovery_code_used.
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	defer func() { _ = tx.Rollback(r.Context()) }()
+
+	if err := h.recoveryCodeStore.MarkUsed(r.Context(), tx, *matchedID); err != nil {
+		slog.Error("mfa challenge: MarkUsed failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	ip := extractClientIP(r)
+	if err := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+		EventType:  "login.succeeded",
+		ActorID:    &user.ID,
+		ActorEmail: user.Email,
+		TargetType: "user",
+		TargetID:   user.ID.String(),
+		IPAddress:  ip,
+		Outcome:    "success",
+	}); err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if err := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+		EventType:  "mfa.challenge_succeeded",
+		ActorID:    &user.ID,
+		ActorEmail: user.Email,
+		TargetType: "user",
+		TargetID:   user.ID.String(),
+		IPAddress:  ip,
+		Outcome:    "success",
+		Metadata:   map[string]any{"method": "recovery_code"},
+	}); err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if err := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+		EventType:  "mfa.recovery_code_used",
+		ActorID:    &user.ID,
+		ActorEmail: user.Email,
+		TargetType: "user",
+		TargetID:   user.ID.String(),
+		IPAddress:  ip,
+		Outcome:    "success",
+		Metadata:   map[string]any{"code_id": matchedID.String()},
+	}); err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	// Post-tx: destroy challenge token, clear cookie, create session.
+	h.valkey.Del(r.Context(), key)
+	http.SetCookie(w, &http.Cookie{
+		Name:     MfaChallengeCookieName,
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+		Secure:   h.secureCookie,
+		MaxAge:   -1,
+	})
+	sessionToken, err := h.sessionStore.Create(r.Context(), user.ID.String(), ip, r.Header.Get("User-Agent"))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	setSessionCookie(w, sessionToken, h.secureCookie)
+	writeJSON(w, http.StatusOK, map[string]any{"user": userDTO(user)})
 }
 
 // issuerFromPublicURL extracts a human-readable issuer for the otpauth://
