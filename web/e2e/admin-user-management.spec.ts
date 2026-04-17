@@ -71,11 +71,11 @@ test.describe("user management", () => {
         .getByRole("button", { name: /^confirm$/i })
         .click();
 
-      // After clearing the flag the ChangePasswordPage navigates to
-      // /admin/users.
-      await userPage.waitForURL("**/admin/users", { timeout: 15000 });
+      // After clearing the flag the ChangePasswordForm navigates role-aware:
+      // role=user lands on /account (AdminGuard blocks /admin for non-admins).
+      await userPage.waitForURL("**/account", { timeout: 15000 });
       await expect(
-        userPage.locator("main").getByText("Users", { exact: true }).first(),
+        userPage.getByText("Your account", { exact: true }),
       ).toBeVisible();
     } finally {
       await userContext.close();

@@ -22,7 +22,7 @@ interface ChangePasswordFormProps {
 export function ChangePasswordForm({ forced }: ChangePasswordFormProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { refreshUser } = useAuth();
+  const { refreshUser, user } = useAuth();
 
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -45,7 +45,12 @@ export function ChangePasswordForm({ forced }: ChangePasswordFormProps) {
       // refreshUser re-reads /api/me so the cleared force_password_change flag
       // is visible to AuthGuard; otherwise it would bounce us back here.
       await refreshUser();
-      void navigate("/admin/users", { replace: true });
+      // Route based on the current user's role (captured before the refresh
+      // so we fall back to the pre-change role if the refresh race fires).
+      // super_admins return to the admin panel; regular users go to /account.
+      const dest =
+        user?.role === "super_admin" ? "/admin/users" : "/account";
+      void navigate(dest, { replace: true });
     } catch (err: unknown) {
       const code =
         err && typeof err === "object" && "code" in err
@@ -141,9 +146,11 @@ export function ChangePasswordForm({ forced }: ChangePasswordFormProps) {
                 type="button"
                 variant="outline"
                 className="h-8"
-                onClick={() =>
-                  void navigate("/admin/users", { replace: true })
-                }
+                onClick={() => {
+                  const dest =
+                    user?.role === "super_admin" ? "/admin/users" : "/account";
+                  void navigate(dest, { replace: true });
+                }}
               >
                 {t("users.confirm.cancel")}
               </Button>
