@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -79,7 +80,7 @@ const (
 
 // Attempt caps for the enrollment-verify and challenge endpoints.
 const (
-	mfaEnrollVerifyMaxAttempts = 5 //nolint:unused // used by Tasks 8, 10
+	mfaEnrollVerifyMaxAttempts = 5
 	mfaChallengeMaxAttempts    = 5 //nolint:unused // used by Tasks 10-11
 )
 
@@ -162,7 +163,84 @@ func (h *MfaHandler) PostEnrollmentStart(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *MfaHandler) PostEnrollmentVerify(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusNotImplemented, "NOT_IMPLEMENTED", "MFA enrollment verify not yet implemented.")
+	tokenCookie, err := r.Cookie(MfaEnrollCookieName)
+	if err != nil || tokenCookie.Value == "" {
+		writeError(w, http.StatusUnauthorized, "MFA_ENROLLMENT_EXPIRED", "Enrollment session has expired.")
+		return
+	}
+	token := tokenCookie.Value
+	key := mfaEnrollKeyPrefix + token
+
+	// Atomic HIncrBy — increment before doing anything else. If the key is
+	// missing (expired or never set), HIncrBy creates it with value 1; we
+	// catch that in the "secret missing" check below.
+	attempts, err := h.valkey.HIncrBy(r.Context(), key, "verify_attempts", 1).Result()
+	if err != nil {
+		slog.Error("mfa enroll verify: HIncrBy failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if attempts > mfaEnrollVerifyMaxAttempts {
+		// Cap exceeded — nuke the token so any subsequent hit also 401s.
+		h.valkey.Del(r.Context(), key)
+		writeError(w, http.StatusUnauthorized, "MFA_ENROLLMENT_EXPIRED", "Too many failed verification attempts — please start again.")
+		return
+	}
+
+	var req struct {
+		Code string `json:"code"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body.")
+		return
+	}
+	if len(req.Code) != 6 {
+		writeError(w, http.StatusUnauthorized, "MFA_INVALID_CODE", "Invalid code.")
+		return
+	}
+
+	secret, err := h.valkey.HGet(r.Context(), key, "secret_base32").Result()
+	if err != nil || secret == "" {
+		writeError(w, http.StatusUnauthorized, "MFA_ENROLLMENT_EXPIRED", "Enrollment session has expired — please start again.")
+		return
+	}
+
+	matched, _, err := crypto.ValidateTOTP(req.Code, secret, 0)
+	if err != nil {
+		slog.Error("mfa enroll verify: ValidateTOTP failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if !matched {
+		writeError(w, http.StatusUnauthorized, "MFA_INVALID_CODE", "Invalid code.")
+		return
+	}
+
+	// Code OK — generate recovery codes. Plaintext returned once in the
+	// response body; hashes stashed in Valkey under the same token key for
+	// the /complete step's PG commit.
+	plaintext, hashes, err := crypto.GenerateRecoveryCodes()
+	if err != nil {
+		slog.Error("mfa enroll verify: GenerateRecoveryCodes failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	hashesJSON, err := json.Marshal(hashes)
+	if err != nil {
+		slog.Error("mfa enroll verify: marshal hashes failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if err := h.valkey.HSet(r.Context(), key, "recovery_hashes", hashesJSON).Err(); err != nil {
+		slog.Error("mfa enroll verify: HSet recovery_hashes failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"recovery_codes": plaintext,
+	})
 }
 
 func (h *MfaHandler) PostEnrollmentComplete(w http.ResponseWriter, r *http.Request) {

@@ -1,12 +1,16 @@
 package integration
 
 import (
+	"bytes"
 	"encoding/base32"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/pquerna/otp/totp"
 )
 
 // Seeds a schlass_mfa_enroll token into Valkey directly (bypassing /api/login
@@ -108,5 +112,104 @@ func TestMfaEnrollmentStart_AlreadyEnrolled_400(t *testing.T) {
 	_ = json.Unmarshal(rec.Body.Bytes(), &body)
 	if body["error"] != "MFA_ALREADY_ENROLLED" {
 		t.Fatalf("want error=MFA_ALREADY_ENROLLED, got %v", body["error"])
+	}
+}
+
+func TestMfaEnrollmentVerify_ValidCode_ReturnsRecoveryCodes(t *testing.T) {
+	env := NewTestEnv(t)
+	defer env.Close()
+	env.CompleteSetup(t, "admin@example.com", "CorrectHorse1Battery")
+	userID := env.GetUserIDByEmail(t, "admin@example.com")
+
+	token := "verify-happy-token"
+	key := "mfa:enroll:" + token
+	env.Valkey.HSet(t.Context(), key, "user_id", userID.String())
+	env.Valkey.Expire(t.Context(), key, 10*60)
+
+	startReq := httptest.NewRequestWithContext(t.Context(), "POST", "/api/mfa/enrollment/start", nil)
+	startReq.AddCookie(&http.Cookie{Name: "schlass_mfa_enroll", Value: token})
+	startRec := httptest.NewRecorder()
+	env.Router.ServeHTTP(startRec, startReq)
+	if startRec.Code != http.StatusOK {
+		t.Fatalf("start: want 200, got %d: %s", startRec.Code, startRec.Body.String())
+	}
+	var startOut struct {
+		SecretBase32 string `json:"secret_base32"`
+	}
+	_ = json.Unmarshal(startRec.Body.Bytes(), &startOut)
+
+	code, err := totp.GenerateCode(startOut.SecretBase32, time.Now())
+	if err != nil {
+		t.Fatalf("GenerateCode: %v", err)
+	}
+
+	vBody, _ := json.Marshal(map[string]string{"code": code})
+	vReq := httptest.NewRequestWithContext(t.Context(), "POST", "/api/mfa/enrollment/verify", bytes.NewReader(vBody))
+	vReq.Header.Set("Content-Type", "application/json")
+	vReq.AddCookie(&http.Cookie{Name: "schlass_mfa_enroll", Value: token})
+	vRec := httptest.NewRecorder()
+	env.Router.ServeHTTP(vRec, vReq)
+	if vRec.Code != http.StatusOK {
+		t.Fatalf("verify: want 200, got %d: %s", vRec.Code, vRec.Body.String())
+	}
+
+	var vOut struct {
+		RecoveryCodes []string `json:"recovery_codes"`
+	}
+	_ = json.Unmarshal(vRec.Body.Bytes(), &vOut)
+	if len(vOut.RecoveryCodes) != 10 {
+		t.Fatalf("want 10 recovery codes, got %d", len(vOut.RecoveryCodes))
+	}
+
+	// Valkey should now have the recovery_hashes field populated.
+	stored, err := env.Valkey.HGet(t.Context(), key, "recovery_hashes").Result()
+	if err != nil {
+		t.Fatalf("HGet recovery_hashes: %v", err)
+	}
+	if stored == "" {
+		t.Fatal("recovery_hashes empty in Valkey after verify")
+	}
+}
+
+func TestMfaEnrollmentVerify_InvalidCode_FiveStrikes_Invalidates(t *testing.T) {
+	env := NewTestEnv(t)
+	defer env.Close()
+	env.CompleteSetup(t, "admin@example.com", "CorrectHorse1Battery")
+	userID := env.GetUserIDByEmail(t, "admin@example.com")
+
+	token := "verify-max-token"
+	key := "mfa:enroll:" + token
+	env.Valkey.HSet(t.Context(), key, "user_id", userID.String())
+	env.Valkey.Expire(t.Context(), key, 10*60)
+
+	// /start sets the secret so the verify path has something to check against.
+	startReq := httptest.NewRequestWithContext(t.Context(), "POST", "/api/mfa/enrollment/start", nil)
+	startReq.AddCookie(&http.Cookie{Name: "schlass_mfa_enroll", Value: token})
+	env.Router.ServeHTTP(httptest.NewRecorder(), startReq)
+
+	badBody, _ := json.Marshal(map[string]string{"code": "000000"})
+	for i := 0; i < 5; i++ {
+		req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/mfa/enrollment/verify", bytes.NewReader(badBody))
+		req.Header.Set("Content-Type", "application/json")
+		req.AddCookie(&http.Cookie{Name: "schlass_mfa_enroll", Value: token})
+		rec := httptest.NewRecorder()
+		env.Router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("attempt %d: want 401, got %d: %s", i, rec.Code, rec.Body.String())
+		}
+	}
+	// 6th attempt — token should be invalidated.
+	req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/mfa/enrollment/verify", bytes.NewReader(badBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(&http.Cookie{Name: "schlass_mfa_enroll", Value: token})
+	rec := httptest.NewRecorder()
+	env.Router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("6th attempt: want 401, got %d", rec.Code)
+	}
+	// Valkey key should be gone.
+	exists, _ := env.Valkey.Exists(t.Context(), key).Result()
+	if exists != 0 {
+		t.Fatal("enroll token key should be deleted after max attempts")
 	}
 }
