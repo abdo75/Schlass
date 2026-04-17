@@ -28,6 +28,7 @@ const mkUsers = (count: number) =>
     role: i === 0 ? "super_admin" : "user",
     status: i === 2 ? "disabled" : "active",
     force_password_change: false,
+    force_mfa_enrollment: false,
     created_at: new Date(Date.now() - i * 60000).toISOString(),
   }));
 
@@ -39,6 +40,7 @@ describe("UsersPage", () => {
         email: "user0@example.com",
         role: "super_admin",
         force_password_change: false,
+        force_mfa_enrollment: false,
       },
     });
   });

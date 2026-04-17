@@ -31,6 +31,7 @@ describe("UserMenuPopover", () => {
         email: "admin@test.local",
         role: "super_admin",
         force_password_change: false,
+        force_mfa_enrollment: false,
       },
     });
     navigateMock.mockReset();

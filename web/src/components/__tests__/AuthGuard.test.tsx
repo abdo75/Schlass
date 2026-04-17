@@ -10,7 +10,7 @@ vi.mock("@/features/auth/api");
 describe("AuthGuard", () => {
   it("renders children when authenticated", async () => {
     vi.mocked(authApi.getMe).mockResolvedValue({
-      user: { id: "1", email: "a@b.co", role: "super_admin", force_password_change: false },
+      user: { id: "1", email: "a@b.co", role: "super_admin", force_password_change: false, force_mfa_enrollment: false },
     });
     render(
       <MemoryRouter initialEntries={["/admin"]}>
@@ -42,7 +42,7 @@ describe("AuthGuard", () => {
 
   it("redirects to /change-password when user.force_password_change is true", async () => {
     vi.mocked(authApi.getMe).mockResolvedValue({
-      user: { id: "1", email: "a@b.co", role: "super_admin", force_password_change: true },
+      user: { id: "1", email: "a@b.co", role: "super_admin", force_password_change: true, force_mfa_enrollment: false },
     });
     render(
       <MemoryRouter initialEntries={["/admin"]}>
@@ -59,7 +59,7 @@ describe("AuthGuard", () => {
 
   it("allows through to /change-password when already there", async () => {
     vi.mocked(authApi.getMe).mockResolvedValue({
-      user: { id: "1", email: "a@b.co", role: "super_admin", force_password_change: true },
+      user: { id: "1", email: "a@b.co", role: "super_admin", force_password_change: true, force_mfa_enrollment: false },
     });
     render(
       <MemoryRouter initialEntries={["/change-password"]}>

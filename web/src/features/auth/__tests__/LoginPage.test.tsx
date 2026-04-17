@@ -48,11 +48,13 @@ describe("LoginPage", () => {
 
   it("submits credentials and calls login on success", async () => {
     vi.mocked(authApi.login).mockResolvedValue({
+      kind: "session",
       user: {
         id: "1",
         email: "a@b.co",
         role: "super_admin",
         force_password_change: false,
+        force_mfa_enrollment: false,
       },
     });
     renderLogin();
@@ -134,11 +136,13 @@ describe("LoginPage", () => {
 
   it("Success navigates to /admin for super_admin", async () => {
     vi.mocked(authApi.login).mockResolvedValue({
+      kind: "session",
       user: {
         id: "1",
         email: "admin@example.com",
         role: "super_admin",
         force_password_change: false,
+        force_mfa_enrollment: false,
       },
     });
     renderLogin();
@@ -155,11 +159,13 @@ describe("LoginPage", () => {
 
   it("Success navigates to /account for role=user", async () => {
     vi.mocked(authApi.login).mockResolvedValue({
+      kind: "session",
       user: {
         id: "2",
         email: "alice@example.com",
         role: "user",
         force_password_change: false,
+        force_mfa_enrollment: false,
       },
     });
     renderLogin();

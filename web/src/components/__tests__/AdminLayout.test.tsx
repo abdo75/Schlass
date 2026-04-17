@@ -25,7 +25,7 @@ function wrap(path = "/admin/users") {
 describe("AdminLayout", () => {
   beforeEach(() => {
     vi.mocked(authApi.getMe).mockResolvedValue({
-      user: { id: "1", email: "admin@test.local", role: "super_admin", force_password_change: false },
+      user: { id: "1", email: "admin@test.local", role: "super_admin", force_password_change: false, force_mfa_enrollment: false },
     });
   });
 

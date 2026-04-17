@@ -51,6 +51,7 @@ function renderForced() {
       email: "admin@example.com",
       role: "super_admin",
       force_password_change: true,
+      force_mfa_enrollment: false,
     },
   });
   return render(
@@ -69,6 +70,7 @@ function renderSelfService() {
       email: "admin@example.com",
       role: "super_admin",
       force_password_change: false,
+      force_mfa_enrollment: false,
     },
   });
   return render(
@@ -87,6 +89,7 @@ function renderSelfServiceAsRegularUser() {
       email: "alice@example.com",
       role: "user",
       force_password_change: false,
+      force_mfa_enrollment: false,
     },
   });
   return render(
@@ -151,6 +154,7 @@ describe("ChangePasswordPage — forced mode", () => {
           email: "admin@example.com",
           role: "super_admin",
           force_password_change: true,
+          force_mfa_enrollment: false,
         },
       })
       .mockResolvedValueOnce({
@@ -159,6 +163,7 @@ describe("ChangePasswordPage — forced mode", () => {
           email: "admin@example.com",
           role: "super_admin",
           force_password_change: false,
+          force_mfa_enrollment: false,
         },
       });
 
@@ -269,6 +274,7 @@ describe("ChangePasswordPage — self-service mode", () => {
           email: "alice@example.com",
           role: "user",
           force_password_change: false,
+          force_mfa_enrollment: false,
         },
       })
       .mockResolvedValueOnce({
@@ -277,6 +283,7 @@ describe("ChangePasswordPage — self-service mode", () => {
           email: "alice@example.com",
           role: "user",
           force_password_change: false,
+          force_mfa_enrollment: false,
         },
       });
 

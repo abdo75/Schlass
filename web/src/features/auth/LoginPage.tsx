@@ -33,8 +33,16 @@ export function LoginPage() {
     setRetryAfterSeconds(null);
     setSubmitting(true);
     try {
-      const user = await login(email, password);
-      const destination = user.role === "super_admin" ? "/admin" : "/account";
+      const res = await login(email, password);
+      if (res.kind === "enrollment_required") {
+        void navigate("/setup-mfa", { replace: true });
+        return;
+      }
+      if (res.kind === "challenge_required") {
+        void navigate("/mfa-challenge", { replace: true, state: { email } });
+        return;
+      }
+      const destination = res.user.role === "super_admin" ? "/admin" : "/account";
       void navigate(destination, { replace: true });
     } catch (err: unknown) {
       // apiFetch throws ApiRequestError with { code, message, status,

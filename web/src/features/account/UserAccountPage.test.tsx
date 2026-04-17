@@ -21,7 +21,7 @@ function withProviders(
           user,
           loading: false,
           // eslint-disable-next-line @typescript-eslint/require-await
-          login: async () => (user ?? ({ id: "", email: "", role: "user", force_password_change: false } as AuthUser)),
+          login: async () => ({ kind: "session" as const, user: user ?? ({ id: "", email: "", role: "user", force_password_change: false, force_mfa_enrollment: false } as AuthUser) }),
           logout,
           // eslint-disable-next-line @typescript-eslint/require-await
           refreshUser: async () => null,
@@ -38,6 +38,7 @@ const regularUser: AuthUser = {
   email: "alice@example.com",
   role: "user",
   force_password_change: false,
+  force_mfa_enrollment: false,
 };
 
 describe("UserAccountPage", () => {

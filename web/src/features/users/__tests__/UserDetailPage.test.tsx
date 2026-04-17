@@ -34,6 +34,7 @@ function makeDetail(
     email: "target@example.com",
     role: "user",
     force_password_change: false,
+    force_mfa_enrollment: false,
     status: "active",
     created_at: "2026-04-14T12:00:00Z",
   };
@@ -48,6 +49,7 @@ const ME_ADMIN = {
   email: "admin@example.com",
   role: "super_admin",
   force_password_change: false,
+  force_mfa_enrollment: false,
 };
 
 function renderPage(id = "user-1") {
@@ -155,6 +157,7 @@ describe("UserDetailPage", () => {
         email: "new@example.com",
         role: "super_admin",
         force_password_change: false,
+        force_mfa_enrollment: false,
       },
     });
 
