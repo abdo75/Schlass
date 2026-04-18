@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Navigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,7 +17,7 @@ import { useAuth } from "./AuthContext";
 export function LoginPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const { login, user, loading } = useAuth();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -26,6 +26,15 @@ export function LoginPage() {
     null,
   );
   const [submitting, setSubmitting] = useState(false);
+
+  // Redirect already-authenticated users away from /login. Standard pattern:
+  // GitHub, Okta, Linear all bounce authed users out of their login pages to
+  // the default post-auth destination.
+  if (loading) return null;
+  if (user) {
+    const dest = user.role === "super_admin" ? "/admin" : "/account";
+    return <Navigate to={dest} replace />;
+  }
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
