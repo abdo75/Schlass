@@ -6,7 +6,15 @@ import (
 	"testing"
 
 	"github.com/abdo75/Schlass/internal/bootstrap"
+	"github.com/abdo75/Schlass/internal/crypto"
 )
+
+// cryptoVerify is a thin shim so the dev-seed test can assert a hash
+// round-trips without importing the Argon2id machinery in its imports
+// block at the top of every test file.
+func cryptoVerify(plaintext, hash string) (bool, error) {
+	return crypto.VerifyPassword(plaintext, hash)
+}
 
 // TestSeedDevClient_Happy — SCHLASS_DEV=1 + http public URL inserts a
 // confidential dev client and is idempotent on re-call.
@@ -14,7 +22,7 @@ func TestSeedDevClient_Happy(t *testing.T) {
 	env := NewTestEnv(t)
 	defer env.Close()
 
-	if err := bootstrap.SeedDevClient(t.Context(), env.Pool, "1", "http://localhost:3000"); err != nil {
+	if err := bootstrap.SeedDevClient(t.Context(), env.Pool, "1", "", "http://localhost:3000"); err != nil {
 		t.Fatalf("SeedDevClient: %v", err)
 	}
 
@@ -28,7 +36,7 @@ func TestSeedDevClient_Happy(t *testing.T) {
 	}
 
 	// Second invocation is a no-op.
-	if err := bootstrap.SeedDevClient(t.Context(), env.Pool, "1", "http://localhost:3000"); err != nil {
+	if err := bootstrap.SeedDevClient(t.Context(), env.Pool, "1", "", "http://localhost:3000"); err != nil {
 		t.Fatalf("second SeedDevClient: %v", err)
 	}
 	if err := env.Pool.QueryRow(t.Context(),
@@ -63,12 +71,37 @@ func TestSeedDevClient_Happy(t *testing.T) {
 	assertContains(t, redirects, "http://localhost:3000/oidc/dev-callback")
 }
 
+// TestSeedDevClient_SecretOverride — plaintext override is Argon2id-hashed
+// and verifiable via VerifyPassword. E2E relies on this knob so Playwright
+// specs know the secret without scraping container logs.
+func TestSeedDevClient_SecretOverride(t *testing.T) {
+	env := NewTestEnv(t)
+	defer env.Close()
+
+	const knownSecret = "e2e-known-plaintext-secret"
+	if err := bootstrap.SeedDevClient(t.Context(), env.Pool, "1", knownSecret, "http://localhost:3000"); err != nil {
+		t.Fatalf("SeedDevClient: %v", err)
+	}
+	var hash string
+	if err := env.Pool.QueryRow(t.Context(),
+		`SELECT secret_hash FROM clients WHERE name = 'dev-test-client'`).Scan(&hash); err != nil {
+		t.Fatalf("read hash: %v", err)
+	}
+	ok, err := cryptoVerify(knownSecret, hash)
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if !ok {
+		t.Fatal("override secret does not verify against stored hash")
+	}
+}
+
 // TestSeedDevClient_SkipsWhenDevUnset — no-op when SCHLASS_DEV != "1".
 func TestSeedDevClient_SkipsWhenDevUnset(t *testing.T) {
 	env := NewTestEnv(t)
 	defer env.Close()
 
-	if err := bootstrap.SeedDevClient(t.Context(), env.Pool, "", "http://localhost:3000"); err != nil {
+	if err := bootstrap.SeedDevClient(t.Context(), env.Pool, "", "", "http://localhost:3000"); err != nil {
 		t.Fatalf("SeedDevClient: %v", err)
 	}
 	var count int
@@ -86,7 +119,7 @@ func TestSeedDevClient_RefusesHTTPS(t *testing.T) {
 	env := NewTestEnv(t)
 	defer env.Close()
 
-	if err := bootstrap.SeedDevClient(t.Context(), env.Pool, "1", "https://idp.example.com"); err != nil {
+	if err := bootstrap.SeedDevClient(t.Context(), env.Pool, "1", "", "https://idp.example.com"); err != nil {
 		t.Fatalf("SeedDevClient: %v", err)
 	}
 	var count int

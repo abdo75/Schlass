@@ -30,13 +30,15 @@ const devSeedClientName = "dev-test-client"
 //   - environment variable SCHLASS_DEV == "1"
 //   - publicURL scheme is http (never https — refuses to poison a prod DB)
 //
-// The generated client_id is a new UUID; the client_secret is 32 random
-// bytes base64url-encoded and hashed via Argon2id. Both are logged once to
-// stdout at INFO so a developer can copy them into their OIDC client code.
+// The generated client_id is a new UUID; the client_secret defaults to 32
+// random bytes base64url-encoded. A deterministic override is honored from
+// the SCHLASS_DEV_SECRET env var — set in docker-compose.e2e.yml so
+// Playwright knows the secret without scraping container logs. Secrets are
+// Argon2id-hashed before storage; the plaintext is logged once at INFO.
 //
 // Idempotent: if a row with name=devSeedClientName already exists, the
 // function logs a warning and returns successfully without mutating state.
-func SeedDevClient(ctx context.Context, pool *pgxpool.Pool, dev string, publicURL string) error {
+func SeedDevClient(ctx context.Context, pool *pgxpool.Pool, dev, secretOverride, publicURL string) error {
 	if dev != "1" {
 		return nil
 	}
@@ -57,11 +59,16 @@ func SeedDevClient(ctx context.Context, pool *pgxpool.Pool, dev string, publicUR
 		return fmt.Errorf("dev-seed: check existing: %w", err)
 	}
 
-	var secretBuf [32]byte
-	if _, err := rand.Read(secretBuf[:]); err != nil {
-		return fmt.Errorf("dev-seed: generate secret: %w", err)
+	var secret string
+	if secretOverride != "" {
+		secret = secretOverride
+	} else {
+		var secretBuf [32]byte
+		if _, err := rand.Read(secretBuf[:]); err != nil {
+			return fmt.Errorf("dev-seed: generate secret: %w", err)
+		}
+		secret = base64.RawURLEncoding.EncodeToString(secretBuf[:])
 	}
-	secret := base64.RawURLEncoding.EncodeToString(secretBuf[:])
 	secretHash, err := crypto.HashPassword(secret)
 	if err != nil {
 		return fmt.Errorf("dev-seed: hash secret: %w", err)

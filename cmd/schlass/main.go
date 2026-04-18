@@ -69,7 +69,7 @@ func main() {
 
 	// Developer-mode OIDC client seeding. No-op unless SCHLASS_DEV=1 AND
 	// SCHLASS_PUBLIC_URL is http. Idempotent against the seed-client name.
-	if err := bootstrap.SeedDevClient(ctx, pool, os.Getenv("SCHLASS_DEV"), cfg.SchlassPublicURL); err != nil {
+	if err := bootstrap.SeedDevClient(ctx, pool, os.Getenv("SCHLASS_DEV"), os.Getenv("SCHLASS_DEV_SECRET"), cfg.SchlassPublicURL); err != nil {
 		slog.Error("dev-seed failed", "error", err)
 		os.Exit(1)
 	}
