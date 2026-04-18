@@ -67,9 +67,12 @@ jobs:
         if: matrix.tier == 'integration'
         run: make test-integration
 
+  # E2E builds its own Docker stack, so it depends on nothing the test or
+  # lint jobs produce. Running it in parallel from t=0 means the overall
+  # workflow wall-clock is max(lint, test matrix, e2e) rather than the
+  # sum of test + e2e.
   e2e:
     name: E2E
-    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -91,16 +94,6 @@ jobs:
 
       - name: Install Playwright browsers
         run: cd web && npx playwright install --with-deps chromium
-
-      - uses: docker/setup-buildx-action@v3
-
-      - name: Cache docker layers
-        uses: actions/cache@v4
-        with:
-          path: /tmp/.buildx-cache
-          key: buildx-${{ runner.os }}-${{ github.sha }}
-          restore-keys: |
-            buildx-${{ runner.os }}-
 
       - name: Create .env for docker compose
         run: |
