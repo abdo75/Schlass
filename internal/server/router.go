@@ -159,6 +159,15 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 	)
 	mux.Handle("POST /token", http.HandlerFunc(tokenHandler.Handle))
 
+	// OIDC userinfo endpoint — gated by Bearer access token.
+	userInfoHandler := handler.NewOIDCUserInfoHandler(d.Pool, d.AuditStore)
+	bearerAuth := middleware.BearerAuth(middleware.BearerAuthDeps{
+		Pool:      d.Pool,
+		UserStore: d.UserStore,
+		Issuer:    d.Cfg.SchlassPublicURL,
+	})
+	mux.Handle("GET /userinfo", bearerAuth(http.HandlerFunc(userInfoHandler.Handle)))
+
 	mux.Handle("/", web.SPAHandler())
 
 	var h http.Handler = mux
