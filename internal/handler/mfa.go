@@ -561,6 +561,15 @@ func (h *MfaHandler) PostChallenge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Return_to (optional) was stashed at /api/login by PostLogin. redis.Nil
+	// on an absent field is expected and benign; only genuine transport
+	// errors are worth logging.
+	returnTo, err := h.valkey.HGet(r.Context(), key, "return_to").Result()
+	if err != nil && !errors.Is(err, redis.Nil) {
+		slog.Warn("mfa challenge: return_to HGet degraded", "error", err)
+		returnTo = ""
+	}
+
 	user, err := h.userStore.GetByID(r.Context(), h.pool, userID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
@@ -569,7 +578,7 @@ func (h *MfaHandler) PostChallenge(w http.ResponseWriter, r *http.Request) {
 
 	// Dispatch on which input field is populated. Recovery path lands in Task 11.
 	if req.RecoveryCode != "" {
-		h.verifyRecoveryCode(w, r, user, req.RecoveryCode, token, key)
+		h.verifyRecoveryCode(w, r, user, req.RecoveryCode, token, key, returnTo)
 		return
 	}
 	if len(req.Code) != 6 {
@@ -668,7 +677,11 @@ func (h *MfaHandler) PostChallenge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	setSessionCookie(w, sessionToken, h.secureCookie)
-	writeJSON(w, http.StatusOK, map[string]any{"user": userDTO(user)})
+	resp := map[string]any{"user": userDTO(user)}
+	if returnTo != "" {
+		resp["redirect_to"] = returnTo
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // writeChallengeFailedAudit writes an mfa.challenge_failed audit row.
@@ -713,7 +726,7 @@ func (h *MfaHandler) writeChallengeFailedAudit(r *http.Request, userID, reason s
 // It iterates over ALL unused recovery codes in constant time (no short-
 // circuit on first match) to prevent timing-based enumeration of the
 // remaining-code count, then commits the burn + audit triple atomically.
-func (h *MfaHandler) verifyRecoveryCode(w http.ResponseWriter, r *http.Request, user *store.User, plaintext, token, key string) {
+func (h *MfaHandler) verifyRecoveryCode(w http.ResponseWriter, r *http.Request, user *store.User, plaintext, token, key, returnTo string) {
 	codes, err := h.recoveryCodeStore.ListUnused(r.Context(), h.pool, user.ID)
 	if err != nil {
 		slog.Error("mfa challenge: ListUnused failed", "error", err)
@@ -824,5 +837,9 @@ func (h *MfaHandler) verifyRecoveryCode(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 	setSessionCookie(w, sessionToken, h.secureCookie)
-	writeJSON(w, http.StatusOK, map[string]any{"user": userDTO(user)})
+	resp := map[string]any{"user": userDTO(user)}
+	if returnTo != "" {
+		resp["redirect_to"] = returnTo
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
