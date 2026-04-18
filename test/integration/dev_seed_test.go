@@ -68,6 +68,7 @@ func TestSeedDevClient_Happy(t *testing.T) {
 	assertContains(t, grants, "authorization_code")
 	assertContains(t, grants, "refresh_token")
 	assertContains(t, scopes, "openid")
+	assertContains(t, scopes, "offline_access")
 	assertContains(t, redirects, "http://localhost:3000/oidc/dev-callback")
 }
 

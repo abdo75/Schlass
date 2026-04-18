@@ -70,7 +70,7 @@ export function buildAuthorizeURL(args: {
     response_type: "code",
     client_id: args.clientID,
     redirect_uri: E2E_REDIRECT_URI,
-    scope: args.scope ?? "openid profile email",
+    scope: args.scope ?? "openid profile email offline_access",
     state: args.state,
     code_challenge: args.challenge,
     code_challenge_method: "S256",

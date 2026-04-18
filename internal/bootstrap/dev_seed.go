@@ -36,8 +36,13 @@ const devSeedClientName = "dev-test-client"
 // Playwright knows the secret without scraping container logs. Secrets are
 // Argon2id-hashed before storage; the plaintext is logged once at INFO.
 //
-// Idempotent: if a row with name=devSeedClientName already exists, the
-// function logs a warning and returns successfully without mutating state.
+// Upserts by name: if a dev-test-client row already exists, its
+// redirect_uris / allowed_grant_types / allowed_scopes /
+// token_endpoint_auth_method / status are refreshed in-place to match the
+// values the code currently declares. The secret_hash is left alone on the
+// update path, so a deterministic SCHLASS_DEV_SECRET set against a fresh
+// volume continues to verify across container restarts. This shape lets a
+// developer iterate on scopes/grants without wiping the DB volume.
 func SeedDevClient(ctx context.Context, pool *pgxpool.Pool, dev, secretOverride, publicURL string) error {
 	if dev != "1" {
 		return nil
@@ -48,10 +53,30 @@ func SeedDevClient(ctx context.Context, pool *pgxpool.Pool, dev, secretOverride,
 		return nil
 	}
 
+	redirectURIs := []string{publicURL + "/oidc/dev-callback"}
+	grantTypes := []string{"authorization_code", "refresh_token"}
+	// offline_access is required so /token mints refresh_token on the
+	// authorization_code grant — without it, refresh-flow testing is
+	// impossible against the dev client.
+	scopes := []string{"openid", "profile", "email", "offline_access"}
+
 	var existingID uuid.UUID
 	err := pool.QueryRow(ctx, `SELECT id FROM clients WHERE name = $1 LIMIT 1`, devSeedClientName).Scan(&existingID)
 	if err == nil {
-		slog.Info("dev-seed: client already present, skipping",
+		// Refresh shape in-place. Secret untouched.
+		if _, uerr := pool.Exec(ctx, `
+			UPDATE clients SET
+				redirect_uris = $1,
+				allowed_grant_types = $2,
+				allowed_scopes = $3,
+				token_endpoint_auth_method = 'client_secret_post',
+				status = 'active',
+				updated_at = now()
+			WHERE id = $4
+		`, redirectURIs, grantTypes, scopes, existingID); uerr != nil {
+			return fmt.Errorf("dev-seed: refresh existing: %w", uerr)
+		}
+		slog.Info("dev-seed: client already present, shape refreshed (secret unchanged)",
 			"name", devSeedClientName, "client_id", existingID.String())
 		return nil
 	}
@@ -73,10 +98,6 @@ func SeedDevClient(ctx context.Context, pool *pgxpool.Pool, dev, secretOverride,
 	if err != nil {
 		return fmt.Errorf("dev-seed: hash secret: %w", err)
 	}
-
-	redirectURIs := []string{publicURL + "/oidc/dev-callback"}
-	grantTypes := []string{"authorization_code", "refresh_token"}
-	scopes := []string{"openid", "profile", "email"}
 
 	var clientID uuid.UUID
 	err = pool.QueryRow(ctx, `

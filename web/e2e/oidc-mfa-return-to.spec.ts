@@ -41,6 +41,37 @@ async function clearAdminLockout(): Promise<void> {
   }
 }
 
+// resetAdminMFA wipes any MFA state on the shared admin so the first login
+// of this test always enters the enrollment wizard. Required because the
+// TOTP secret can only be captured during enrollment, and a prior spec in
+// the same run may have left the admin already enrolled.
+async function resetAdminMFA(): Promise<void> {
+  const client = new Client({
+    host: "localhost",
+    port: 5432,
+    database: "schlass",
+    user: "postgres",
+    password: "postgres",
+  });
+  await client.connect();
+  try {
+    const res = await client.query<{ id: string }>(
+      `UPDATE users SET totp_secret_encrypted = NULL, totp_enrolled_at = NULL,
+          last_used_totp_counter = 0
+       WHERE email = $1 RETURNING id`,
+      [ADMIN_EMAIL],
+    );
+    if (res.rowCount && res.rowCount > 0) {
+      await client.query(
+        `DELETE FROM totp_recovery_codes WHERE user_id = $1`,
+        [res.rows[0].id],
+      );
+    }
+  } finally {
+    await client.end();
+  }
+}
+
 test.describe("return_to survives MFA challenge", () => {
   test.setTimeout(90000);
 
@@ -50,6 +81,7 @@ test.describe("return_to survives MFA challenge", () => {
   }) => {
     void completedSetup;
     await clearAdminLockout();
+    await resetAdminMFA();
     await setMfaRequired(true);
 
     // --- Enroll the admin if not already enrolled. --------------------
@@ -70,37 +102,27 @@ test.describe("return_to survives MFA challenge", () => {
     });
 
     try {
+      // resetAdminMFA guarantees we always enter the enrollment wizard so
+      // capturedSecret is populated for the anon-phase challenge below.
       await page.goto("/login");
       await page.getByLabel(/email/i).fill(ADMIN_EMAIL);
       await page.getByLabel(/password/i).fill(ADMIN_PASSWORD);
       await page.getByRole("button", { name: /sign in/i }).click();
+      await page.waitForURL("**/setup-mfa", { timeout: 15000 });
 
-      // Either the first-login forced-enrollment path OR direct challenge
-      // if a prior spec left the admin enrolled.
-      await Promise.race([
-        page.waitForURL("**/setup-mfa", { timeout: 15000 }),
-        page.waitForURL("**/mfa-challenge", { timeout: 15000 }),
-        page.waitForURL(/\/(admin|account)/, { timeout: 15000 }),
-      ]);
-
-      if (page.url().includes("/setup-mfa")) {
-        await expect.poll(() => capturedSecret, { timeout: 15000 }).not.toBe("");
-        await page.getByRole("button", { name: /^next$/i }).click();
-        const enrollCode = await generate({ secret: capturedSecret });
-        const digitInputs = await page.getByLabel(/^Digit \d$/i).all();
-        for (let i = 0; i < 6; i++) {
-          await digitInputs[i].fill(enrollCode[i]);
-        }
-        await page.getByRole("button", { name: /^verify$/i }).click();
-        await page.getByRole("checkbox").check();
-        await page.getByRole("button", { name: /finish setup/i }).click();
-        await page.waitForURL(/\/(admin|account)/, { timeout: 15000 });
+      await expect.poll(() => capturedSecret, { timeout: 15000 }).not.toBe("");
+      await page.getByRole("button", { name: /^next$/i }).click();
+      const enrollCode = await generate({ secret: capturedSecret });
+      const digitInputs = await page.getByLabel(/^Digit \d$/i).all();
+      for (let i = 0; i < 6; i++) {
+        await digitInputs[i].fill(enrollCode[i]);
       }
-
-      // Sign out to start the deep-link flow from an anonymous state.
-      await page.goto("/account");
-      await page.getByRole("button", { name: /^sign out$/i }).click();
-      await page.waitForURL("**/login", { timeout: 10000 });
+      await page.getByRole("button", { name: /^verify$/i }).click();
+      await page.getByRole("checkbox").check();
+      await page.getByRole("button", { name: /finish setup/i }).click();
+      await page.waitForURL(/\/(admin|account)/, { timeout: 15000 });
+      // No sign-out needed — the anon phase uses a brand-new browser
+      // context so the enrolled-admin session here never leaks through.
     } catch (err) {
       await context.close();
       throw err;
