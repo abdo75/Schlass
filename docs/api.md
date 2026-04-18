@@ -19,6 +19,7 @@ First-run wizard. Both routes are rate-limited and become unavailable after `set
 - `POST /api/logout` — destroy current session (Auth)
 - `GET /api/me` — return the authenticated user (Auth)
 - `POST /api/change-password` — self-service password change, rotates session token (Auth)
+- `POST /api/me/mfa/disable` — self-service MFA disable (Auth). Body: `{ current_password }`. On success: clears TOTP state, deletes recovery codes, revokes all Valkey sessions, clears the session cookie. Next login hits the enrollment flow. Audit event `mfa.self_reset`. Rate-limited by the existing global auth-path limiter (no dedicated limit — the endpoint requires an existing session so the attack surface is narrow).
 
 ## User management
 
@@ -44,6 +45,8 @@ Enrollment endpoints are gated by the `schlass_mfa_enroll` cookie issued by `POS
 - `POST /api/mfa/enrollment/start` — generate a fresh TOTP secret and provision URI. Response: `{ secret_base32, provision_uri }`. Idempotent within the enrollment window: calling again overwrites the secret in Valkey, resetting the 10-minute window.
 - `POST /api/mfa/enrollment/verify` — verify the first TOTP code to confirm the user's authenticator is configured. Request: `{ code }`. Response: `{ recovery_codes: [10 plaintext codes] }`. Codes are shown once; hashes are stashed in Valkey for the `/complete` commit. Up to 5 failed attempts before the enrollment session is invalidated.
 - `POST /api/mfa/enrollment/complete` — commit enrollment to PG (atomic): writes `totp_secret_encrypted`, inserts 10 recovery-code hashes, writes `mfa.enrollment_completed` audit row. Request: `{ acknowledged: true }`. On success, clears the enroll cookie, creates a regular session cookie, and responds with `{ user }`. This is the audit-in-tx commit point for enrollment.
+
+**Dual-auth.** All three enrollment endpoints accept either the `schlass_mfa_enroll` cookie (set by `POST /api/login` when password-verify succeeds and MFA is required) OR a session cookie where `/api/me` would return `force_mfa_enrollment=true`. The session path is needed for setup-wizard admins and post-admin-reset users who hold an active session. When session-authed, `/start` mints a fresh `schlass_mfa_enroll` cookie and `/complete` skips issuing a new session.
 
 ## MFA challenge
 
