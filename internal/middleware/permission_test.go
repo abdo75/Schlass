@@ -94,7 +94,7 @@ func TestPermissionsForRole(t *testing.T) {
 	// Assert representative permissions are present — verifies the mapping
 	// is correctly wired without hardcoding a count that would false-fail on
 	// every future permission addition.
-	for _, required := range []string{"users.list", "users.create", "users.sessions.terminate", "users.reset_mfa"} {
+	for _, required := range []string{"users.list", "users.create", "users.sessions.terminate", "users.reset_mfa", "signing_keys.rotate"} {
 		if !slices.Contains(sa, required) {
 			t.Errorf("super_admin missing required permission %q", required)
 		}
