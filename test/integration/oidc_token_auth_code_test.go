@@ -375,18 +375,6 @@ func TestToken_UnknownGrantType_400UnsupportedGrantType(t *testing.T) {
 	assertTokenError(t, rec, http.StatusBadRequest, "unsupported_grant_type")
 }
 
-func TestToken_RefreshTokenGrantStillPending_400(t *testing.T) {
-	env := NewTestEnv(t)
-
-	params := url.Values{}
-	params.Set("grant_type", "refresh_token")
-	params.Set("client_id", "irrelevant")
-	params.Set("client_secret", "irrelevant")
-	params.Set("refresh_token", "some-token")
-
-	rec := doTokenRequest(t, env, params)
-	assertTokenError(t, rec, http.StatusBadRequest, "unsupported_grant_type")
-}
 
 func TestToken_ReusedCode_RevokeFamily_400InvalidGrant(t *testing.T) {
 	env := NewTestEnv(t)

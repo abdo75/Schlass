@@ -97,8 +97,7 @@ func (h *OIDCTokenHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	case "authorization_code":
 		h.handleAuthorizationCode(w, r)
 	case "refresh_token":
-		// M4 deliverable; a clean 400 lets RPs distinguish "wrong grant" from a server error.
-		writeTokenError(w, http.StatusBadRequest, "unsupported_grant_type", "refresh_token grant lands in a subsequent milestone.")
+		h.handleRefreshToken(w, r)
 	default:
 		writeTokenError(w, http.StatusBadRequest, "unsupported_grant_type", "grant_type not supported.")
 	}
@@ -396,6 +395,251 @@ func (h *OIDCTokenHandler) writeBestEffortAudit(r *http.Request, entry store.Aud
 	if err := tx.Commit(r.Context()); err != nil {
 		slog.Error("token best-effort audit: commit", "error", err)
 	}
+}
+
+// handleRefreshToken implements the refresh_token grant per OAuth 2.1 §6 +
+// spec §6c. Every successful rotation uses the same family_id and preserves
+// the absolute expiry from the original code exchange (spec §5f).
+func (h *OIDCTokenHandler) handleRefreshToken(w http.ResponseWriter, r *http.Request) {
+	clientID := r.PostForm.Get("client_id")
+	clientSecret := r.PostForm.Get("client_secret")
+	presentedRefresh := r.PostForm.Get("refresh_token")
+
+	if clientID == "" || clientSecret == "" {
+		writeTokenError(w, http.StatusUnauthorized, "invalid_client", "Missing client credentials.")
+		return
+	}
+	if presentedRefresh == "" {
+		writeTokenError(w, http.StatusBadRequest, "invalid_request", "Missing refresh_token.")
+		return
+	}
+
+	// 1. Rate-limit per client_id (same bucket as auth_code grant, spec §5e).
+	if allowed, err := h.rateLimitCheck(r.Context(), clientID); err != nil {
+		slog.Warn("token refresh: rate limit check failed (allowing)", "error", err)
+	} else if !allowed {
+		writeTokenError(w, http.StatusTooManyRequests, "invalid_request", "Rate limit exceeded for this client.")
+		return
+	}
+
+	// 2. Client authentication.
+	ok, err := h.clientStore.VerifySecret(r.Context(), h.pool, clientID, clientSecret)
+	if err != nil || !ok {
+		h.writeBestEffortAudit(r, store.AuditEntry{
+			EventType:  "oidc.client.auth_failed",
+			TargetType: "client",
+			TargetID:   clientID,
+			IPAddress:  extractClientIP(r),
+			Outcome:    "failure",
+			Metadata:   map[string]any{"reason": "secret_verify_failed", "grant": "refresh_token"},
+		})
+		writeTokenError(w, http.StatusUnauthorized, "invalid_client", "Client authentication failed.")
+		return
+	}
+	client, err := h.clientStore.GetByID(r.Context(), h.pool, clientID)
+	if err != nil {
+		writeTokenError(w, http.StatusUnauthorized, "invalid_client", "Client not found.")
+		return
+	}
+
+	// 3. Consume presented refresh token. Dispatch on sentinel errors.
+	oldPayload, consumeErr := h.refreshStore.Consume(r.Context(), presentedRefresh)
+	if errors.Is(consumeErr, oidc.ErrRefreshUnknownOrExpired) {
+		// No family to revoke — we can't even identify the token.
+		writeTokenError(w, http.StatusBadRequest, "invalid_grant", "Refresh token invalid or expired.")
+		return
+	}
+	if errors.Is(consumeErr, oidc.ErrRefreshReuseDetected) {
+		// OAuth 2.1 §4.13: presented token was already rotated — revoke the
+		// entire family and audit the event (best-effort tx is acceptable; the
+		// Valkey revoke is the authoritative guard, not the audit row).
+		if oldPayload != nil {
+			if err := h.refreshStore.RevokeFamily(r.Context(), oldPayload.FamilyID); err != nil {
+				slog.Error("token refresh: RevokeFamily on reuse", "error", err)
+			}
+			h.writeBestEffortAudit(r, store.AuditEntry{
+				EventType:  "oidc.refresh.reuse_detected",
+				ActorID:    uuidPtr(oldPayload.UserID),
+				TargetType: "client",
+				TargetID:   client.ID.String(),
+				ClientID:   &client.ID,
+				IPAddress:  extractClientIP(r),
+				Outcome:    "failure",
+				Metadata:   map[string]any{"family_id": oldPayload.FamilyID},
+			})
+		}
+		writeTokenError(w, http.StatusBadRequest, "invalid_grant", "Refresh token already used (family revoked).")
+		return
+	}
+	if consumeErr != nil {
+		slog.Error("token refresh: Consume", "error", consumeErr)
+		writeTokenError(w, http.StatusInternalServerError, "server_error", "Refresh lookup failed.")
+		return
+	}
+
+	// 4. Verify client binding — the refresh payload must belong to the caller.
+	if oldPayload.ClientID != client.ID.String() {
+		writeTokenError(w, http.StatusBadRequest, "invalid_grant", "Refresh / client mismatch.")
+		return
+	}
+
+	// 5. Re-fetch user + status check.
+	userUUID, err := uuid.Parse(oldPayload.UserID)
+	if err != nil {
+		writeTokenError(w, http.StatusBadRequest, "invalid_grant", "Refresh payload malformed.")
+		return
+	}
+	user, err := h.userStore.GetByID(r.Context(), h.pool, userUUID)
+	if err != nil {
+		writeTokenError(w, http.StatusBadRequest, "invalid_grant", "User not found.")
+		return
+	}
+	if user.Status != "active" {
+		if err := h.refreshStore.RevokeFamily(r.Context(), oldPayload.FamilyID); err != nil {
+			slog.Error("token refresh: RevokeFamily on disabled-user", "error", err)
+		}
+		h.writeBestEffortAudit(r, store.AuditEntry{
+			EventType:  "oidc.refresh.user_disabled",
+			ActorID:    &user.ID,
+			ActorEmail: user.Email,
+			TargetType: "client",
+			TargetID:   client.ID.String(),
+			ClientID:   &client.ID,
+			IPAddress:  extractClientIP(r),
+			Outcome:    "failure",
+			Metadata:   map[string]any{"family_id": oldPayload.FamilyID},
+		})
+		writeTokenError(w, http.StatusBadRequest, "invalid_grant", "User not active.")
+		return
+	}
+
+	// TODO(M5 revoke_before): check revokeBefore.Get(userID); if set AND the
+	// original token's CreatedAt < revoke_before.Unix(), RevokeFamily + reject.
+
+	// 6. Load active signing key.
+	activeKey, err := h.signingKeyStore.GetActive(r.Context(), h.pool)
+	if err != nil {
+		slog.Error("token refresh: GetActive", "error", err)
+		writeTokenError(w, http.StatusInternalServerError, "server_error", "No active signing key.")
+		return
+	}
+	privPEM, err := oidc.UnwrapPrivateKey(activeKey.PrivateKeyEncrypted, h.encryptionKey)
+	if err != nil {
+		slog.Error("token refresh: unwrap private key", "error", err)
+		writeTokenError(w, http.StatusInternalServerError, "server_error", "Signing failed.")
+		return
+	}
+
+	// 7. Sign new access + id tokens.
+	now := time.Now().UTC()
+	scopes := oidc.Scopes(oldPayload.Scopes)
+	jtiAccess := uuid.NewString()
+	jtiID := uuid.NewString()
+	accessClaims := oidc.BuildAccessClaims(user, client.ID.String(), h.publicURL, jtiAccess, scopes, now)
+	accessTok, err := oidc.SignAccessToken(accessClaims, activeKey.ID.String(), privPEM)
+	if err != nil {
+		slog.Error("token refresh: sign access", "error", err)
+		writeTokenError(w, http.StatusInternalServerError, "server_error", "Signing failed.")
+		return
+	}
+	// auth_time is not re-derivable at refresh time; use the refresh's CreatedAt
+	// as a floor (it was set at code-exchange time).
+	authTime := time.Unix(oldPayload.CreatedAt, 0).UTC()
+	idClaims := oidc.BuildIDClaims(user, client.ID.String(), h.publicURL, jtiID, "", scopes, authTime, now)
+	idTok, err := oidc.SignIDToken(idClaims, activeKey.ID.String(), privPEM)
+	if err != nil {
+		slog.Error("token refresh: sign id", "error", err)
+		writeTokenError(w, http.StatusInternalServerError, "server_error", "Signing failed.")
+		return
+	}
+
+	// 8. Mint rotated refresh. Same family_id; absolute expiry preserved from
+	//    original code exchange (spec §5f — Create takes an absolute unix timestamp
+	//    and computes TTL = exp - now, so passing oldPayload.Expires enforces the
+	//    24h ceiling without resetting it on each rotation).
+	newRefresh, err := h.refreshStore.Create(r.Context(), oidc.RefreshPayload{
+		UserID:    user.ID.String(),
+		ClientID:  client.ID.String(),
+		Scopes:    oldPayload.Scopes,
+		FamilyID:  oldPayload.FamilyID,
+		CreatedAt: now.Unix(),
+		Expires:   oldPayload.Expires, // absolute, not now+24h
+	})
+	if err != nil {
+		// Create returns an error when exp is already in the past. The old token
+		// is still consumable (used=false hasn't been flipped) so the RP gets a
+		// clear "expired" signal rather than losing their session silently.
+		slog.Warn("token refresh: Create rotated refresh failed", "error", err)
+		writeTokenError(w, http.StatusBadRequest, "invalid_grant", "Refresh token expired.")
+		return
+	}
+
+	// 9. MarkUsed the old token. Ordering rationale: Create runs first so the RP
+	//    always gets usable tokens even if MarkUsed fails (RP can still use the new
+	//    refresh). If MarkUsed fails and the RP re-presents the old token, Consume
+	//    returns used=false again — a duplicate rotation window exists, but the
+	//    family_id linkage means a future reuse attack on *either* copy still
+	//    triggers RevokeFamily. This is preferable to denying the user their tokens
+	//    by aborting the response on a MarkUsed failure.
+	if err := h.refreshStore.MarkUsed(r.Context(), presentedRefresh); err != nil {
+		slog.Error("token refresh: MarkUsed old token", "error", err, "family_id", oldPayload.FamilyID) //nolint:gosec // G706: slog structured logging is not susceptible to log injection
+		// Continue — new tokens are already minted; MarkUsed failure is logged,
+		// not returned.
+	}
+
+	// 10. Audit oidc.token.refreshed inside a tx (state-change audit rule).
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		slog.Error("token refresh: audit begin", "error", err)
+		writeTokenError(w, http.StatusInternalServerError, "server_error", "DB begin failed.")
+		return
+	}
+	defer func() { _ = tx.Rollback(r.Context()) }()
+	if err := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+		EventType:  "oidc.token.refreshed",
+		ActorID:    &user.ID,
+		ActorEmail: user.Email,
+		TargetType: "client",
+		TargetID:   client.ID.String(),
+		ClientID:   &client.ID,
+		IPAddress:  extractClientIP(r),
+		Outcome:    "success",
+		Metadata: map[string]any{
+			"family_id":      oldPayload.FamilyID,
+			"scopes":         oldPayload.Scopes,
+			"new_access_jti": jtiAccess,
+			"new_id_jti":     jtiID,
+		},
+	}); err != nil {
+		slog.Error("token refresh: audit log", "error", err)
+		writeTokenError(w, http.StatusInternalServerError, "server_error", "Audit failed.")
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		slog.Error("token refresh: audit commit", "error", err)
+		writeTokenError(w, http.StatusInternalServerError, "server_error", "Commit failed.")
+		return
+	}
+
+	// 11. Respond with rotated tokens.
+	writeJSON(w, http.StatusOK, tokenResponse{
+		AccessToken:  accessTok,
+		TokenType:    "Bearer",
+		ExpiresIn:    int(oidc.AccessTokenTTL.Seconds()),
+		RefreshToken: newRefresh,
+		IDToken:      idTok,
+		Scope:        scopes.String(),
+	})
+}
+
+// uuidPtr parses s into a *uuid.UUID, returning nil on parse failure.
+// Used to populate optional ActorID fields from string payloads.
+func uuidPtr(s string) *uuid.UUID {
+	u, err := uuid.Parse(s)
+	if err != nil {
+		return nil
+	}
+	return &u
 }
 
 // writeTokenError writes an RFC 6749 §5.2 error response. The caller must
