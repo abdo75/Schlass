@@ -67,7 +67,7 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 
 	authMW := middleware.Auth(sessionStore, d.UserStore, d.AuditStore, d.Pool)
 
-	usersHandler := handler.NewUsersHandler(d.Pool, d.UserStore, d.AuditStore, sessionStore, d.ConfigService, d.RecoveryCodeStore)
+	usersHandler := handler.NewUsersHandler(d.Pool, d.ValkeyClient, d.UserStore, d.AuditStore, sessionStore, d.ConfigService, d.RecoveryCodeStore)
 	adminSigningKeysHandler := handler.NewAdminSigningKeysHandler(d.Pool, d.AuditStore, d.Cfg.EncryptionKey)
 
 	mfaHandler := handler.NewMfaHandler(

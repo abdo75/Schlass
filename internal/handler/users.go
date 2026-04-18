@@ -19,10 +19,12 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/abdo75/Schlass/internal/config"
 	"github.com/abdo75/Schlass/internal/crypto"
 	"github.com/abdo75/Schlass/internal/middleware"
+	"github.com/abdo75/Schlass/internal/revokebefore"
 	"github.com/abdo75/Schlass/internal/session"
 	"github.com/abdo75/Schlass/internal/store"
 )
@@ -32,6 +34,7 @@ import (
 // middleware.RequirePermission gate at wiring time.
 type UsersHandler struct {
 	pool              *pgxpool.Pool
+	valkey            *redis.Client
 	userStore         *store.UserStore
 	auditStore        AuditLogger
 	sessionStore      session.Store
@@ -44,6 +47,7 @@ type UsersHandler struct {
 // startup in main.go where the pool/stores are constructed.
 func NewUsersHandler(
 	pool *pgxpool.Pool,
+	valkey *redis.Client,
 	userStore *store.UserStore,
 	auditStore AuditLogger,
 	sessionStore session.Store,
@@ -52,6 +56,7 @@ func NewUsersHandler(
 ) *UsersHandler {
 	return &UsersHandler{
 		pool:              pool,
+		valkey:            valkey,
 		userStore:         userStore,
 		auditStore:        auditStore,
 		sessionStore:      sessionStore,
@@ -596,6 +601,22 @@ func (h *UsersHandler) Disable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Revoke all OIDC tokens issued before this moment (spec §5g).
+	if auditErr := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+		EventType:  "user.revoke_before_set",
+		ActorID:    &current.ID,
+		ActorEmail: current.Email,
+		TargetType: "user",
+		TargetID:   id.String(),
+		IPAddress:  ip,
+		Outcome:    "success",
+		Metadata:   map[string]any{"reason": "disable"},
+	}); auditErr != nil {
+		slog.Error("audit user.revoke_before_set (disable)", "error", auditErr)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
 	if err := tx.Commit(r.Context()); err != nil {
 		slog.Error("users.Disable: commit", "error", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
@@ -609,6 +630,11 @@ func (h *UsersHandler) Disable(w http.ResponseWriter, r *http.Request) {
 	// row is the source of truth.
 	if err := h.sessionStore.DeleteAllForUser(r.Context(), id.String()); err != nil {
 		slog.Warn("users.Disable: session revocation degraded", "error", err, "user_id", id) //nolint:gosec // G706: slog structured logging is not susceptible to log injection
+	}
+	// Post-commit, best-effort: set revoke_before so OIDC tokens issued
+	// before the disable are rejected at /token refresh and /userinfo.
+	if err := revokebefore.Set(r.Context(), h.valkey, id.String(), time.Now()); err != nil {
+		slog.Error("users.Disable: revoke_before Valkey write failed", "error", err, "user_id", id) //nolint:gosec // G706: slog structured logging is not susceptible to log injection
 	}
 
 	w.WriteHeader(http.StatusNoContent)
@@ -771,6 +797,22 @@ func (h *UsersHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Revoke all OIDC tokens issued before this moment (spec §5g).
+	if auditErr := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+		EventType:  "user.revoke_before_set",
+		ActorID:    &current.ID,
+		ActorEmail: current.Email,
+		TargetType: "user",
+		TargetID:   id.String(),
+		IPAddress:  ip,
+		Outcome:    "success",
+		Metadata:   map[string]any{"reason": "password_reset"},
+	}); auditErr != nil {
+		slog.Error("audit user.revoke_before_set (password_reset)", "error", auditErr)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
 	if err := tx.Commit(r.Context()); err != nil {
 		slog.Error("users.ResetPassword: commit", "error", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
@@ -784,6 +826,11 @@ func (h *UsersHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	// check will still gate the next request.
 	if err := h.sessionStore.DeleteAllForUser(r.Context(), id.String()); err != nil {
 		slog.Warn("users.ResetPassword: session revocation degraded", "error", err, "user_id", id) //nolint:gosec // G706: slog structured logging is not susceptible to log injection
+	}
+	// Post-commit, best-effort: set revoke_before so OIDC tokens issued
+	// before the password reset are rejected at /token refresh and /userinfo.
+	if err := revokebefore.Set(r.Context(), h.valkey, id.String(), time.Now()); err != nil {
+		slog.Error("users.ResetPassword: revoke_before Valkey write failed", "error", err, "user_id", id) //nolint:gosec // G706: slog structured logging is not susceptible to log injection
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"temporary_password": tempPassword})
@@ -1063,6 +1110,23 @@ func (h *UsersHandler) ResetMFA(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 		return
 	}
+
+	// Revoke all OIDC tokens issued before this moment (spec §5g).
+	if auditErr := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+		EventType:  "user.revoke_before_set",
+		ActorID:    &acting.ID,
+		ActorEmail: acting.Email,
+		TargetType: "user",
+		TargetID:   targetID.String(),
+		IPAddress:  extractClientIP(r),
+		Outcome:    "success",
+		Metadata:   map[string]any{"reason": "mfa_reset"},
+	}); auditErr != nil {
+		slog.Error("audit user.revoke_before_set (mfa_reset)", "error", auditErr)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
 	if err := tx.Commit(r.Context()); err != nil {
 		slog.Error("reset-mfa: Commit failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
@@ -1075,6 +1139,11 @@ func (h *UsersHandler) ResetMFA(w http.ResponseWriter, r *http.Request) {
 		slog.Error("reset-mfa: DeleteAllForUser sessions failed", "error", err, "user_id", targetID.String()) //nolint:gosec // G706: slog structured logging is not susceptible to log injection
 		// Non-fatal — the audit row is committed, sessions expire on their
 		// own if deletion fails.
+	}
+	// Post-commit, best-effort: set revoke_before so OIDC tokens issued
+	// before the MFA reset are rejected at /token refresh and /userinfo.
+	if err := revokebefore.Set(r.Context(), h.valkey, targetID.String(), time.Now()); err != nil {
+		slog.Error("reset-mfa: revoke_before Valkey write failed", "error", err, "user_id", targetID) //nolint:gosec // G706: slog structured logging is not susceptible to log injection
 	}
 
 	updated, _ := h.userStore.GetByID(r.Context(), h.pool, targetID)

@@ -18,6 +18,7 @@ import (
 	"github.com/abdo75/Schlass/internal/database"
 	"github.com/abdo75/Schlass/internal/middleware"
 	"github.com/abdo75/Schlass/internal/model"
+	"github.com/abdo75/Schlass/internal/revokebefore"
 	"github.com/abdo75/Schlass/internal/session"
 	"github.com/abdo75/Schlass/internal/store"
 )
@@ -651,13 +652,35 @@ func (h *AuthHandler) PostChangePassword(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Revoke all OIDC tokens issued before this moment (spec §5g).
+	if auditErr := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+		EventType:  "user.revoke_before_set",
+		ActorID:    &current.ID,
+		ActorEmail: current.Email,
+		TargetType: "user",
+		TargetID:   current.ID.String(),
+		IPAddress:  ip,
+		Outcome:    "success",
+		Metadata:   map[string]any{"reason": "self_change_password"},
+	}); auditErr != nil {
+		slog.Error("audit user.revoke_before_set (self_change_password)", "error", auditErr)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
 	if err := tx.Commit(r.Context()); err != nil {
 		slog.Error("auth.PostChangePassword: commit", "error", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 		return
 	}
 
-	// 4. Post-commit: rotate the session token (OWASP Session Management —
+	// 4. Post-commit: set revoke_before so OIDC tokens issued before the
+	//    password change are rejected at /token refresh and /userinfo.
+	if err := revokebefore.Set(r.Context(), h.valkey, current.ID.String(), time.Now()); err != nil {
+		slog.Error("auth.PostChangePassword: revoke_before Valkey write failed", "error", err, "user_id", current.ID) //nolint:gosec // G706: slog structured logging is not susceptible to log injection
+	}
+
+	// 5. Post-commit: rotate the session token (OWASP Session Management —
 	//    renew session identifier after credential change). Delete the
 	//    caller's old session; if that fails, degrade to WARN and continue
 	//    — an orphaned Valkey entry is less harmful than leaving the user
@@ -777,6 +800,23 @@ func (h *AuthHandler) PostDisableMfa(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 		return
 	}
+
+	// Revoke all OIDC tokens issued before this moment (spec §5g).
+	if auditErr := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+		EventType:  "user.revoke_before_set",
+		ActorID:    &current.ID,
+		ActorEmail: current.Email,
+		TargetType: "user",
+		TargetID:   current.ID.String(),
+		IPAddress:  extractClientIP(r),
+		Outcome:    "success",
+		Metadata:   map[string]any{"reason": "self_disable_mfa"},
+	}); auditErr != nil {
+		slog.Error("audit user.revoke_before_set (self_disable_mfa)", "error", auditErr)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
 	if err := tx.Commit(r.Context()); err != nil {
 		slog.Error("disable-mfa: Commit failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
@@ -787,6 +827,11 @@ func (h *AuthHandler) PostDisableMfa(w http.ResponseWriter, r *http.Request) {
 	if err := h.sessionStore.DeleteAllForUser(r.Context(), current.ID.String()); err != nil {
 		slog.Error("disable-mfa: session revocation failed", "error", err, "user_id", current.ID)
 		// Non-fatal — the PG state is committed, audit row is written.
+	}
+	// Post-commit, best-effort: set revoke_before so OIDC tokens issued
+	// before the self MFA disable are rejected at /token refresh and /userinfo.
+	if err := revokebefore.Set(r.Context(), h.valkey, current.ID.String(), time.Now()); err != nil {
+		slog.Error("disable-mfa: revoke_before Valkey write failed", "error", err, "user_id", current.ID) //nolint:gosec // G706: slog structured logging is not susceptible to log injection
 	}
 
 	// Clear the session cookie client-side too.
