@@ -67,7 +67,7 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 
 	mfaHandler := handler.NewMfaHandler(
 		d.Pool, d.ValkeyClient, d.UserStore, d.RecoveryCodeStore,
-		d.AuditStore, sessionStore, d.ConfigService,
+		d.AuditStore, sessionStore, d.ConfigService, d.ConfigStore,
 		d.Cfg.EncryptionKey,
 		d.Cfg.SchlassPublicURL,
 	)

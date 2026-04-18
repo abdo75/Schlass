@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"time"
@@ -31,6 +32,7 @@ type MfaHandler struct {
 	auditStore        AuditLogger
 	sessionStore      session.Store
 	configService     *config.ConfigService
+	configStore       *store.ConfigStore
 	encryptionKey     []byte
 	secureCookie      bool // Secure flag on Set-Cookie — true iff SCHLASS_PUBLIC_URL is https
 }
@@ -46,6 +48,7 @@ func NewMfaHandler(
 	auditStore AuditLogger,
 	sessionStore session.Store,
 	configService *config.ConfigService,
+	configStore *store.ConfigStore,
 	encryptionKey []byte,
 	publicURL string,
 ) *MfaHandler {
@@ -57,6 +60,7 @@ func NewMfaHandler(
 		auditStore:        auditStore,
 		sessionStore:      sessionStore,
 		configService:     configService,
+		configStore:       configStore,
 		encryptionKey:     encryptionKey,
 		secureCookie:      isSecureURL(publicURL),
 	}
@@ -89,31 +93,136 @@ const (
 	mfaChallengeKeyPrefix = "mfa:challenge:"
 )
 
-func (h *MfaHandler) PostEnrollmentStart(w http.ResponseWriter, r *http.Request) {
-	// 1. Validate enrollment token from cookie.
-	tokenCookie, err := r.Cookie(MfaEnrollCookieName)
-	if err != nil || tokenCookie.Value == "" {
-		writeError(w, http.StatusUnauthorized, "MFA_ENROLLMENT_EXPIRED", "Enrollment session has expired.")
-		return
-	}
-	token := tokenCookie.Value
-	key := mfaEnrollKeyPrefix + token
+// mfaEnrollContext captures who's enrolling and which auth mode they arrived
+// via. Enrollment cookie path = pre-session (first login or post-admin-reset
+// via fresh login). Session path = post-session (setup wizard admin, or a
+// user who got admin-reset while holding an active session).
+type mfaEnrollContext struct {
+	UserID        uuid.UUID
+	Email         string
+	SessionAuthed bool   // true = came in via a valid session cookie; false = via enrollment cookie
+	EnrollToken   string // empty when SessionAuthed; the raw token when cookie-authed
+}
 
-	// 2. Load enrollment state from Valkey.
-	userIDStr, err := h.valkey.HGet(r.Context(), key, "user_id").Result()
-	if err != nil || userIDStr == "" {
-		writeError(w, http.StatusUnauthorized, "MFA_ENROLLMENT_EXPIRED", "Enrollment session has expired.")
-		return
+var (
+	errNoEnrollAuth    = errors.New("no enrollment authorization")
+	errAlreadyEnrolled = errors.New("already enrolled")
+)
+
+// resolveEnrollPrincipal returns the enrollment principal from either auth
+// source. The enrollment cookie is preferred when present (covers the standard
+// login flow). If the cookie is absent or invalid, a session cookie is
+// accepted provided the user genuinely needs to enroll
+// (mfa_required=true AND totp_enrolled_at IS NULL).
+func (h *MfaHandler) resolveEnrollPrincipal(r *http.Request) (*mfaEnrollContext, error) {
+	// Prefer enrollment cookie when present.
+	if tokenCookie, err := r.Cookie(MfaEnrollCookieName); err == nil && tokenCookie.Value != "" {
+		token := tokenCookie.Value
+		key := mfaEnrollKeyPrefix + token
+		userIDStr, err := h.valkey.HGet(r.Context(), key, "user_id").Result()
+		if err == nil && userIDStr != "" {
+			uid, perr := uuid.Parse(userIDStr)
+			if perr == nil {
+				u, uerr := h.userStore.GetByID(r.Context(), h.pool, uid)
+				if uerr == nil {
+					return &mfaEnrollContext{
+						UserID:        uid,
+						Email:         u.Email,
+						SessionAuthed: false,
+						EnrollToken:   token,
+					}, nil
+				}
+			}
+		}
+		// Cookie present but Valkey state missing/invalid — fall through to
+		// session-auth path; if that also fails, caller returns 401.
 	}
-	userID, err := uuid.Parse(userIDStr)
+
+	// Session-auth fallback: user has an authenticated session AND genuinely
+	// needs to enroll. These endpoints are not behind middleware.Auth, so we
+	// read the session cookie directly.
+	sessionCookie, err := r.Cookie("schlass_session")
+	if err != nil || sessionCookie.Value == "" {
+		return nil, errNoEnrollAuth
+	}
+	sess, err := h.sessionStore.Get(r.Context(), sessionCookie.Value)
+	if err != nil || sess == nil {
+		return nil, errNoEnrollAuth
+	}
+	uid, err := uuid.Parse(sess.UserID)
 	if err != nil {
-		slog.Error("mfa enroll: malformed user_id in valkey")
-		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return nil, errNoEnrollAuth
+	}
+	user, err := h.userStore.GetByID(r.Context(), h.pool, uid)
+	if err != nil {
+		return nil, errNoEnrollAuth
+	}
+	// Only allow session-auth enrollment when the user actually needs it.
+	mfaRequired, err := h.configStore.GetBool(r.Context(), h.pool, "mfa_required")
+	if err != nil {
+		return nil, errNoEnrollAuth
+	}
+	if !mfaRequired || user.TOTPEnrolledAt != nil {
+		return nil, errAlreadyEnrolled
+	}
+	return &mfaEnrollContext{
+		UserID:        uid,
+		Email:         user.Email,
+		SessionAuthed: true,
+	}, nil
+}
+
+func (h *MfaHandler) PostEnrollmentStart(w http.ResponseWriter, r *http.Request) {
+	// 1. Resolve enrollment principal from either auth source.
+	ctx, err := h.resolveEnrollPrincipal(r)
+	if err != nil {
+		if errors.Is(err, errAlreadyEnrolled) {
+			writeError(w, http.StatusBadRequest, "MFA_ALREADY_ENROLLED", "This account already has two-factor authentication enabled.")
+		} else {
+			writeError(w, http.StatusUnauthorized, "MFA_ENROLLMENT_EXPIRED", "Enrollment session has expired.")
+		}
 		return
 	}
 
-	// 3. Load user to build provision URI + check not already enrolled.
-	user, err := h.userStore.GetByID(r.Context(), h.pool, userID)
+	// 2. Determine Valkey key. For session-authed users, mint a fresh
+	//    enrollment token and set the cookie so /verify and /complete can use it.
+	var key string
+	if ctx.SessionAuthed {
+		token, err := generateRandomToken(32)
+		if err != nil {
+			slog.Error("mfa enroll: generateRandomToken failed", "error", err)
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+			return
+		}
+		key = mfaEnrollKeyPrefix + token
+		if err := h.valkey.HSet(r.Context(), key, "user_id", ctx.UserID.String()).Err(); err != nil {
+			slog.Error("mfa enroll: HSet user_id (session-authed) failed", "error", err)
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+			return
+		}
+		if err := h.valkey.Expire(r.Context(), key, mfaEnrollTTL).Err(); err != nil {
+			slog.Error("mfa enroll: Expire (session-authed) failed", "error", err)
+		}
+		http.SetCookie(w, &http.Cookie{
+			Name:     MfaEnrollCookieName,
+			Value:    token,
+			Path:     "/",
+			HttpOnly: true,
+			SameSite: http.SameSiteStrictMode,
+			Secure:   h.secureCookie,
+			MaxAge:   int(mfaEnrollTTL.Seconds()),
+		})
+		// Stamp the session_authed flag so /complete knows not to issue a new session.
+		if err := h.valkey.HSet(r.Context(), key, "session_authed", "1").Err(); err != nil {
+			slog.Error("mfa enroll: HSet session_authed failed", "error", err)
+		}
+	} else {
+		key = mfaEnrollKeyPrefix + ctx.EnrollToken
+	}
+
+	// 3. Load user to check not already enrolled (cookie-path guard; session-path
+	//    was already checked in resolveEnrollPrincipal).
+	user, err := h.userStore.GetByID(r.Context(), h.pool, ctx.UserID)
 	if err != nil {
 		slog.Error("mfa enroll: GetByID failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
@@ -134,7 +243,7 @@ func (h *MfaHandler) PostEnrollmentStart(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// 5. Persist secret into the same token key. TTL refresh to full 10 min.
+	// 5. Persist secret into the token key. TTL refresh to full 10 min.
 	if err := h.valkey.HSet(r.Context(), key, "secret_base32", secret).Err(); err != nil {
 		slog.Error("mfa enroll: HSet secret failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
@@ -156,7 +265,7 @@ func (h *MfaHandler) PostEnrollmentStart(w http.ResponseWriter, r *http.Request)
 		issuer = "Schlass"
 	}
 
-	uri, err := crypto.BuildProvisionURI(issuer, user.Email, secret)
+	uri, err := crypto.BuildProvisionURI(issuer, ctx.Email, secret)
 	if err != nil {
 		slog.Error("mfa enroll: BuildProvisionURI failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
@@ -362,8 +471,10 @@ func (h *MfaHandler) PostEnrollmentComplete(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Post-tx: destroy enrollment token in Valkey, clear enrollment cookie,
-	// create session, set session cookie.
+	// Read session_authed flag before destroying the Valkey state.
+	sessionAuthed := state["session_authed"] == "1"
+
+	// Post-tx: destroy enrollment token in Valkey and clear enrollment cookie.
 	h.valkey.Del(r.Context(), key)
 	http.SetCookie(w, &http.Cookie{
 		Name:     MfaEnrollCookieName,
@@ -375,13 +486,17 @@ func (h *MfaHandler) PostEnrollmentComplete(w http.ResponseWriter, r *http.Reque
 		MaxAge:   -1,
 	})
 
-	sessionToken, err := h.sessionStore.Create(r.Context(), userID.String(), ip, r.Header.Get("User-Agent"))
-	if err != nil {
-		slog.Error("mfa complete: session.Create failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
-		return
+	// Only issue a new session when the user did not already have one. On the
+	// session-authed path the existing session remains valid — no rotation needed.
+	if !sessionAuthed {
+		sessionToken, err := h.sessionStore.Create(r.Context(), userID.String(), ip, r.Header.Get("User-Agent"))
+		if err != nil {
+			slog.Error("mfa complete: session.Create failed", "error", err)
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+			return
+		}
+		setSessionCookie(w, sessionToken, h.secureCookie)
 	}
-	setSessionCookie(w, sessionToken, h.secureCookie)
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"user": userDTO(user),

@@ -426,3 +426,148 @@ func TestMfaEnrollmentStart_ProvisionURI_FallsBackToSchlass(t *testing.T) {
 		t.Fatalf("expected fallback issuer=Schlass in provision_uri; got %s", out.ProvisionURI)
 	}
 }
+
+// extractCookie finds a named cookie in an httptest.ResponseRecorder's result.
+// Fails the test if the cookie is not present or has an empty value.
+func extractCookie(t *testing.T, rec *httptest.ResponseRecorder, name string) *http.Cookie {
+	t.Helper()
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == name && c.Value != "" {
+			return c
+		}
+	}
+	t.Fatalf("cookie %q not found in response", name)
+	return nil
+}
+
+func TestMfaEnrollmentStart_SessionAuthed_MintsCookieAndProceeds(t *testing.T) {
+	env := NewTestEnv(t)
+	defer env.Close()
+	env.CompleteSetup(t, "admin@example.com", "CorrectHorse1Battery")
+	userID := env.GetUserIDByEmail(t, "admin@example.com")
+
+	// Admin ends up holding a valid session after setup. Simulate that.
+	sessionCookie := env.DirectCreateSession(t, userID)
+
+	// Hit /start with ONLY a session cookie (no enrollment cookie).
+	req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/mfa/enrollment/start", nil)
+	req.AddCookie(sessionCookie)
+	rec := httptest.NewRecorder()
+	env.Router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Response should include secret+uri (same as cookie-authed path).
+	var out struct {
+		SecretBase32 string `json:"secret_base32"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if out.SecretBase32 == "" {
+		t.Fatal("empty secret")
+	}
+
+	// A fresh schlass_mfa_enroll cookie should be set.
+	enrollCookie := extractCookie(t, rec, "schlass_mfa_enroll")
+	if enrollCookie == nil || enrollCookie.Value == "" {
+		t.Fatal("expected schlass_mfa_enroll cookie to be set for session-authed /start")
+	}
+}
+
+func TestMfaEnrollmentComplete_SessionAuthed_DoesNotRotateSession(t *testing.T) {
+	env := NewTestEnv(t)
+	defer env.Close()
+	env.CompleteSetup(t, "admin@example.com", "CorrectHorse1Battery")
+	userID := env.GetUserIDByEmail(t, "admin@example.com")
+	sessionCookie := env.DirectCreateSession(t, userID)
+
+	// /start — session-authed.
+	startReq := httptest.NewRequestWithContext(t.Context(), "POST", "/api/mfa/enrollment/start", nil)
+	startReq.AddCookie(sessionCookie)
+	startRec := httptest.NewRecorder()
+	env.Router.ServeHTTP(startRec, startReq)
+	if startRec.Code != http.StatusOK {
+		t.Fatalf("start: want 200, got %d: %s", startRec.Code, startRec.Body.String())
+	}
+	var startOut struct {
+		SecretBase32 string `json:"secret_base32"`
+	}
+	_ = json.Unmarshal(startRec.Body.Bytes(), &startOut)
+	enrollCookie := extractCookie(t, startRec, "schlass_mfa_enroll")
+
+	// /verify
+	code, _ := totp.GenerateCode(startOut.SecretBase32, time.Now())
+	vBody, _ := json.Marshal(map[string]string{"code": code})
+	vReq := httptest.NewRequestWithContext(t.Context(), "POST", "/api/mfa/enrollment/verify", bytes.NewReader(vBody))
+	vReq.Header.Set("Content-Type", "application/json")
+	vReq.AddCookie(sessionCookie)
+	vReq.AddCookie(enrollCookie)
+	vRec := httptest.NewRecorder()
+	env.Router.ServeHTTP(vRec, vReq)
+	if vRec.Code != http.StatusOK {
+		t.Fatalf("verify: want 200, got %d: %s", vRec.Code, vRec.Body.String())
+	}
+
+	// /complete
+	cBody, _ := json.Marshal(map[string]bool{"acknowledged": true})
+	cReq := httptest.NewRequestWithContext(t.Context(), "POST", "/api/mfa/enrollment/complete", bytes.NewReader(cBody))
+	cReq.Header.Set("Content-Type", "application/json")
+	cReq.AddCookie(sessionCookie)
+	cReq.AddCookie(enrollCookie)
+	cRec := httptest.NewRecorder()
+	env.Router.ServeHTTP(cRec, cReq)
+	if cRec.Code != http.StatusOK {
+		t.Fatalf("complete: want 200, got %d: %s", cRec.Code, cRec.Body.String())
+	}
+
+	// No NEW session cookie should be issued (the existing one is still valid).
+	for _, c := range cRec.Result().Cookies() {
+		if c.Name == "schlass_session" && c.Value != "" && c.MaxAge >= 0 {
+			t.Fatal("session-authed /complete should not issue a new session cookie")
+		}
+	}
+
+	// Enrollment cookie should be cleared.
+	var enrollCleared bool
+	for _, c := range cRec.Result().Cookies() {
+		if c.Name == "schlass_mfa_enroll" && c.MaxAge < 0 {
+			enrollCleared = true
+		}
+	}
+	if !enrollCleared {
+		t.Fatal("session-authed /complete should clear the enrollment cookie")
+	}
+
+	// DB committed — totp_enrolled_at non-null.
+	user, err := env.UserStore.GetByID(t.Context(), env.Pool, userID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if user.TOTPEnrolledAt == nil {
+		t.Fatal("totp_enrolled_at still null after session-authed /complete")
+	}
+}
+
+func TestMfaEnrollmentStart_AlreadyEnrolled_SessionAuthed_Returns400(t *testing.T) {
+	env := NewTestEnv(t)
+	defer env.Close()
+	// Fully enroll the admin (uses enrollment cookie path internally).
+	enrollTestUser(t, env, "admin@example.com", "CorrectHorse1Battery")
+	userID := env.GetUserIDByEmail(t, "admin@example.com")
+	sessionCookie := env.DirectCreateSession(t, userID)
+
+	req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/mfa/enrollment/start", nil)
+	req.AddCookie(sessionCookie)
+	rec := httptest.NewRecorder()
+	env.Router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("want 400 MFA_ALREADY_ENROLLED, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var body map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &body)
+	if body["error"] != "MFA_ALREADY_ENROLLED" {
+		t.Fatalf("want error=MFA_ALREADY_ENROLLED, got %v", body["error"])
+	}
+}
