@@ -194,6 +194,72 @@ func TestSessionStore_ListByUser(t *testing.T) {
 	}
 }
 
+func TestSessionStore_PendingReturnTo(t *testing.T) {
+	ctx := context.Background()
+	env := NewTestEnv(t)
+
+	store := session.NewValkeyStore(env.ValkeyClient, 30*time.Second)
+	const userID = "33333333-3333-3333-3333-333333333333"
+	const returnTo = "/authorize?client_id=abc&state=xyz"
+
+	token, err := store.CreateWithPendingReturnTo(ctx, userID, "192.0.2.9", "test-agent/rt", returnTo)
+	if err != nil {
+		t.Fatalf("CreateWithPendingReturnTo: %v", err)
+	}
+
+	got, err := store.Get(ctx, token)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.PendingReturnTo != returnTo {
+		t.Fatalf("PendingReturnTo: got %q want %q", got.PendingReturnTo, returnTo)
+	}
+
+	if err := store.ClearPendingReturnTo(ctx, token); err != nil {
+		t.Fatalf("ClearPendingReturnTo: %v", err)
+	}
+	got2, err := store.Get(ctx, token)
+	if err != nil {
+		t.Fatalf("Get after clear: %v", err)
+	}
+	if got2.PendingReturnTo != "" {
+		t.Fatalf("PendingReturnTo not cleared: got %q", got2.PendingReturnTo)
+	}
+	if got2.UserID != userID {
+		t.Fatalf("UserID survived clear? got %q", got2.UserID)
+	}
+
+	// Clear is idempotent on already-cleared sessions.
+	if err := store.ClearPendingReturnTo(ctx, token); err != nil {
+		t.Fatalf("ClearPendingReturnTo idempotent: %v", err)
+	}
+
+	// Clear on missing token returns ErrNotFound.
+	err = store.ClearPendingReturnTo(ctx, "nonexistent-token")
+	if !errors.Is(err, session.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestSessionStore_Create_DoesNotSetPendingReturnTo(t *testing.T) {
+	ctx := context.Background()
+	env := NewTestEnv(t)
+
+	store := session.NewValkeyStore(env.ValkeyClient, 30*time.Second)
+
+	token, err := store.Create(ctx, "44444444-4444-4444-4444-444444444444", "192.0.2.10", "test-agent/no-rt")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	got, err := store.Get(ctx, token)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.PendingReturnTo != "" {
+		t.Fatalf("Create seeded PendingReturnTo: got %q", got.PendingReturnTo)
+	}
+}
+
 func TestSessionStore_ListByUser_SkipsStaleEntries(t *testing.T) {
 	ctx := context.Background()
 	env := NewTestEnv(t)

@@ -31,6 +31,16 @@ type Session struct {
 	LastSeenAt time.Time `json:"last_seen_at"`
 	IPAddress  string    `json:"ip_address"`
 	UserAgent  string    `json:"user_agent"`
+
+	// PendingReturnTo carries a sanitized OIDC `return_to` path across the
+	// force-password-change step. Set by CreateWithPendingReturnTo when
+	// PostLogin issues a pre-rotation session; cleared by
+	// ClearPendingReturnTo after PostChangePassword commits. Absent for
+	// normal sessions (MFA enrollment/challenge stash return_to in their
+	// own Valkey hashes, not on the session). Always a relative path
+	// beginning with /authorize — SanitizeReturnTo has already rejected
+	// anything else at the handler boundary.
+	PendingReturnTo string `json:"pending_return_to,omitempty"`
 }
 
 // SessionWithToken pairs a Session with its opaque token (the Valkey key).
@@ -76,6 +86,21 @@ type Store interface {
 	// DeleteAllForUser destroys every session for a given user — used by
 	// disable, delete, reset-password, and nuclear force-terminate flows.
 	DeleteAllForUser(ctx context.Context, userID string) error
+
+	// CreateWithPendingReturnTo is Create plus a sanitized OIDC return_to
+	// path stamped onto the new session. Used exclusively by PostLogin's
+	// force_password_change branch so the value survives across the
+	// password-rotation round-trip; PostChangePassword reads it via Get
+	// then calls ClearPendingReturnTo.
+	//
+	// Caller must have already run SanitizeReturnTo; the store does not
+	// re-validate. An empty returnTo is equivalent to Create.
+	CreateWithPendingReturnTo(ctx context.Context, userID, ipAddress, userAgent, returnTo string) (token string, err error)
+
+	// ClearPendingReturnTo zeroes Session.PendingReturnTo on an existing
+	// session while preserving its current TTL. Idempotent on a session
+	// that never had one set. Returns ErrNotFound if the token is gone.
+	ClearPendingReturnTo(ctx context.Context, token string) error
 }
 
 // ErrNotFound is returned by Get when the session token does not exist in Valkey.
@@ -111,6 +136,10 @@ func userSessionsKey(userID string) string {
 // TTL expires. Bounded blast radius by the session TTL (24h default).
 // Acceptable trade-off for avoiding a distributed transaction layer.
 func (s *valkeyStore) Create(ctx context.Context, userID, ipAddress, userAgent string) (string, error) {
+	return s.CreateWithPendingReturnTo(ctx, userID, ipAddress, userAgent, "")
+}
+
+func (s *valkeyStore) CreateWithPendingReturnTo(ctx context.Context, userID, ipAddress, userAgent, returnTo string) (string, error) {
 	var buf [32]byte
 	if _, err := rand.Read(buf[:]); err != nil {
 		return "", fmt.Errorf("session: generate token: %w", err)
@@ -119,11 +148,12 @@ func (s *valkeyStore) Create(ctx context.Context, userID, ipAddress, userAgent s
 
 	now := time.Now().UTC()
 	sess := Session{
-		UserID:     userID,
-		CreatedAt:  now,
-		LastSeenAt: now,
-		IPAddress:  ipAddress,
-		UserAgent:  userAgent,
+		UserID:          userID,
+		CreatedAt:       now,
+		LastSeenAt:      now,
+		IPAddress:       ipAddress,
+		UserAgent:       userAgent,
+		PendingReturnTo: returnTo,
 	}
 	payload, err := json.Marshal(sess)
 	if err != nil {
@@ -240,6 +270,37 @@ func (s *valkeyStore) ListByUser(ctx context.Context, userID string) ([]*Session
 		sessions = append(sessions, &SessionWithToken{Token: tokens[i], Session: sess})
 	}
 	return sessions, nil
+}
+
+// ClearPendingReturnTo zeroes Session.PendingReturnTo while preserving the
+// existing Valkey TTL via SET ... KEEPTTL. Two roundtrips (GET then SET) —
+// acceptable because this runs at most once per login (at the tail of
+// PostChangePassword) and never on hot read paths.
+func (s *valkeyStore) ClearPendingReturnTo(ctx context.Context, token string) error {
+	key := sessionKey(token)
+	raw, err := s.client.Get(ctx, key).Bytes()
+	if errors.Is(err, redis.Nil) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("session: clear pending return_to get: %w", err)
+	}
+	var sess Session
+	if err := json.Unmarshal(raw, &sess); err != nil {
+		return fmt.Errorf("session: clear pending return_to unmarshal: %w", err)
+	}
+	if sess.PendingReturnTo == "" {
+		return nil
+	}
+	sess.PendingReturnTo = ""
+	payload, err := json.Marshal(sess)
+	if err != nil {
+		return fmt.Errorf("session: clear pending return_to marshal: %w", err)
+	}
+	if err := s.client.SetArgs(ctx, key, payload, redis.SetArgs{KeepTTL: true}).Err(); err != nil {
+		return fmt.Errorf("session: clear pending return_to set: %w", err)
+	}
+	return nil
 }
 
 func (s *valkeyStore) DeleteAllForUser(ctx context.Context, userID string) error {
