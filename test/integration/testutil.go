@@ -142,7 +142,6 @@ func resetState(t *testing.T, migrPool *pgxpool.Pool) {
 			clients,
 			scopes,
 			authorization_codes,
-			refresh_tokens,
 			signing_keys,
 			instance_config
 		RESTART IDENTITY CASCADE;
