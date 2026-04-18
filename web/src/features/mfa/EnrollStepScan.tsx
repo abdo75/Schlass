@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
 import { QRCodeSVG } from "qrcode.react";
 import { Button } from "@/components/ui/button";
+import { useAuth } from "@/features/auth/AuthContext";
 import { startEnrollment, type EnrollmentStartResponse } from "./api";
 
 interface Props {
@@ -10,6 +12,8 @@ interface Props {
 
 export function EnrollStepScan({ onNext }: Props) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
+  const { user } = useAuth();
   const [data, setData] = useState<EnrollmentStartResponse | null>(null);
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [showSecret, setShowSecret] = useState(false);
@@ -26,12 +30,28 @@ export function EnrollStepScan({ onNext }: Props) {
           err && typeof err === "object" && "code" in err
             ? String((err as { code: unknown }).code)
             : "INTERNAL_ERROR";
+
+        // Graceful redirect when the user shouldn't be on /setup-mfa at all.
+        // (a) Authenticated user with no valid enrollment cookie — they've
+        //     either already enrolled OR never needed enrollment. Bounce to
+        //     their home.
+        // (b) Unauthenticated user — bounce to /login so they re-auth.
+        if (code === "MFA_ENROLLMENT_EXPIRED") {
+          if (user) {
+            const dest = user.role === "super_admin" ? "/admin" : "/account";
+            void navigate(dest, { replace: true });
+          } else {
+            void navigate("/login", { replace: true });
+          }
+          return;
+        }
+
         setErrorCode(code);
       });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [navigate, user]);
 
   if (errorCode) {
     return <p role="alert" className="text-sm text-destructive">{t(`errors.${errorCode}`)}</p>;
