@@ -1,10 +1,11 @@
+//go:build integration
+
 package integration
 
 import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -15,10 +16,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
-	"github.com/testcontainers/testcontainers-go"
-	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
-	tcredis "github.com/testcontainers/testcontainers-go/modules/redis"
-	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/abdo75/Schlass/internal/config"
 	"github.com/abdo75/Schlass/internal/crypto"
@@ -41,8 +38,6 @@ type TestEnv struct {
 	UserStore         *store.UserStore
 	RecoveryCodeStore *store.RecoveryCodeStore
 	SessionStore      session.Store
-	pgContainer       testcontainers.Container
-	valkeyContainer   testcontainers.Container
 }
 
 // Cleanup is a no-op — t.Cleanup registered in NewTestEnv handles teardown.
@@ -52,66 +47,50 @@ func (e *TestEnv) Cleanup() {}
 // Close is an alias for Cleanup — tests may use either spelling.
 func (e *TestEnv) Close() {}
 
+// NewTestEnv returns a TestEnv wired to the shared PG + Valkey containers
+// booted once in TestMain. Each call performs a full state reset — TRUNCATE
+// of all app-writable tables, restore of instance_config from the snapshot
+// captured at migration time, and FLUSHDB on Valkey — so tests stay
+// independent even though they share the underlying containers.
 func NewTestEnv(t *testing.T) *TestEnv {
 	t.Helper()
 	ctx := context.Background()
 
-	pgContainer, err := tcpostgres.Run(ctx,
-		"postgres:18",
-		tcpostgres.WithDatabase("schlass_test"),
-		tcpostgres.WithUsername("postgres"),
-		tcpostgres.WithPassword("postgres"),
-		tcpostgres.WithInitScripts("../../scripts/init-test-db.sh"),
-		testcontainers.WithWaitStrategy(
-			wait.ForLog("database system is ready to accept connections").
-				WithOccurrence(2).
-				WithStartupTimeout(30*time.Second),
-		),
-	)
+	if sharedAppConnString == "" {
+		t.Fatal("NewTestEnv called before TestMain set up shared containers — missing //go:build integration tag?")
+	}
+
+	pool, err := database.NewPool(ctx, sharedAppConnString)
 	if err != nil {
-		t.Fatalf("failed to start postgres: %v", err)
+		t.Fatalf("connect as app role: %v", err)
 	}
-
-	pgHost, _ := pgContainer.Host(ctx)
-	pgPort, _ := pgContainer.MappedPort(ctx, "5432")
-
-	migrConnString := fmt.Sprintf("postgres://schlass_migrations:schlass_migrations@%s:%s/schlass_test?sslmode=disable", pgHost, pgPort.Port())
-	appConnString := fmt.Sprintf("postgres://schlass_app:schlass_app@%s:%s/schlass_test?sslmode=disable", pgHost, pgPort.Port())
-
-	if err := database.RunMigrations(migrConnString); err != nil {
-		t.Fatalf("failed to run migrations: %v", err)
-	}
-
-	pool, err := database.NewPool(ctx, appConnString)
+	migrPool, err := database.NewPool(ctx, sharedMigrConnString)
 	if err != nil {
-		t.Fatalf("failed to connect as app role: %v", err)
+		pool.Close()
+		t.Fatalf("connect as migrations role: %v", err)
 	}
 
-	migrPool, err := database.NewPool(ctx, migrConnString)
-	if err != nil {
-		t.Fatalf("failed to connect as migrations role: %v", err)
-	}
+	resetState(t, migrPool)
 
-	valkeyContainer, err := tcredis.Run(ctx, "valkey/valkey:9")
-	if err != nil {
-		t.Fatalf("failed to start valkey: %v", err)
-	}
-
-	valkeyHost, _ := valkeyContainer.Host(ctx)
-	valkeyPort, _ := valkeyContainer.MappedPort(ctx, "6379")
-	valkeyAddr := fmt.Sprintf("%s:%s", valkeyHost, valkeyPort.Port())
-
-	valkeyClient := redis.NewClient(&redis.Options{Addr: valkeyAddr})
+	valkeyClient := redis.NewClient(&redis.Options{Addr: sharedValkeyAddr})
 	if err := valkeyClient.Ping(ctx).Err(); err != nil {
-		t.Fatalf("failed to ping valkey: %v", err)
+		pool.Close()
+		migrPool.Close()
+		t.Fatalf("ping shared valkey: %v", err)
+	}
+	if err := valkeyClient.FlushDB(ctx).Err(); err != nil {
+		pool.Close()
+		migrPool.Close()
+		_ = valkeyClient.Close()
+		t.Fatalf("flushdb shared valkey: %v", err)
 	}
 
 	// Deterministic test encryption key (32 bytes of zeros). Tests that need
 	// a real key should inject their own.
 	cfg := &config.Config{
-		DatabaseURL:           appConnString,
-		MigrationsDatabaseURL: migrConnString,
-		ValkeyURL:             "redis://" + valkeyAddr,
+		DatabaseURL:           sharedAppConnString,
+		MigrationsDatabaseURL: sharedMigrConnString,
+		ValkeyURL:             "redis://" + sharedValkeyAddr,
 		EncryptionKey:         make([]byte, 32),
 		Port:                  "3000",
 		SchlassPublicURL:      "http://localhost:3000",
@@ -122,19 +101,19 @@ func NewTestEnv(t *testing.T) *TestEnv {
 		MigrationsPool:    migrPool,
 		ValkeyClient:      valkeyClient,
 		Valkey:            valkeyClient,
-		AppConnString:     appConnString,
-		MigrConnString:    migrConnString,
+		AppConnString:     sharedAppConnString,
+		MigrConnString:    sharedMigrConnString,
 		Cfg:               cfg,
 		UserStore:         store.NewUserStore(),
 		RecoveryCodeStore: store.NewRecoveryCodeStore(),
 		SessionStore:      session.NewValkeyStore(valkeyClient, 24*time.Hour),
-		pgContainer:       pgContainer,
-		valkeyContainer:   valkeyContainer,
 	}
 
-	// Build the router via the same path main.go uses.
 	router, err := server.BuildRouter(env.BuildDeps())
 	if err != nil {
+		pool.Close()
+		migrPool.Close()
+		_ = valkeyClient.Close()
 		t.Fatalf("build router: %v", err)
 	}
 	env.Router = router
@@ -143,11 +122,36 @@ func NewTestEnv(t *testing.T) *TestEnv {
 		pool.Close()
 		migrPool.Close()
 		_ = valkeyClient.Close()
-		_ = pgContainer.Terminate(ctx)
-		_ = valkeyContainer.Terminate(ctx)
 	})
 
 	return env
+}
+
+// resetState returns the shared PG to a pristine post-migration state: all
+// app-writable tables truncated with identities reset, and instance_config
+// restored from the TestMain-captured snapshot. Uses the migrations role
+// because audit_logs' RLS policy only grants SELECT + INSERT to the app
+// role; TRUNCATE requires owner-level access.
+func resetState(t *testing.T, migrPool *pgxpool.Pool) {
+	t.Helper()
+	_, err := migrPool.Exec(context.Background(), `
+		TRUNCATE TABLE
+			audit_logs,
+			totp_recovery_codes,
+			users,
+			clients,
+			scopes,
+			authorization_codes,
+			refresh_tokens,
+			signing_keys,
+			instance_config
+		RESTART IDENTITY CASCADE;
+		INSERT INTO instance_config (key, value, updated_at)
+			SELECT key, value, updated_at FROM _instance_config_snapshot;
+	`)
+	if err != nil {
+		t.Fatalf("resetState: %v", err)
+	}
 }
 
 // setupIntegrationEnv is a thin alias for NewTestEnv. Provided because the
@@ -214,12 +218,8 @@ func (e *TestEnv) LoginAsAdmin(t *testing.T, email, password string) *http.Cooki
 	if _, err := e.Pool.Exec(context.Background(), `UPDATE instance_config SET value = 'false' WHERE key = 'mfa_required'`); err != nil {
 		t.Fatalf("LoginAsAdmin: disable mfa: %v", err)
 	}
-	// Re-enable MFA after the login so the rest of the test sees the real setting.
-	t.Cleanup(func() {
-		if _, err := e.Pool.Exec(context.Background(), `UPDATE instance_config SET value = 'true' WHERE key = 'mfa_required'`); err != nil {
-			t.Logf("LoginAsAdmin cleanup: re-enable mfa: %v", err)
-		}
-	})
+	// No cleanup needed for mfa_required — the next test's resetState restores
+	// instance_config from the snapshot, which has mfa_required = 'true'.
 
 	body := bytes.NewBufferString(`{"email":"` + email + `","password":"` + password + `"}`)
 	req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/login", body)
@@ -280,22 +280,30 @@ func (e *TestEnv) WithFakeAuditStore(t *testing.T, fn func() error) {
 	t.Cleanup(func() { e.Router = original })
 }
 
-// StopValkey halts the Valkey testcontainer so the next session-store call
-// fails with a transport error (used by TestAuthMiddleware_ValkeyError_Returns503).
-func (e *TestEnv) StopValkey(t *testing.T) {
+// WithBrokenValkey rebuilds the router with a Valkey client pointed at a
+// closed local port so every redis call fails with connection-refused.
+// Replaces the old StopValkey/StartValkey pattern, which couldn't coexist
+// with a shared container — stopping the singleton Valkey would break every
+// other test in the run. The broken-client approach is per-router-instance
+// and naturally scoped via t.Cleanup.
+//
+// Used by TestAuthMiddleware_ValkeyError_Returns503 to exercise the 503
+// transient-Valkey-error path in middleware.Auth.
+func (e *TestEnv) WithBrokenValkey(t *testing.T) {
 	t.Helper()
-	if err := e.valkeyContainer.Stop(context.Background(), nil); err != nil {
-		t.Fatalf("stop valkey: %v", err)
+	original := e.Router
+	deps := e.BuildDeps()
+	deps.ValkeyClient = redis.NewClient(&redis.Options{
+		Addr:        "127.0.0.1:1", // reserved/unassigned — connection refused
+		MaxRetries:  -1,             // no retries — fail fast
+		DialTimeout: 100 * time.Millisecond,
+	})
+	newRouter, err := server.BuildRouter(deps)
+	if err != nil {
+		t.Fatalf("rebuild router with broken valkey: %v", err)
 	}
-}
-
-// StartValkey resumes a previously-stopped Valkey testcontainer. Pair with
-// StopValkey inside a `defer` to keep tests hermetic.
-func (e *TestEnv) StartValkey(t *testing.T) {
-	t.Helper()
-	if err := e.valkeyContainer.Start(context.Background()); err != nil {
-		t.Fatalf("start valkey: %v", err)
-	}
+	e.Router = newRouter
+	t.Cleanup(func() { e.Router = original })
 }
 
 // CompleteSetup calls POST /api/setup to initialise the instance with the
