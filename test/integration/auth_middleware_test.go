@@ -1,3 +1,5 @@
+//go:build integration
+
 package integration
 
 import (
@@ -83,8 +85,7 @@ func TestAuthMiddleware_ValkeyError_Returns503(t *testing.T) {
 
 	cookie := env.LoginAsAdmin(t, "admin@example.com", "CorrectHorse42!")
 
-	env.StopValkey(t)
-	defer env.StartValkey(t)
+	env.WithBrokenValkey(t)
 
 	req := httptest.NewRequestWithContext(t.Context(), "GET", "/api/me", nil)
 	req.AddCookie(cookie)

@@ -19,14 +19,13 @@ dev:
 dev-frontend:
 	cd web && npm run dev
 
-test: internal/web/dist/.gitkeep
-	go test ./...
+test: test-unit test-integration
 
-test-unit: internal/web/dist/.gitkeep
-	go test ./internal/...
+test-unit:
+	go test ./internal/... -count=1
 
-test-integration: internal/web/dist/.gitkeep
-	go test ./test/integration/...
+test-integration:
+	go test -tags=integration ./test/integration/... -count=1 -timeout 5m
 
 e2e:
 	docker compose down -v
