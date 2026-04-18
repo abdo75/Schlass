@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
@@ -8,11 +8,13 @@ import { I18nextProvider } from "react-i18next";
 import { AuthContext } from "@/features/auth/AuthContext";
 import { UserAccountPage } from "./UserAccountPage";
 import type { AuthUser } from "@/features/auth/api";
+import * as authApi from "@/features/auth/api";
 import i18n from "@/i18n/index";
 
 function withProviders(
   user: AuthUser | null,
   logout = vi.fn(),
+  refreshUser = vi.fn().mockResolvedValue(null),
 ): (children: ReactNode) => React.ReactElement {
   return (children) => (
     <I18nextProvider i18n={i18n}>
@@ -23,8 +25,7 @@ function withProviders(
           // eslint-disable-next-line @typescript-eslint/require-await
           login: async () => ({ kind: "session" as const, user: user ?? ({ id: "", email: "", role: "user", force_password_change: false, force_mfa_enrollment: false } as AuthUser) }),
           logout,
-          // eslint-disable-next-line @typescript-eslint/require-await
-          refreshUser: async () => null,
+          refreshUser,
         }}
       >
         <MemoryRouter>{children}</MemoryRouter>
@@ -32,6 +33,10 @@ function withProviders(
     </I18nextProvider>
   );
 }
+
+beforeEach(() => {
+  vi.restoreAllMocks();
+});
 
 const regularUser: AuthUser = {
   id: "u1",
@@ -75,9 +80,10 @@ describe("UserAccountPage", () => {
     expect(logout).toHaveBeenCalledTimes(1);
   });
 
-  it("shows SECURITY and SESSION section labels", () => {
+  it("shows PROFILE, SECURITY and SESSION section labels", () => {
     const wrap = withProviders(regularUser);
     render(wrap(<UserAccountPage />));
+    expect(screen.getByText("Profile")).toBeInTheDocument();
     expect(screen.getByText("Security")).toBeInTheDocument();
     expect(screen.getByText("Session")).toBeInTheDocument();
   });
@@ -142,5 +148,78 @@ describe("UserAccountPage", () => {
         screen.getByRole("dialog", { name: /disable two-factor/i }),
       ).toBeInTheDocument();
     });
+  });
+
+  it("shows email in the Profile section", () => {
+    const wrap = withProviders(regularUser);
+    render(wrap(<UserAccountPage />));
+    // The email address appears as display text under the Profile heading
+    const profileHeading = screen.getByText("Profile");
+    expect(profileHeading).toBeInTheDocument();
+    // Multiple instances of the email may exist (hero + profile row); at least one must be present
+    expect(screen.getAllByText(/alice@example\.com/).length).toBeGreaterThan(0);
+    // Edit button is visible in display mode
+    expect(screen.getByRole("button", { name: /^edit$/i })).toBeInTheDocument();
+  });
+
+  it("clicking Edit swaps the email display for an input", async () => {
+    const wrap = withProviders(regularUser);
+    render(wrap(<UserAccountPage />));
+    await userEvent.click(screen.getByRole("button", { name: /^edit$/i }));
+    // The inline email input should now be present
+    const input = screen.getByRole("textbox", { name: /email address/i });
+    expect(input).toBeInTheDocument();
+    expect((input as HTMLInputElement).value).toBe("alice@example.com");
+    // Save button should be disabled because value is unchanged
+    expect(screen.getByRole("button", { name: /^save$/i })).toBeDisabled();
+    // Cancel button is visible
+    expect(screen.getByRole("button", { name: /^cancel$/i })).toBeInTheDocument();
+  });
+
+  it("Save calls updateProfile and exits edit mode", async () => {
+    const mockUpdateProfile = vi
+      .spyOn(authApi, "updateProfile")
+      .mockResolvedValue({ user: { ...regularUser, email: "new@example.com" } });
+    const refreshUser = vi.fn().mockResolvedValue({ ...regularUser, email: "new@example.com" });
+    const wrap = withProviders(regularUser, vi.fn(), refreshUser);
+    render(wrap(<UserAccountPage />));
+
+    await userEvent.click(screen.getByRole("button", { name: /^edit$/i }));
+    const input = screen.getByRole("textbox", { name: /email address/i });
+    await userEvent.clear(input);
+    await userEvent.type(input, "new@example.com");
+
+    const saveBtn = screen.getByRole("button", { name: /^save$/i });
+    expect(saveBtn).not.toBeDisabled();
+    await userEvent.click(saveBtn);
+
+    await waitFor(() => {
+      expect(mockUpdateProfile).toHaveBeenCalledWith({ email: "new@example.com" });
+      expect(refreshUser).toHaveBeenCalledTimes(1);
+    });
+    // Edit mode should have collapsed — input gone
+    await waitFor(() => {
+      expect(screen.queryByRole("textbox", { name: /email address/i })).not.toBeInTheDocument();
+    });
+  });
+
+  it("shows error message on save failure", async () => {
+    vi.spyOn(authApi, "updateProfile").mockRejectedValue({ code: "EMAIL_ALREADY_EXISTS" });
+    const wrap = withProviders(regularUser);
+    render(wrap(<UserAccountPage />));
+
+    await userEvent.click(screen.getByRole("button", { name: /^edit$/i }));
+    const input = screen.getByRole("textbox", { name: /email address/i });
+    await userEvent.clear(input);
+    await userEvent.type(input, "taken@example.com");
+    await userEvent.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() => {
+      const alert = screen.getByRole("alert");
+      expect(alert).toBeInTheDocument();
+      expect(alert.textContent).toMatch(/A user with that email already exists/i);
+    });
+    // Edit mode stays open so user can correct the email
+    expect(screen.getByRole("textbox", { name: /email address/i })).toBeInTheDocument();
   });
 });

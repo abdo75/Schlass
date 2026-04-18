@@ -50,3 +50,15 @@ export function changePassword(currentPassword: string, newPassword: string): Pr
     body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
   });
 }
+
+export interface UpdateProfileRequest {
+  email?: string;
+}
+
+export async function updateProfile(req: UpdateProfileRequest): Promise<{ user: AuthUser }> {
+  return apiFetch<{ user: AuthUser }>("/api/me/profile", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req),
+  });
+}

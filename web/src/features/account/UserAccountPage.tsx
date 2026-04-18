@@ -6,6 +6,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/features/auth/AuthContext";
+import { updateProfile } from "@/features/auth/api";
 import { disableMfa } from "@/features/mfa/api";
 
 // /account page — renders the AdminLayout top-bar chrome (brand + language +
@@ -14,9 +15,42 @@ import { disableMfa } from "@/features/mfa/api";
 // AuthGuard in App.tsx guarantees only authenticated users reach this route.
 export function UserAccountPage() {
   const { t } = useTranslation();
-  const { user, logout } = useAuth();
+  const { user, logout, refreshUser } = useAuth();
   const navigate = useNavigate();
   const [signOutErrorCode, setSignOutErrorCode] = useState<string | null>(null);
+
+  // Profile / email-edit state
+  const [editingEmail, setEditingEmail] = useState(false);
+  const [editEmailValue, setEditEmailValue] = useState("");
+  const [emailError, setEmailError] = useState<string | null>(null);
+  const [savingEmail, setSavingEmail] = useState(false);
+
+  const startEditEmail = () => {
+    setEditEmailValue(user?.email ?? "");
+    setEditingEmail(true);
+    setEmailError(null);
+  };
+  const cancelEditEmail = () => {
+    setEditingEmail(false);
+    setEmailError(null);
+  };
+  const saveEmail = async () => {
+    setSavingEmail(true);
+    setEmailError(null);
+    try {
+      await updateProfile({ email: editEmailValue });
+      await refreshUser();
+      setEditingEmail(false);
+    } catch (err: unknown) {
+      const code =
+        err && typeof err === "object" && "code" in err
+          ? String((err as { code: unknown }).code)
+          : "INTERNAL_ERROR";
+      setEmailError(code);
+    } finally {
+      setSavingEmail(false);
+    }
+  };
 
   // Disable-MFA dialog state
   const [disableOpen, setDisableOpen] = useState(false);
@@ -84,8 +118,52 @@ export function UserAccountPage() {
           </div>
         </div>
 
-        {/* SECURITY section label */}
+        {/* PROFILE section label */}
         <div className="mb-[10px] px-[2px] text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+          {t("account.profile_heading")}
+        </div>
+
+        {/* PROFILE card */}
+        <div className="overflow-hidden rounded-lg border border-border bg-background">
+          {/* Email row */}
+          <div className="flex items-center justify-between gap-4 px-[18px] py-4">
+            <div className="min-w-0 flex-1">
+              <div className="text-[13px] font-semibold">{t("account.email_label")}</div>
+              {editingEmail ? (
+                <div className="mt-2 flex gap-2">
+                  <input
+                    type="email"
+                    value={editEmailValue}
+                    onChange={(e) => setEditEmailValue(e.target.value)}
+                    autoFocus
+                    disabled={savingEmail}
+                    className="h-8 flex-1 rounded border border-input bg-background px-3 text-[13px] outline-none focus:border-primary"
+                    aria-label={t("account.email_label")}
+                  />
+                  <Button type="button" variant="outline" className="h-8 shrink-0" disabled={savingEmail} onClick={cancelEditEmail}>
+                    {t("account.cancel")}
+                  </Button>
+                  <Button type="button" className="h-8 shrink-0" disabled={savingEmail || editEmailValue === user.email} onClick={() => void saveEmail()}>
+                    {savingEmail ? t("account.saving") : t("account.save")}
+                  </Button>
+                </div>
+              ) : (
+                <div className="text-[11.5px] text-muted-foreground">{user.email}</div>
+              )}
+              {emailError && (
+                <p role="alert" className="mt-2 text-sm text-destructive">{t(`errors.${emailError}`)}</p>
+              )}
+            </div>
+            {!editingEmail && (
+              <Button type="button" variant="outline" className="h-8 shrink-0" onClick={startEditEmail}>
+                {t("account.edit")}
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {/* SECURITY section label */}
+        <div className="mb-[10px] mt-8 px-[2px] text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
           {t("account.security_heading")}
         </div>
 
