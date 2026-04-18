@@ -90,7 +90,21 @@ The auth middleware (`internal/middleware/auth.go`) reads the cookie, fetches th
 
 **Router wiring lives in `internal/server/router.go`** via `BuildRouter(RouterDeps) (http.Handler, error)`. Both `cmd/schlass/main.go` and `test/integration/testutil.go` use this single function — any future route or middleware change lands in one place and both production and tests pick it up.
 
-End-user (third-party client) OIDC sessions are a separate mechanism to be built in Sprint 6+; admin web sessions never interact with them.
+End-user (third-party client) OIDC sessions are a separate mechanism — see the OIDC authorization server section below. Admin web sessions never interact with OIDC refresh tokens; the two credential stores are fully independent.
+
+### OIDC authorization server (Sprint 4+)
+
+Self-hosted OIDC provider implementing OAuth 2.1 + OIDC Core: `GET /authorize` (authorization_code + PKCE S256 mandatory, `state` required, exact-match `redirect_uri` whitelist), `POST /token` (authorization_code and refresh_token grants, `client_secret_post` auth), `GET /userinfo` (RS256 Bearer JWT, per-scope claims), `GET /.well-known/openid-configuration`, `GET /.well-known/jwks.json`. Access tokens carry `typ=at+jwt`, ID tokens `typ=JWT`; alg-confusion and `alg=none` are rejected at verify.
+
+**Signing keys.** RSA-2048 keypairs in `signing_keys` table, one `active` + zero-or-more `retiring` + `retired` at any time. Private keys AES-256-GCM-wrapped against `SCHLASS_ENCRYPTION_KEY`. Bootstrap at startup generates an active key if none exists (`oidc.signing_key.generated`). `POST /api/admin/signing-keys/rotate` (gated by `signing_keys.rotate` permission) promotes the active key to `retiring` and mints a fresh active (`oidc.signing_key.rotated`). The retire sweep (runs at startup + after each rotation) moves keys past `15m + 24h + 30s` from `retiring` to `retired` (`oidc.signing_key.retired`). Retiring keys appear in JWKS to validate outstanding tokens; retired keys do not.
+
+**Refresh rotation.** OAuth 2.1 rotate-on-every-use. Each refresh-token family carries a `family_id`; a successful `/token` refresh grant deletes the presented token, inserts a fresh one in the same family, and returns it. A replay of a rotated refresh is detected (`oidc.refresh.reuse_detected`), revokes the entire family, and returns `400 invalid_grant`. Absolute expiry is preserved across rotations (new refresh inherits the family's `absolute_exp`).
+
+**revoke_before cutoff.** Per-user timestamp in Valkey (`user:revoke_before:<id>`, 30d TTL). Written post-commit via `revokebefore.SetNow(...)` (rounds up to next whole second to close the same-second mutation/token race) by every handler that "invalidates all outstanding sessions": admin disable, admin reset-password, admin reset-mfa, self change-password, self disable-mfa. Each write also inserts a `user.revoke_before_set` audit row in the mutation's PG tx. Enforced at `POST /token` refresh grant and in the bearer auth middleware (`internal/middleware/bearer_auth.go`) via strict `<` compare against `iat`. A rejected token writes `user.revoke_before_enforced` (best-effort) and returns `invalid_grant` / `invalid_token`.
+
+**return_to threading.** Three coexisting state carriers (spec §7): MFA enrollment/challenge Valkey hashes (`mfa:enroll:<t>` / `mfa:challenge:<t>` under field `return_to`), `Session.PendingReturnTo` for the force-password-change branch, and the terminal JSON response field `redirect_to`. Every ingress and egress revalidates through `handler.SanitizeReturnTo` (scheme + host must match `SCHLASS_PUBLIC_URL` or be empty; path must equal `/authorize`) — open-redirect guard fails closed. **Breaking change (Sprint 4):** `POST /api/change-password` now returns `200 OK` with `{ "redirect_to"?: string }` instead of `204 No Content`. SPA `apiFetch<void>` consumers unaffected.
+
+**Dev-seed.** `internal/bootstrap.SeedDevClient` runs at startup when `SCHLASS_DEV=1` AND `SCHLASS_PUBLIC_URL` scheme is `http://`. Upserts a single `dev-test-client` confidential client with scopes `openid profile email offline_access` and grants `authorization_code refresh_token`. Secret plaintext is `SCHLASS_DEV_SECRET` if set (used by `docker-compose.e2e.yml` so Playwright knows the value) or 32 random base64url bytes; Argon2id-hashed before storage and logged once at INFO. Never runs under HTTPS to prevent poisoning prod DBs. Re-invocation refreshes shape (scopes, grants, redirect URIs) in-place without touching `secret_hash`.
 
 ### Authorization (Sprint 3+)
 
