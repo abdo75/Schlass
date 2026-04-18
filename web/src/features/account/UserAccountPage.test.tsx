@@ -55,7 +55,7 @@ describe("UserAccountPage", () => {
   it("displays the signed-in user's email", () => {
     const wrap = withProviders(regularUser);
     render(wrap(<UserAccountPage />));
-    // Email appears in both the identity hero and the AdminTopBar UserMenuPopover trigger
+    // Email appears in both the identity hero h2 and the AdminPageHeader UserMenuPopover trigger
     expect(screen.getAllByText(/alice@example\.com/).length).toBeGreaterThan(0);
   });
 

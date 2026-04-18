@@ -49,23 +49,33 @@ describe("AdminLayout", () => {
     expect(await screen.findByText(/users outlet content/i)).toBeInTheDocument();
   });
 
-  it("renders the persistent top bar with user menu trigger", async () => {
+  it("renders the outlet content inside the main column (no persistent top bar)", async () => {
     render(wrap());
-    // UserMenuPopover in the top bar shows the logged-in email as a button
-    expect(await screen.findByRole("button", { name: /admin@test.local/i })).toBeInTheDocument();
+    // AdminLayout itself no longer renders a top bar — UserMenuPopover lives in
+    // AdminPageHeader which individual pages render. Just verify the outlet loads.
+    expect(await screen.findByText(/users outlet content/i)).toBeInTheDocument();
   });
 });
 
 describe("AdminPageHeader breadcrumbPath", () => {
+  // AdminPageHeader renders UserMenuPopover which calls useAuth — wrap with AuthProvider.
+  beforeEach(() => {
+    vi.mocked(authApi.getMe).mockResolvedValue({
+      user: { id: "1", email: "admin@test.local", role: "super_admin", force_password_change: false, force_mfa_enrollment: false },
+    });
+  });
+
   it("renders the path as a title-scale breadcrumb with links to parents", () => {
     render(
       <MemoryRouter>
-        <AdminPageHeader
-          breadcrumbPath={[
-            { label: "Users", to: "/admin/users" },
-            { label: "alice@example.com" },
-          ]}
-        />
+        <AuthProvider>
+          <AdminPageHeader
+            breadcrumbPath={[
+              { label: "Users", to: "/admin/users" },
+              { label: "alice@example.com" },
+            ]}
+          />
+        </AuthProvider>
       </MemoryRouter>,
     );
     expect(screen.getByRole("link", { name: /users/i })).toHaveAttribute("href", "/admin/users");
@@ -75,10 +85,12 @@ describe("AdminPageHeader breadcrumbPath", () => {
   it("does not render a separate title when breadcrumbPath is used", () => {
     const { container } = render(
       <MemoryRouter>
-        <AdminPageHeader
-          breadcrumbPath={[{ label: "Users" }]}
-          title="Should not render"
-        />
+        <AuthProvider>
+          <AdminPageHeader
+            breadcrumbPath={[{ label: "Users" }]}
+            title="Should not render"
+          />
+        </AuthProvider>
       </MemoryRouter>,
     );
     expect(container.textContent).not.toContain("Should not render");

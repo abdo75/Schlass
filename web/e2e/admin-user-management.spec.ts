@@ -75,7 +75,7 @@ test.describe("user management", () => {
       // role=user lands on /account (AdminGuard blocks /admin for non-admins).
       await userPage.waitForURL("**/account", { timeout: 15000 });
       // The /account page shows the user's email as the identity hero heading.
-      await expect(userPage.getByText(newUserEmail)).toBeVisible();
+      await expect(userPage.getByRole("heading", { name: newUserEmail })).toBeVisible();
     } finally {
       await userContext.close();
     }

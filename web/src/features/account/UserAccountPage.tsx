@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { AdminLayout } from "@/components/AdminLayout";
+import { AdminLayout, AdminPageHeader } from "@/components/AdminLayout";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -66,6 +66,7 @@ export function UserAccountPage() {
 
   return (
     <AdminLayout hideSidebar>
+      <AdminPageHeader />
       <div className="mx-auto w-full max-w-[520px] px-5 pb-12 pt-10">
 
         {/* Identity hero */}
@@ -74,9 +75,9 @@ export function UserAccountPage() {
             {initial}
           </div>
           <div className="min-w-0">
-            <div className="truncate text-[18px] font-semibold leading-tight tracking-tight">
+            <h2 className="truncate text-[18px] font-semibold leading-tight tracking-tight">
               {user.email}
-            </div>
+            </h2>
             <div className="mt-1 text-[11.5px] text-muted-foreground">
               {roleLabel}
             </div>
