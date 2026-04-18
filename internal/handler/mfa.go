@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"time"
 
 	"github.com/google/uuid"
@@ -33,8 +32,7 @@ type MfaHandler struct {
 	sessionStore      session.Store
 	configService     *config.ConfigService
 	encryptionKey     []byte
-	issuer            string // human-readable issuer for the otpauth:// URI — derived from SCHLASS_PUBLIC_URL host at construction time
-	secureCookie      bool   // Secure flag on Set-Cookie — true iff SCHLASS_PUBLIC_URL is https
+	secureCookie      bool // Secure flag on Set-Cookie — true iff SCHLASS_PUBLIC_URL is https
 }
 
 // NewMfaHandler constructs the handler with all dependencies. Signature
@@ -60,7 +58,6 @@ func NewMfaHandler(
 		sessionStore:      sessionStore,
 		configService:     configService,
 		encryptionKey:     encryptionKey,
-		issuer:            issuerFromPublicURL(publicURL),
 		secureCookie:      isSecureURL(publicURL),
 	}
 }
@@ -148,8 +145,18 @@ func (h *MfaHandler) PostEnrollmentStart(w http.ResponseWriter, r *http.Request)
 		// Non-fatal — the key still has whatever TTL it had. Continue.
 	}
 
-	// 6. Build provision URI.
-	uri, err := crypto.BuildProvisionURI(h.issuer, user.Email, secret)
+	// 6. Build provision URI. Read instance_name from config at request time so
+	//    the issuer reflects what the admin has configured, not the hostname.
+	issuer, err := h.configService.GetInstanceName(r.Context(), h.pool)
+	if err != nil {
+		slog.Warn("mfa enroll: failed to read instance_name; falling back to Schlass", "error", err)
+		issuer = ""
+	}
+	if issuer == "" {
+		issuer = "Schlass"
+	}
+
+	uri, err := crypto.BuildProvisionURI(issuer, user.Email, secret)
 	if err != nil {
 		slog.Error("mfa enroll: BuildProvisionURI failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
@@ -680,13 +687,3 @@ func (h *MfaHandler) verifyRecoveryCode(w http.ResponseWriter, r *http.Request, 
 	writeJSON(w, http.StatusOK, map[string]any{"user": userDTO(user)})
 }
 
-// issuerFromPublicURL extracts a human-readable issuer for the otpauth://
-// URI (e.g. https://auth.example.com → "auth.example.com"). Falls back to
-// "Schlass" if the URL is empty or unparseable.
-func issuerFromPublicURL(publicURL string) string {
-	u, err := url.Parse(publicURL)
-	if err != nil || u.Host == "" {
-		return "Schlass"
-	}
-	return u.Host
-}

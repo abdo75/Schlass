@@ -346,3 +346,83 @@ func TestMfaEnrollmentComplete_NotAcknowledged_400(t *testing.T) {
 		t.Fatal("user should not be enrolled after failed /complete")
 	}
 }
+
+func TestMfaEnrollmentStart_ProvisionURI_UsesInstanceName(t *testing.T) {
+	env := NewTestEnv(t)
+	defer env.Close()
+	env.CompleteSetup(t, "admin@example.com", "CorrectHorse1Battery")
+	userID := env.GetUserIDByEmail(t, "admin@example.com")
+
+	// Overwrite the instance_name set by CompleteSetup. Values are stored as
+	// JSON so we supply a JSON-encoded string literal.
+	if _, err := env.Pool.Exec(t.Context(),
+		`UPDATE instance_config SET value = '"ACME Corp"' WHERE key = 'instance_name'`,
+	); err != nil {
+		t.Fatalf("set instance_name: %v", err)
+	}
+
+	token := "test-issuer-token"
+	key := "mfa:enroll:" + token
+	env.Valkey.HSet(t.Context(), key, "user_id", userID.String())
+	env.Valkey.Expire(t.Context(), key, 10*60)
+
+	req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/mfa/enrollment/start", nil)
+	req.AddCookie(&http.Cookie{Name: "schlass_mfa_enroll", Value: token})
+	rec := httptest.NewRecorder()
+	env.Router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var out struct {
+		ProvisionURI string `json:"provision_uri"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	// The provision URI must encode "ACME Corp" as the issuer, not the URL host.
+	if !strings.Contains(out.ProvisionURI, "issuer=ACME+Corp") &&
+		!strings.Contains(out.ProvisionURI, "issuer=ACME%20Corp") {
+		t.Fatalf("provision_uri should contain issuer=ACME Corp (url-encoded); got %s", out.ProvisionURI)
+	}
+}
+
+func TestMfaEnrollmentStart_ProvisionURI_FallsBackToSchlass(t *testing.T) {
+	env := NewTestEnv(t)
+	defer env.Close()
+	env.CompleteSetup(t, "admin@example.com", "CorrectHorse1Battery")
+	userID := env.GetUserIDByEmail(t, "admin@example.com")
+
+	// Blank the instance_name so GetInstanceName returns "". Values are stored
+	// as JSON so an empty string is the JSON literal '""'.
+	if _, err := env.Pool.Exec(t.Context(),
+		`UPDATE instance_config SET value = '""' WHERE key = 'instance_name'`,
+	); err != nil {
+		t.Fatalf("blank instance_name: %v", err)
+	}
+
+	token := "test-fallback-token"
+	key := "mfa:enroll:" + token
+	env.Valkey.HSet(t.Context(), key, "user_id", userID.String())
+	env.Valkey.Expire(t.Context(), key, 10*60)
+
+	req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/mfa/enrollment/start", nil)
+	req.AddCookie(&http.Cookie{Name: "schlass_mfa_enroll", Value: token})
+	rec := httptest.NewRecorder()
+	env.Router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var out struct {
+		ProvisionURI string `json:"provision_uri"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if !strings.Contains(out.ProvisionURI, "issuer=Schlass") {
+		t.Fatalf("expected fallback issuer=Schlass in provision_uri; got %s", out.ProvisionURI)
+	}
+}
