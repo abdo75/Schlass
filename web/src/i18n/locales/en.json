@@ -292,6 +292,15 @@
       "dialog_cancel": "Cancel"
     }
   },
+  "oidc": {
+    "errorTitle": "Sign-in couldn't be completed",
+    "errorBody1": "The application you're trying to sign in to isn't recognized or its configuration has changed.",
+    "errorBody2": "Please contact your administrator and include the reference below.",
+    "errorRefLabel": "Reference",
+    "errorRefHint": "Your administrator can look up this reference in the audit log.",
+    "copy": "Copy",
+    "copied": "Copied"
+  },
   "language": {
     "en": "English",
     "fr": "Français",
