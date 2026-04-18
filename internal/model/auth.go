@@ -13,6 +13,13 @@ const (
 type LoginRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
+
+	// ReturnTo is a caller-supplied deep link that, if it validates against
+	// SanitizeReturnTo at the handler boundary, is threaded through the
+	// login flow (MFA enrollment/challenge, force-password-change) and
+	// emitted as redirect_to on terminal success. Absent = post-login
+	// defaults to role-based routing.
+	ReturnTo string `json:"return_to,omitempty"`
 }
 
 // Validate enforces the length and shape checks applied before any DB access.

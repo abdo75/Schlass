@@ -99,6 +99,17 @@ func (h *AuthHandler) PostLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 2a. Sanitize an optional return_to. Fail-closed: an invalid value is
+	// silently dropped rather than rejected, so a malformed deep link does
+	// not block login. Only the canonical relative form is threaded
+	// further; downstream carriers never see the raw input.
+	sanitizedReturnTo := ""
+	if req.ReturnTo != "" {
+		if clean, ok := SanitizeReturnTo(req.ReturnTo, h.publicURL); ok {
+			sanitizedReturnTo = clean
+		}
+	}
+
 	// 3. Read lockout policy from config (read-only, outside tx).
 	threshold, err := h.configStore.GetInt(r.Context(), h.pool, "lockout_threshold")
 	if err != nil {
@@ -367,13 +378,17 @@ func (h *AuthHandler) PostLogin(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 			return
 		}
-		sessionToken, err := h.sessionStore.Create(r.Context(), user.ID.String(), ip, r.Header.Get("User-Agent"))
+		sessionToken, err := h.sessionStore.CreateWithPendingReturnTo(
+			r.Context(), user.ID.String(), ip, r.Header.Get("User-Agent"), sanitizedReturnTo,
+		)
 		if err != nil {
 			slog.Error("login: session.Create failed (force-pw branch)", "error", err)
 			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 			return
 		}
 		setSessionCookie(w, sessionToken, h.cookieSecure)
+		// redirect_to is NOT emitted here — the caller must first rotate the
+		// temp password. It resurfaces on /api/change-password success.
 		writeJSON(w, http.StatusOK, map[string]any{"user": userDTO(user)})
 		return
 	}
@@ -401,7 +416,11 @@ func (h *AuthHandler) PostLogin(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		key := "mfa:enroll:" + enrollToken
-		if err := h.valkey.HSet(r.Context(), key, "user_id", user.ID.String()).Err(); err != nil {
+		enrollFields := []any{"user_id", user.ID.String()}
+		if sanitizedReturnTo != "" {
+			enrollFields = append(enrollFields, "return_to", sanitizedReturnTo)
+		}
+		if err := h.valkey.HSet(r.Context(), key, enrollFields...).Err(); err != nil {
 			slog.Error("login: Valkey HSet enroll token failed", "error", err)
 			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 			return
@@ -432,10 +451,14 @@ func (h *AuthHandler) PostLogin(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		key := "mfa:challenge:" + challengeToken
-		if err := h.valkey.HSet(r.Context(), key,
+		challengeFields := []any{
 			"user_id", user.ID.String(),
 			"attempts_remaining", 5,
-		).Err(); err != nil {
+		}
+		if sanitizedReturnTo != "" {
+			challengeFields = append(challengeFields, "return_to", sanitizedReturnTo)
+		}
+		if err := h.valkey.HSet(r.Context(), key, challengeFields...).Err(); err != nil {
 			slog.Error("login: Valkey HSet challenge token failed", "error", err)
 			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 			return
@@ -484,7 +507,11 @@ func (h *AuthHandler) PostLogin(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		setSessionCookie(w, sessionToken, h.cookieSecure)
-		writeJSON(w, http.StatusOK, map[string]any{"user": userDTO(user)})
+		resp := map[string]any{"user": userDTO(user)}
+		if sanitizedReturnTo != "" {
+			resp["redirect_to"] = sanitizedReturnTo
+		}
+		writeJSON(w, http.StatusOK, resp)
 	}
 }
 
