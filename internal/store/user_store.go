@@ -335,19 +335,6 @@ func (s *UserStore) ClearTOTP(ctx context.Context, q database.Querier, userID uu
 	return nil
 }
 
-// UpdateEmail changes a user's email. Caller is responsible for lowercasing
-// the input (handler boundary does this). Returns pgx 23505 unique-violation
-// if the lowercase email collides with an existing user.
-func (s *UserStore) UpdateEmail(ctx context.Context, q database.Querier, userID uuid.UUID, email string) error {
-	_, err := q.Exec(ctx,
-		`UPDATE users SET email = $1, updated_at = now() WHERE id = $2`,
-		email, userID)
-	if err != nil {
-		return fmt.Errorf("update email: %w", err)
-	}
-	return nil
-}
-
 // AdvanceTOTPCounter sets last_used_totp_counter to the given step value.
 // Called inside the challenge-success tx. The gate (counter > previous)
 // lives in the handler — this method is a dumb setter.
