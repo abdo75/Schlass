@@ -114,29 +114,71 @@ export function AdminLayout({ hideSidebar = false, children }: AdminLayoutProps)
 
 interface AdminPageHeaderProps {
   breadcrumb?: { label: string; to: string };
+  breadcrumbPath?: Array<{ label: string; to?: string }>;
   title?: string;
   subtitle?: string;
   primaryAction?: React.ReactNode;
 }
 
-export function AdminPageHeader({ breadcrumb, title, subtitle, primaryAction }: AdminPageHeaderProps) {
+export function AdminPageHeader({
+  breadcrumb,
+  breadcrumbPath,
+  title,
+  subtitle,
+  primaryAction,
+}: AdminPageHeaderProps) {
   return (
     <div className="flex items-center justify-between gap-6 border-b border-border bg-background px-8 py-4">
       <div className="min-w-0">
-        {breadcrumb && (
-          <Link
-            to={breadcrumb.to}
-            className="inline-flex items-center gap-1 text-[13px] leading-none text-muted-foreground hover:text-foreground"
+        {breadcrumbPath && breadcrumbPath.length > 0 ? (
+          <nav
+            aria-label="Breadcrumb"
+            className="flex items-center gap-2 text-lg font-semibold leading-tight tracking-tight"
           >
-            <ChevronLeftIcon />
-            {breadcrumb.label}
-          </Link>
-        )}
-        {title && (
-          <div className="mt-0.5 text-lg font-semibold leading-tight tracking-tight">{title}</div>
-        )}
-        {subtitle && (
-          <div className="mt-0.5 text-[13px] leading-snug text-muted-foreground">{subtitle}</div>
+            {breadcrumbPath.map((seg, i) => {
+              const isLast = i === breadcrumbPath.length - 1;
+              return (
+                <span key={`${seg.label}-${i}`} className="flex items-center gap-2 min-w-0">
+                  {i > 0 && (
+                    <span
+                      className="text-muted-foreground/60 text-base select-none"
+                      aria-hidden="true"
+                    >
+                      /
+                    </span>
+                  )}
+                  {isLast || !seg.to ? (
+                    <span className="truncate text-foreground">{seg.label}</span>
+                  ) : (
+                    <Link
+                      to={seg.to}
+                      className="truncate text-muted-foreground hover:text-foreground"
+                    >
+                      {seg.label}
+                    </Link>
+                  )}
+                </span>
+              );
+            })}
+          </nav>
+        ) : (
+          <>
+            {breadcrumb && (
+              <Link
+                to={breadcrumb.to}
+                className="inline-flex items-center gap-1 text-[13px] leading-none text-muted-foreground hover:text-foreground"
+              >
+                <ChevronLeftIcon />
+                {breadcrumb.label}
+              </Link>
+            )}
+            {title && (
+              <div className="mt-0.5 text-lg font-semibold leading-tight tracking-tight">{title}</div>
+            )}
+            {subtitle && (
+              <div className="mt-0.5 text-[13px] leading-snug text-muted-foreground">{subtitle}</div>
+            )}
+          </>
         )}
       </div>
       {primaryAction && <div className="shrink-0">{primaryAction}</div>}

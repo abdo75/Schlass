@@ -358,8 +358,10 @@ export function UserDetailPage() {
   return (
     <>
       <AdminPageHeader
-        breadcrumb={{ label: t("users.title"), to: "/admin/users" }}
-        title={user.email}
+        breadcrumbPath={[
+          { label: t("users.title"), to: "/admin/users" },
+          { label: user.email },
+        ]}
         primaryAction={topBarAction}
       />
       <AdminPageContent>

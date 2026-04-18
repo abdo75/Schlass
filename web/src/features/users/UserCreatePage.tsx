@@ -72,7 +72,10 @@ export function UserCreatePage() {
   return (
     <>
       <AdminPageHeader
-        breadcrumb={{ label: t("users.title"), to: "/admin/users" }}
+        breadcrumbPath={[
+          { label: t("users.title"), to: "/admin/users" },
+          { label: t("users.create.title") },
+        ]}
       />
       <AdminPageContent>
         <div className="flex justify-center pt-8">

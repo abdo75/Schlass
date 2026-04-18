@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import "@/i18n";
-import { AdminLayout } from "../AdminLayout";
+import { AdminLayout, AdminPageHeader } from "../AdminLayout";
 import { AuthProvider } from "@/features/auth/AuthContext";
 import * as authApi from "@/features/auth/api";
 
@@ -53,5 +53,34 @@ describe("AdminLayout", () => {
     render(wrap());
     // UserMenuPopover in the top bar shows the logged-in email as a button
     expect(await screen.findByRole("button", { name: /admin@test.local/i })).toBeInTheDocument();
+  });
+});
+
+describe("AdminPageHeader breadcrumbPath", () => {
+  it("renders the path as a title-scale breadcrumb with links to parents", () => {
+    render(
+      <MemoryRouter>
+        <AdminPageHeader
+          breadcrumbPath={[
+            { label: "Users", to: "/admin/users" },
+            { label: "alice@example.com" },
+          ]}
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole("link", { name: /users/i })).toHaveAttribute("href", "/admin/users");
+    expect(screen.getByText(/alice@example\.com/)).toBeInTheDocument();
+  });
+
+  it("does not render a separate title when breadcrumbPath is used", () => {
+    const { container } = render(
+      <MemoryRouter>
+        <AdminPageHeader
+          breadcrumbPath={[{ label: "Users" }]}
+          title="Should not render"
+        />
+      </MemoryRouter>,
+    );
+    expect(container.textContent).not.toContain("Should not render");
   });
 });
