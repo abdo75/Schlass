@@ -32,11 +32,12 @@ export function EnrollStepScan({ onNext }: Props) {
             : "INTERNAL_ERROR";
 
         // Graceful redirect when the user shouldn't be on /setup-mfa at all.
-        // (a) Authenticated user with no valid enrollment cookie — they've
-        //     either already enrolled OR never needed enrollment. Bounce to
-        //     their home.
-        // (b) Unauthenticated user — bounce to /login so they re-auth.
-        if (code === "MFA_ENROLLMENT_EXPIRED") {
+        //   MFA_ENROLLMENT_EXPIRED — cookie missing/expired and either never
+        //     enrolled or already enrolled; send them home (authed) or to
+        //     /login (unauthed).
+        //   MFA_ALREADY_ENROLLED — session-authed but already has TOTP;
+        //     the wizard is meaningless for them, bounce home.
+        if (code === "MFA_ENROLLMENT_EXPIRED" || code === "MFA_ALREADY_ENROLLED") {
           if (user) {
             const dest = user.role === "super_admin" ? "/admin" : "/account";
             void navigate(dest, { replace: true });

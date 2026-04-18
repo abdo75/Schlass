@@ -21,7 +21,7 @@ vi.mock("@/features/auth/AuthContext", () => ({
   useAuth: () => useAuthMock(),
 }));
 
-describe("EnrollStepScan expired-enrollment redirects", () => {
+describe("EnrollStepScan redirect codes", () => {
   beforeEach(() => {
     navigateMock.mockReset();
     (startMock as Mock).mockReset();
@@ -52,6 +52,28 @@ describe("EnrollStepScan expired-enrollment redirects", () => {
 
   it("role=user + expired → /account", async () => {
     (startMock as Mock).mockRejectedValue({ code: "MFA_ENROLLMENT_EXPIRED" });
+    (useAuthMock as Mock).mockReturnValue({ user: { role: "user" } });
+    render(
+      <I18nextProvider i18n={i18n}>
+        <EnrollStepScan onNext={() => {}} />
+      </I18nextProvider>,
+    );
+    await vi.waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/account", { replace: true }));
+  });
+
+  it("super_admin + already enrolled → /admin", async () => {
+    (startMock as Mock).mockRejectedValue({ code: "MFA_ALREADY_ENROLLED" });
+    (useAuthMock as Mock).mockReturnValue({ user: { role: "super_admin" } });
+    render(
+      <I18nextProvider i18n={i18n}>
+        <EnrollStepScan onNext={() => {}} />
+      </I18nextProvider>,
+    );
+    await vi.waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/admin", { replace: true }));
+  });
+
+  it("role=user + already enrolled → /account", async () => {
+    (startMock as Mock).mockRejectedValue({ code: "MFA_ALREADY_ENROLLED" });
     (useAuthMock as Mock).mockReturnValue({ user: { role: "user" } });
     render(
       <I18nextProvider i18n={i18n}>
