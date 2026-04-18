@@ -43,6 +43,10 @@ type RouterDeps struct {
 	// cap. Zero means "use 5/min". E2E tests set this to a large value so the
 	// limiter doesn't trip across repeated challenge requests.
 	MfaChallengeRateLimit int64
+	// TokenRateLimit overrides the per-client_id /token rate-limit cap. Zero
+	// means "use 60/min". Integration tests that want to exercise the 429 path
+	// set this to a small value (e.g. 3).
+	TokenRateLimit int64
 }
 
 // BuildRouter assembles the full HTTP handler chain: mux with every route,
@@ -144,6 +148,16 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 	authorizeHandler := handler.NewOIDCAuthorizeHandler(d.Pool, sessionStore, d.AuditStore, d.Cfg.SchlassPublicURL)
 	optionalAuth := middleware.OptionalAuth(sessionStore, d.UserStore, d.AuditStore, d.Pool)
 	mux.Handle("GET /authorize", optionalAuth(http.HandlerFunc(authorizeHandler.Handle)))
+
+	// OIDC token endpoint — client auth happens inside the handler.
+	tokenHandler := handler.NewOIDCTokenHandler(
+		d.Pool, d.ValkeyClient,
+		d.UserStore, d.AuditStore,
+		sessionStore,
+		d.Cfg.SchlassPublicURL, d.Cfg.EncryptionKey,
+		d.TokenRateLimit,
+	)
+	mux.Handle("POST /token", http.HandlerFunc(tokenHandler.Handle))
 
 	mux.Handle("/", web.SPAHandler())
 
