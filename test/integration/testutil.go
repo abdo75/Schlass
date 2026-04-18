@@ -176,6 +176,10 @@ func (e *TestEnv) BuildDeps() server.RouterDeps {
 		// rate-limit cap so the production 5/min guard doesn't mask the
 		// application-level lockout semantics we're trying to test.
 		LoginRateLimit: 10000,
+		// Same rationale for MFA challenge: integration tests may fire many
+		// challenge requests from the same virtual IP without hitting the
+		// production 5/min guard.
+		MfaChallengeRateLimit: 10000,
 	}
 }
 

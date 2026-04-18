@@ -32,13 +32,14 @@ type AuditLogger interface {
 
 // AuthHandler serves POST /api/login (and, in later tasks, /api/logout and /api/me).
 type AuthHandler struct {
-	pool          *pgxpool.Pool
-	valkey        *redis.Client
-	sessionStore  session.Store
-	userStore     *store.UserStore
-	auditStore    AuditLogger
-	configStore   *store.ConfigStore
-	configService *config.ConfigService
+	pool              *pgxpool.Pool
+	valkey            *redis.Client
+	sessionStore      session.Store
+	userStore         *store.UserStore
+	recoveryCodeStore *store.RecoveryCodeStore
+	auditStore        AuditLogger
+	configStore       *store.ConfigStore
+	configService     *config.ConfigService
 
 	publicURL    string // for Origin check
 	cookieSecure bool   // derived from publicURL at construction time
@@ -54,6 +55,7 @@ func NewAuthHandler(
 	valkeyClient *redis.Client,
 	sessionStore session.Store,
 	userStore *store.UserStore,
+	recoveryCodeStore *store.RecoveryCodeStore,
 	auditStore AuditLogger,
 	configStore *store.ConfigStore,
 	configService *config.ConfigService,
@@ -64,16 +66,17 @@ func NewAuthHandler(
 		return nil, fmt.Errorf("auth handler: pre-compute dummy hash: %w", err)
 	}
 	return &AuthHandler{
-		pool:          pool,
-		valkey:        valkeyClient,
-		sessionStore:  sessionStore,
-		userStore:     userStore,
-		auditStore:    auditStore,
-		configStore:   configStore,
-		configService: configService,
-		publicURL:     publicURL,
-		cookieSecure:  isSecureURL(publicURL),
-		dummyHash:     dummy,
+		pool:              pool,
+		valkey:            valkeyClient,
+		sessionStore:      sessionStore,
+		userStore:         userStore,
+		recoveryCodeStore: recoveryCodeStore,
+		auditStore:        auditStore,
+		configStore:       configStore,
+		configService:     configService,
+		publicURL:         publicURL,
+		cookieSecure:      isSecureURL(publicURL),
+		dummyHash:         dummy,
 	}, nil
 }
 
@@ -652,5 +655,18 @@ func (h *AuthHandler) GetMe(w http.ResponseWriter, r *http.Request) {
 
 	dto := userDTO(user)
 	dto["force_mfa_enrollment"] = forceMFAEnrollment
+
+	// Include recovery code count when the user is enrolled. Best-effort:
+	// a failure here (e.g. transient DB error) degrades to omitting the count
+	// rather than returning a 500, since it is display-only metadata.
+	if user.TOTPEnrolledAt != nil {
+		count, err := h.recoveryCodeStore.CountUnused(r.Context(), h.pool, user.ID)
+		if err != nil {
+			slog.Error("GetMe: CountUnused recovery codes failed", "error", err)
+		} else {
+			dto["mfa"] = map[string]any{"unused_recovery_codes": count}
+		}
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{"user": dto})
 }

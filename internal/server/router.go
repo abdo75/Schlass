@@ -39,6 +39,10 @@ type RouterDeps struct {
 	// rate limiter never trips and the test can exercise application-level
 	// lockout semantics in isolation.
 	LoginRateLimit int64
+	// MfaChallengeRateLimit overrides the per-IP /api/mfa/challenge rate-limit
+	// cap. Zero means "use 5/min". E2E tests set this to a large value so the
+	// limiter doesn't trip across repeated challenge requests.
+	MfaChallengeRateLimit int64
 }
 
 // BuildRouter assembles the full HTTP handler chain: mux with every route,
@@ -51,7 +55,7 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 	healthHandler := handler.NewHealthHandler(d.Pool, d.ValkeyClient)
 	setupHandler := handler.NewSetupHandler(d.Pool, d.ConfigService, d.ConfigStore, d.UserStore, d.AuditStore)
 	authHandler, err := handler.NewAuthHandler(
-		d.Pool, d.ValkeyClient, sessionStore, d.UserStore, d.AuditStore, d.ConfigStore, d.ConfigService, d.Cfg.SchlassPublicURL,
+		d.Pool, d.ValkeyClient, sessionStore, d.UserStore, d.RecoveryCodeStore, d.AuditStore, d.ConfigStore, d.ConfigService, d.Cfg.SchlassPublicURL,
 	)
 	if err != nil {
 		return nil, err
@@ -87,7 +91,11 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 	setupGetRL := middleware.NewRateLimiter(d.ValkeyClient, "ratelimit:setup:get", setupGetLimit, time.Minute)
 	setupPostRL := middleware.NewRateLimiter(d.ValkeyClient, "ratelimit:setup:post", setupPostLimit, time.Minute)
 	loginRL := middleware.NewRateLimiter(d.ValkeyClient, "ratelimit:login", loginLimit, time.Minute)
-	mfaChallengeRL := middleware.NewRateLimiter(d.ValkeyClient, "ratelimit:mfa", 5, time.Minute)
+	mfaLimit := int64(5)
+	if d.MfaChallengeRateLimit > 0 {
+		mfaLimit = d.MfaChallengeRateLimit
+	}
+	mfaChallengeRL := middleware.NewRateLimiter(d.ValkeyClient, "ratelimit:mfa", mfaLimit, time.Minute)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", healthHandler.GetHealth)

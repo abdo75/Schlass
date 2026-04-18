@@ -7,3 +7,4 @@ services:
   app:
     environment:
       SCHLASS_LOGIN_RATE_LIMIT: "1000"
+      SCHLASS_MFA_CHALLENGE_RATE_LIMIT: "1000"

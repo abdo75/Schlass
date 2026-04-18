@@ -208,7 +208,7 @@ func (h *UsersHandler) List(w http.ResponseWriter, r *http.Request) {
 
 // userDTO returns the response shape — everything except the password hash.
 func userDTO(u *store.User) map[string]any {
-	return map[string]any{
+	dto := map[string]any{
 		"id":                    u.ID.String(),
 		"email":                 u.Email,
 		"role":                  u.Role,
@@ -216,7 +216,9 @@ func userDTO(u *store.User) map[string]any {
 		"force_password_change": u.ForcePasswordChange,
 		"created_at":            u.CreatedAt,
 		"updated_at":            u.UpdatedAt,
+		"totp_enrolled_at":      u.TOTPEnrolledAt, // nil when not enrolled
 	}
+	return dto
 }
 
 // Create handles POST /api/users.

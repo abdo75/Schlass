@@ -125,7 +125,7 @@ export function TotpChallengePage() {
                 maxLength={9}
                 autoFocus
                 value={code}
-                onChange={(e) => setCode(e.target.value.toUpperCase())}
+                onChange={(e) => setCode(e.target.value)}
                 disabled={submitting}
                 aria-label={t("mfa.challenge.recovery_input_label")}
                 placeholder="XXXX-XXXX"

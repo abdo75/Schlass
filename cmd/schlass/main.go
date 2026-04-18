@@ -62,7 +62,8 @@ func main() {
 		RecoveryCodeStore: recoveryCodeStore,
 		AuditStore:        auditStore,
 		ConfigService:     configService,
-		LoginRateLimit:    cfg.LoginRateLimit,
+		LoginRateLimit:        cfg.LoginRateLimit,
+		MfaChallengeRateLimit: cfg.MfaChallengeRateLimit,
 	})
 	if err != nil {
 		slog.Error("failed to build router", "error", err)

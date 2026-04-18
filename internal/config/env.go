@@ -20,6 +20,10 @@ type Config struct {
 	// means "use the secure default" (5/min). Intended for E2E test runs
 	// that need to burst past the default without disabling the limiter.
 	LoginRateLimit int64
+	// MfaChallengeRateLimit overrides the per-IP /api/mfa/challenge cap per
+	// minute. Zero means "use the secure default" (5/min). Intended for E2E
+	// test runs that need to burst past the default.
+	MfaChallengeRateLimit int64
 }
 
 func Load() (*Config, error) {
@@ -79,6 +83,14 @@ func Load() (*Config, error) {
 			return nil, fmt.Errorf("SCHLASS_LOGIN_RATE_LIMIT must be a non-negative integer, got %q", raw)
 		}
 		cfg.LoginRateLimit = parsed
+	}
+
+	if raw := os.Getenv("SCHLASS_MFA_CHALLENGE_RATE_LIMIT"); raw != "" {
+		parsed, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || parsed < 0 {
+			return nil, fmt.Errorf("SCHLASS_MFA_CHALLENGE_RATE_LIMIT must be a non-negative integer, got %q", raw)
+		}
+		cfg.MfaChallengeRateLimit = parsed
 	}
 
 	return cfg, nil

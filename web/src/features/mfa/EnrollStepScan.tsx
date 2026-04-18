@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import QRCode from "react-qr-code";
+import { QRCodeSVG } from "qrcode.react";
 import { Button } from "@/components/ui/button";
 import { startEnrollment, type EnrollmentStartResponse } from "./api";
 
@@ -44,7 +44,7 @@ export function EnrollStepScan({ onNext }: Props) {
     <div className="flex flex-col gap-4">
       <div className="flex justify-center">
         <div className="flex h-[160px] w-[160px] items-center justify-center rounded-md border border-border bg-white p-2">
-          <QRCode value={data.provision_uri} size={140} />
+          <QRCodeSVG value={data.provision_uri} size={140} />
         </div>
       </div>
 
