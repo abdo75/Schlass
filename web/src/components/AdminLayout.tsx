@@ -2,6 +2,8 @@ import type React from "react";
 import { NavLink, Link, Outlet } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { UserMenuPopover } from "@/components/UserMenuPopover";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 function UsersIcon() {
   return (
@@ -76,11 +78,34 @@ interface AdminLayoutProps {
   children?: React.ReactNode;
 }
 
+function AdminTopBar({ showBrand }: { showBrand: boolean }) {
+  return (
+    <div className="flex h-[52px] shrink-0 items-center justify-between border-b border-border bg-background px-6">
+      <div>
+        {showBrand && (
+          <Link to="/" className="flex items-center gap-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-sm font-extrabold text-primary-foreground">
+              S
+            </div>
+            <span className="text-base font-bold tracking-tight">Schlass</span>
+          </Link>
+        )}
+      </div>
+      <div className="flex items-center gap-2">
+        <LanguageSwitcher />
+        <ThemeToggle />
+        <UserMenuPopover />
+      </div>
+    </div>
+  );
+}
+
 export function AdminLayout({ hideSidebar = false, children }: AdminLayoutProps) {
   return (
     <div className="flex min-h-screen bg-sidebar">
       {!hideSidebar && <AdminSidebar />}
       <main className="flex min-w-0 flex-1 flex-col bg-background">
+        <AdminTopBar showBrand={hideSidebar} />
         {children ?? <Outlet />}
       </main>
     </div>
@@ -114,11 +139,7 @@ export function AdminPageHeader({ breadcrumb, title, subtitle, primaryAction }: 
           <div className="mt-0.5 text-[13px] leading-snug text-muted-foreground">{subtitle}</div>
         )}
       </div>
-      <div className="flex shrink-0 items-center gap-3">
-        {primaryAction}
-        {primaryAction && <div className="h-6 w-px bg-border" />}
-        <UserMenuPopover />
-      </div>
+      {primaryAction && <div className="shrink-0">{primaryAction}</div>}
     </div>
   );
 }

@@ -55,7 +55,8 @@ describe("UserAccountPage", () => {
   it("displays the signed-in user's email", () => {
     const wrap = withProviders(regularUser);
     render(wrap(<UserAccountPage />));
-    expect(screen.getByText(/alice@example\.com/)).toBeInTheDocument();
+    // Email appears in both the identity hero and the AdminTopBar UserMenuPopover trigger
+    expect(screen.getAllByText(/alice@example\.com/).length).toBeGreaterThan(0);
   });
 
   it("has a change-password link pointing to /change-password", () => {

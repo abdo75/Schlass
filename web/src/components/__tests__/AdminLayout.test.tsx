@@ -48,4 +48,10 @@ describe("AdminLayout", () => {
     render(wrap());
     expect(await screen.findByText(/users outlet content/i)).toBeInTheDocument();
   });
+
+  it("renders the persistent top bar with user menu trigger", async () => {
+    render(wrap());
+    // UserMenuPopover in the top bar shows the logged-in email as a button
+    expect(await screen.findByRole("button", { name: /admin@test.local/i })).toBeInTheDocument();
+  });
 });

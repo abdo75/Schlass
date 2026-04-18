@@ -59,7 +59,7 @@ describe("UsersPage", () => {
       offset: 0,
     });
     render(wrap());
-    // user0 appears in both the UserMenuPopover header and the table row
+    // user0 appears in the table row
     expect(
       await screen.findAllByText("user0@example.com"),
     ).not.toHaveLength(0);
@@ -75,7 +75,7 @@ describe("UsersPage", () => {
       offset: 0,
     });
     render(wrap());
-    // wait for table row to appear (user0 also appears in UserMenuPopover header)
+    // wait for table row to appear
     await screen.findAllByText("user0@example.com");
     const user = userEvent.setup();
     await user.type(screen.getByPlaceholderText(/search/i), "foo");
