@@ -65,7 +65,7 @@ describe("LoginPage", () => {
       screen.getByRole("button", { name: /sign in|log in|submit/i }),
     );
     await waitFor(() =>
-      expect(authApi.login).toHaveBeenCalledWith("a@b.co", "hunter2hunter2"),
+      expect(authApi.login).toHaveBeenCalledWith("a@b.co", "hunter2hunter2", undefined),
     );
   });
 

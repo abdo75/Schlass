@@ -146,7 +146,7 @@ describe("ChangePasswordPage — forced mode", () => {
   });
 
   it("calls changePassword, refreshes user, and navigates to /admin/users on success", async () => {
-    vi.mocked(authApi.changePassword).mockResolvedValue(undefined);
+    vi.mocked(authApi.changePassword).mockResolvedValue({});
     vi.mocked(authApi.getMe)
       .mockResolvedValueOnce({
         user: {
@@ -266,7 +266,7 @@ describe("ChangePasswordPage — self-service mode", () => {
   });
 
   it("Success navigates to /account for role=user", async () => {
-    vi.mocked(authApi.changePassword).mockResolvedValue(undefined);
+    vi.mocked(authApi.changePassword).mockResolvedValue({});
     vi.mocked(authApi.getMe)
       .mockResolvedValueOnce({
         user: {

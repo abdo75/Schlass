@@ -4,7 +4,7 @@ import { getMe, login as apiLogin, logout as apiLogout, type AuthUser, type Logi
 interface AuthState {
   user: AuthUser | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<LoginResponse>;
+  login: (email: string, password: string, returnTo?: string) => Promise<LoginResponse>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<AuthUser | null>;
 }
@@ -39,8 +39,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("schlass:unauthorized", handler);
   }, []);
 
-  const login = async (email: string, password: string): Promise<LoginResponse> => {
-    const res = await apiLogin(email, password);
+  const login = async (email: string, password: string, returnTo?: string): Promise<LoginResponse> => {
+    const res = await apiLogin(email, password, returnTo);
     if (res.kind === "session") setUser(res.user);
     return res;
   };

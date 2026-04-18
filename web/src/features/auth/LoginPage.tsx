@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { useNavigate, Navigate } from "react-router-dom";
+import { useNavigate, Navigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,6 +17,8 @@ import { useAuth } from "./AuthContext";
 export function LoginPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const returnTo = searchParams.get("return_to") ?? undefined;
   const { login, user, loading } = useAuth();
 
   const [email, setEmail] = useState("");
@@ -42,13 +44,21 @@ export function LoginPage() {
     setRetryAfterSeconds(null);
     setSubmitting(true);
     try {
-      const res = await login(email, password);
+      const res = await login(email, password, returnTo);
       if (res.kind === "enrollment_required") {
         void navigate("/setup-mfa", { replace: true });
         return;
       }
       if (res.kind === "challenge_required") {
         void navigate("/mfa-challenge", { replace: true, state: { email } });
+        return;
+      }
+      // If the backend accepted a sanitized return_to, honor it verbatim —
+      // it has already been validated to a same-origin /authorize URL.
+      // window.location.href (not navigate) so the browser follows the full
+      // URL, which for /authorize re-enters the OIDC handshake server-side.
+      if (res.redirectTo) {
+        window.location.href = res.redirectTo;
         return;
       }
       const destination = res.user.role === "super_admin" ? "/admin" : "/account";
