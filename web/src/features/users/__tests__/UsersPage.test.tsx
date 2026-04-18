@@ -28,6 +28,7 @@ const mkUsers = (count: number) =>
     role: i === 0 ? "super_admin" : "user",
     status: i === 2 ? "disabled" : "active",
     force_password_change: false,
+    force_mfa_enrollment: false,
     created_at: new Date(Date.now() - i * 60000).toISOString(),
   }));
 
@@ -39,6 +40,7 @@ describe("UsersPage", () => {
         email: "user0@example.com",
         role: "super_admin",
         force_password_change: false,
+        force_mfa_enrollment: false,
       },
     });
   });
@@ -57,7 +59,7 @@ describe("UsersPage", () => {
       offset: 0,
     });
     render(wrap());
-    // user0 appears in both the UserMenuPopover header and the table row
+    // user0 appears in the table row
     expect(
       await screen.findAllByText("user0@example.com"),
     ).not.toHaveLength(0);
@@ -73,7 +75,7 @@ describe("UsersPage", () => {
       offset: 0,
     });
     render(wrap());
-    // wait for table row to appear (user0 also appears in UserMenuPopover header)
+    // wait for table row to appear
     await screen.findAllByText("user0@example.com");
     const user = userEvent.setup();
     await user.type(screen.getByPlaceholderText(/search/i), "foo");

@@ -184,11 +184,23 @@
     "title": "Ihr Konto",
     "subtitle": "Angemeldet als {{email}}",
     "password_heading": "Passwort",
-    "password_hint": "Sie können Ihr Kontopasswort jederzeit ändern.",
+    "password_hint": "Heute geändert.",
     "change_password": "Passwort ändern",
     "totp_heading": "Zwei-Faktor-Authentifizierung",
-    "totp_placeholder": "Die Zwei-Faktor-Authentifizierung wird in einer späteren Version verfügbar sein.",
-    "sign_out": "Abmelden"
+    "totp_placeholder": "Schützen Sie Ihr Konto mit einer Authenticator-App.",
+    "sign_out": "Abmelden",
+    "security_heading": "Sicherheit",
+    "password_label": "Passwort",
+    "change_button": "Ändern",
+    "totp_label": "Zwei-Faktor-Authentifizierung",
+    "totp_setup_button": "Einrichten",
+    "session_heading": "Sitzung",
+    "signout_label": "Abmelden",
+    "signout_description": "Ihre Sitzung auf diesem Gerät beenden."
+  },
+  "role": {
+    "admin": "Administrator",
+    "user": "Benutzer"
   },
   "errors": {
     "SETUP_ALREADY_COMPLETE": "Die Einrichtung wurde bereits abgeschlossen.",
@@ -210,7 +222,75 @@
     "FORBIDDEN": "Sie haben keine Berechtigung, diese Aktion durchzuführen.",
     "WRONG_CURRENT_PASSWORD": "Das aktuelle Passwort ist falsch.",
     "passwordMismatch": "Die Passwörter stimmen nicht überein.",
-    "unexpected": "Ein unerwarteter Fehler ist aufgetreten."
+    "unexpected": "Ein unerwarteter Fehler ist aufgetreten.",
+    "MFA_ENROLLMENT_REQUIRED": "Die Zwei-Faktor-Authentifizierung ist erforderlich.",
+    "MFA_ENROLLMENT_EXPIRED": "Die Registrierungssitzung für Zwei-Faktor-Authentifizierung ist abgelaufen — bitte erneut anmelden.",
+    "MFA_INVALID_CODE": "Ungültiger Code.",
+    "MFA_INVALID_RECOVERY_CODE": "Ungültiger Wiederherstellungscode.",
+    "MFA_CHALLENGE_REQUIRED": "Zwei-Faktor-Verifizierung erforderlich.",
+    "MFA_CHALLENGE_EXPIRED": "Anmeldungssitzung abgelaufen — bitte erneut anmelden.",
+    "MFA_CHALLENGE_MAX_ATTEMPTS": "Zu viele fehlgeschlagene Versuche — bitte erneut anmelden.",
+    "MFA_NOT_ENROLLED": "Dieser Benutzer hat sich nicht für Zwei-Faktor-Authentifizierung registriert.",
+    "MFA_ALREADY_ENROLLED": "Dieses Konto hat bereits Zwei-Faktor-Authentifizierung aktiviert."
+  },
+  "mfa": {
+    "enrollment": {
+      "step1_label": "Scannen",
+      "step2_label": "Verifizieren",
+      "step3_label": "Codes",
+      "step1_title": "Zwei-Faktor-Authentifizierung einrichten",
+      "step1_description": "Scannen Sie den QR-Code mit Ihrer Authenticator-App.",
+      "step2_title": "Authenticator bestätigen",
+      "step2_description": "Geben Sie den 6-stelligen Code aus Ihrer App ein.",
+      "step3_title": "Wiederherstellungscodes speichern",
+      "step3_description": "Bewahren Sie diese Codes sicher auf — sie sind Ihr Backup, falls Sie den Zugang verlieren.",
+      "cannot_scan_link": "Kann nicht scannen? Schlüssel manuell eingeben",
+      "hide_manual_secret": "Manuellen Schlüssel ausblenden",
+      "next_button": "Weiter",
+      "verify_button": "Verifizieren",
+      "verify_submitting": "Wird verifiziert...",
+      "verify_helper_one": "Einfügen aus Zwischenablage unterstützt · {{count}} Versuch verbleibend",
+      "verify_helper_other": "Einfügen aus Zwischenablage unterstützt · {{count}} Versuche verbleibend",
+      "step3_warning": "Speichern Sie sie jetzt — sie können nicht wiederhergestellt werden.",
+      "copy_all": "Alle kopieren",
+      "download": "Herunterladen",
+      "print": "Drucken",
+      "copy_code_aria": "Code {{code}} kopieren",
+      "acknowledgement": "Ich habe diese Codes an einem sicheren Ort gespeichert.",
+      "finish_button": "Einrichtung abschließen",
+      "finish_submitting": "Abschließen…"
+    },
+    "challenge": {
+      "title": "Zwei-Faktor-Code",
+      "email_echo": "Anmeldung als {{email}}",
+      "code_input_label": "Authentificator-Code",
+      "expires_in": "Verfällt in {{time}}",
+      "verify_button": "Verifizieren",
+      "verify_submitting": "Wird verifiziert…",
+      "use_recovery_link": "Wiederherstellungscode verwenden",
+      "back_to_code_link": "Stattdessen einen 6-stelligen Code eingeben",
+      "recovery_input_label": "Wiederherstellungscode"
+    },
+    "account": {
+      "enabled_badge": "Aktiviert",
+      "enrolled_on": "Aktiviert am {{date}}",
+      "codes_remaining_one": "{{count}} Wiederherstellungscode verbleibend",
+      "codes_remaining_other": "{{count}} Wiederherstellungscodes verbleibend",
+      "reset_contact_admin": "Kontaktieren Sie einen Administrator, um die Zwei-Faktor-Authentifizierung zurückzusetzen.",
+      "disable_button": "Zwei-Faktor deaktivieren",
+      "disable_dialog_title": "Zwei-Faktor-Authentifizierung deaktivieren?",
+      "disable_dialog_description": "Dadurch wird die Zwei-Faktor-Authentifizierung für Ihr Konto deaktiviert und Ihre Authenticator-App sowie Ihre Wiederherstellungscodes werden ungültig. Sie müssen die Zwei-Faktor-Authentifizierung bei Ihrer nächsten Anmeldung erneut einrichten. Geben Sie Ihr Passwort zur Bestätigung ein.",
+      "disable_password_label": "Aktuelles Passwort",
+      "disable_confirm": "Deaktivieren",
+      "disable_cancel": "Abbrechen"
+    },
+    "admin_reset": {
+      "button_label": "2FA zurücksetzen",
+      "dialog_title": "Zwei-Faktor-Authentifizierung zurücksetzen?",
+      "dialog_description": "Dies setzt den Authenticator und die Wiederherstellungscodes von {{email}} zurück. Sie müssen sich bei der nächsten Anmeldung erneut registrieren und werden von allen aktiven Sitzungen abgemeldet.",
+      "dialog_confirm": "2FA zurücksetzen",
+      "dialog_cancel": "Abbrechen"
+    }
   },
   "language": {
     "en": "English",
@@ -220,7 +300,8 @@
   "user_menu": {
     "theme": { "heading": "Design", "light": "Hell", "dark": "Dunkel", "system": "System" },
     "language": { "heading": "Sprache" },
-    "change_password": "Passwort ändern",
+    "my_account": "Mein Konto",
+    "admin_panel": "Admin-Bereich",
     "sign_out": "Abmelden"
   }
 }

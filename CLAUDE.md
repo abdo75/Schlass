@@ -84,6 +84,8 @@ The auth middleware (`internal/middleware/auth.go`) reads the cookie, fetches th
 
 **Known limitation — enumeration timing parity is imperfect.** The dummy-hash trick equalizes the Argon2id cost between the known-wrong-password and unknown-user paths, but the post-hash pipeline diverges: known-wrong does an extra `IncrementFailedLogins` UPDATE plus a richer audit row, which adds ~4ms on localhost (measured during the Sprint 2 security audit). Network jitter swamps this in practice, but a well-connected attacker with millions of probes could statistically distinguish the two states. This is an accepted trade-off for Sprint 2's single-admin threat model — an attacker already knows an admin exists, so the enumeration surface is moot. Revisit when Sprint 5+ adds multi-user management and the surface widens; the likely fix is to run a no-op UPDATE against a fake user id in the unknown-user path to equalize the full pipeline, not just the crypto step.
 
+**PostLogin branch order.** The handler honours `force_password_change` BEFORE MFA state: a user with a temp password completes password rotation first, then the subsequent `/api/me` + `AuthGuard` cycle routes them into MFA enrollment if needed. The branch order is (a) `force_password_change=true` → session issued, AuthGuard routes to `/change-password`; (b) `mfa_required + not enrolled` → enrollment flow (202 + enrollment cookie, no session); (c) `mfa_required + enrolled` → challenge flow (202 + challenge cookie, no session); (d) legacy (no MFA) → session issued immediately. Enrolling MFA against a temp password would bind the authenticator to a credential that's about to change — backwards per every major 2026 provider. See `internal/handler/auth.go` `PostLogin`.
+
 **AuditLogger interface.** `internal/handler/auth.go` defines `type AuditLogger interface { Log(ctx, q, entry) error }` (exported) so the router wiring and integration test harness can inject a fake audit store. `*store.AuditStore` satisfies the interface unchanged. `internal/middleware/auth.go` defines a parallel unexported interface of the same shape (middleware cannot import handler without a circular dep).
 
 **Router wiring lives in `internal/server/router.go`** via `BuildRouter(RouterDeps) (http.Handler, error)`. Both `cmd/schlass/main.go` and `test/integration/testutil.go` use this single function — any future route or middleware change lands in one place and both production and tests pick it up.
@@ -105,6 +107,42 @@ Destructive handlers (disable, delete, role-demote PATCH) call `rejectSelfOp` as
 ### Temporary Passwords (Sprint 3+)
 
 Admin-created users receive a server-generated 16-character temporary password (`internal/crypto/password.go:GenerateTemporaryPassword`). The alphabet is base58-minus-ambiguous-characters (no `0/O/I/l/1`), yielding ~93 bits of entropy. The plaintext is returned once in the HTTP response body and never stored, logged, or written to audit rows. `force_password_change=true` forces the user to rotate it on first sign-in. Both `POST /api/users` (create) and `POST /api/users/:id/reset-password` (admin reset) use this flow — admins never type passwords.
+
+### MFA — TOTP enrollment and challenge (Sprint 3+)
+
+**Overview.** When `mfa_required = true` in `instance_config`, users who are not enrolled must complete the 3-step enrollment wizard before receiving a session. Users who are enrolled must pass a TOTP or recovery-code challenge on every login. Both flows are stateless in PG until their respective commit points; transient state lives in Valkey hashes keyed by an opaque cookie token.
+
+**Enrollment flow (3 steps, gated by `schlass_mfa_enroll` cookie):**
+
+1. `POST /api/mfa/enrollment/start` — generates a 160-bit TOTP secret (`crypto/rand`, base32), stores it in the Valkey enrollment hash, returns `{ secret_base32, provision_uri }`. Idempotent: re-calling overwrites the secret and resets the 10-minute TTL.
+2. `POST /api/mfa/enrollment/verify` — verifies the first TOTP code (max 5 attempts before token is nuked), generates 10 recovery codes (`XXXX-XXXX`, base58-minus-ambiguous alphabet, ~46 bits each, Argon2id-hashed), stashes the hashes in the enrollment hash, returns plaintext codes once.
+3. `POST /api/mfa/enrollment/complete` — requires `{ acknowledged: true }`. Commits atomically: `SetTOTPEnrolled` (writes AES-GCM-encrypted secret + `totp_enrolled_at` + resets counter), `RecoveryCodeStore.Insert` (10 hashes), `mfa.enrollment_completed` audit row. On commit: destroys enrollment Valkey key, clears enroll cookie, creates a real session. This is the audit-in-tx commit point.
+
+**Challenge flow (gated by `schlass_mfa_challenge` cookie, 120s TTL):**
+
+`POST /api/login` for an enrolled user sets `schlass_mfa_challenge` instead of a session cookie, writing `user_id` + `attempts_remaining=5` to a Valkey hash keyed by the challenge token.
+
+`POST /api/mfa/challenge` dispatches on request body:
+- TOTP path (`{ code }`): decrypts secret, calls `ValidateTOTP` with `±1 step` skew and `lastCounter` replay gate. On success: `AdvanceTOTPCounter` + `login.succeeded` + `mfa.challenge_succeeded` in one tx, then creates session.
+- Recovery path (`{ recovery_code }`): loads all unused codes, iterates all of them in constant time (no early exit — prevents timing-based enumeration of remaining count), burns the matched code via `MarkUsed` + 3 audit rows in one tx, then creates session.
+
+Attempts are decremented atomically before any verification work (`HIncrBy ... -1`). When `attempts_remaining < 0`, the Valkey key is deleted immediately and `MFA_CHALLENGE_MAX_ATTEMPTS` is returned.
+
+**Admin MFA reset:** `POST /api/users/{id}/reset-mfa` (`users.reset_mfa` permission) clears `totp_secret_encrypted`, `totp_enrolled_at`, `last_used_totp_counter`, and deletes all recovery codes atomically. The user is forced through enrollment again on next login. Audit: `mfa.reset`.
+
+**Documented exception — challenge failed audit is best-effort.** `mfa.challenge_failed` rows are written in a separate short-lived tx (not the decrement tx). Failure is logged ERROR-level but does not block the response. This is consistent with the middleware-revocation exception rationale: the brute-force guard is the atomic decrement (structural), not the audit row (forensic). Do not "fix" this to audit-in-tx.
+
+**Enrollment endpoints accept either auth mode.** `/api/mfa/enrollment/start|verify|complete` resolve the enrollment principal from either the `schlass_mfa_enroll` cookie (pre-session path — user just entered password and was bounced to enrollment) OR an authenticated session cookie whose user has `force_mfa_enrollment=true` (post-session path — setup-wizard admin, or a user who got admin-reset while holding an active session). When session-authed, `/start` mints an enrollment cookie inline and stamps `session_authed=1` on the Valkey state so `/complete` skips `sessionStore.Create` — the user already has a valid session. Without this dual-auth the setup wizard admin gets stuck in an infinite redirect between `/setup-mfa` and `/admin`. See `internal/handler/mfa.go` `resolveEnrollPrincipal`.
+
+**Key files:** `internal/handler/mfa.go` (all handler logic), `internal/crypto/totp.go` (`GenerateTOTPSecret`, `ValidateTOTP`, `BuildProvisionURI`), `internal/crypto/recovery_codes.go` (`GenerateRecoveryCodes`), `internal/store/recovery_code_store.go` (`Insert`, `ListUnused`, `CountUnused`, `MarkUsed`, `DeleteAllForUser`), `internal/store/user_store.go` (`SetTOTPEnrolled`, `AdvanceTOTPCounter`, `ClearTOTPEnrollment`).
+
+**Rate limiting.** `POST /api/mfa/challenge` has its own 5/min per-IP rate limiter independent of the login limiter. Override via `SCHLASS_MFA_CHALLENGE_RATE_LIMIT` env var (integer; 0 = default 5). This follows the same pattern as `SCHLASS_LOGIN_RATE_LIMIT`. E2E tests set this to 1000 via `docker-compose.e2e.yml`; integration tests set `MfaChallengeRateLimit: 10000` in `RouterDeps` via `test/integration/testutil.go`.
+
+**Frontend routes:**
+- `/setup-mfa` — `TotpEnrollmentWizard` (3-step: Scan QR, Verify code, Acknowledge recovery codes). Uses `qrcode.react` (ESM/React 19 compatible; do NOT replace with `react-qr-code` v2 which uses CJS Babel format incompatible with Vite production builds). After complete, `super_admin` lands on `/admin`, others on `/account`.
+- `/mfa-challenge` — `TotpChallengePage`. Supports TOTP (6-digit `SixDigitInput`) and recovery-code mode (plain text input, XXXX-XXXX placeholder). Recovery code input must NOT apply `.toUpperCase()` — the alphabet is mixed-case and Argon2id hashes are case-sensitive.
+
+**`/api/me` MFA fields.** `GetMe` includes `totp_enrolled_at` (from `userDTO`) and, if enrolled, `mfa.unused_recovery_codes` (from `RecoveryCodeStore.CountUnused`). The account page uses both: `totp_enrolled_at` to render the "Enabled" badge, `mfa.unused_recovery_codes` to display the remaining code count.
 
 ## Database
 

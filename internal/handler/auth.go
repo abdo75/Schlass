@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/abdo75/Schlass/internal/config"
 	"github.com/abdo75/Schlass/internal/crypto"
@@ -31,12 +32,14 @@ type AuditLogger interface {
 
 // AuthHandler serves POST /api/login (and, in later tasks, /api/logout and /api/me).
 type AuthHandler struct {
-	pool          *pgxpool.Pool
-	sessionStore  session.Store
-	userStore     *store.UserStore
-	auditStore    AuditLogger
-	configStore   *store.ConfigStore
-	configService *config.ConfigService
+	pool              *pgxpool.Pool
+	valkey            *redis.Client
+	sessionStore      session.Store
+	userStore         *store.UserStore
+	recoveryCodeStore *store.RecoveryCodeStore
+	auditStore        AuditLogger
+	configStore       *store.ConfigStore
+	configService     *config.ConfigService
 
 	publicURL    string // for Origin check
 	cookieSecure bool   // derived from publicURL at construction time
@@ -49,8 +52,10 @@ type AuthHandler struct {
 // hash cannot be computed so main.go can fail fast at startup.
 func NewAuthHandler(
 	pool *pgxpool.Pool,
+	valkeyClient *redis.Client,
 	sessionStore session.Store,
 	userStore *store.UserStore,
+	recoveryCodeStore *store.RecoveryCodeStore,
 	auditStore AuditLogger,
 	configStore *store.ConfigStore,
 	configService *config.ConfigService,
@@ -61,15 +66,17 @@ func NewAuthHandler(
 		return nil, fmt.Errorf("auth handler: pre-compute dummy hash: %w", err)
 	}
 	return &AuthHandler{
-		pool:          pool,
-		sessionStore:  sessionStore,
-		userStore:     userStore,
-		auditStore:    auditStore,
-		configStore:   configStore,
-		configService: configService,
-		publicURL:     publicURL,
-		cookieSecure:  strings.HasPrefix(publicURL, "https://"),
-		dummyHash:     dummy,
+		pool:              pool,
+		valkey:            valkeyClient,
+		sessionStore:      sessionStore,
+		userStore:         userStore,
+		recoveryCodeStore: recoveryCodeStore,
+		auditStore:        auditStore,
+		configStore:       configStore,
+		configService:     configService,
+		publicURL:         publicURL,
+		cookieSecure:      isSecureURL(publicURL),
+		dummyHash:         dummy,
 	}, nil
 }
 
@@ -318,51 +325,166 @@ func (h *AuthHandler) PostLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 		return
 	}
-	if err := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
-		EventType:  "login.succeeded",
-		ActorID:    &user.ID,
-		ActorEmail: user.Email,
-		TargetType: "user",
-		TargetID:   user.ID.String(),
-		IPAddress:  ip,
-		Outcome:    "success",
-	}); err != nil {
-		slog.Error("audit write failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
-		return
-	}
-	if err := tx.Commit(r.Context()); err != nil {
-		slog.Error("commit failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+
+	// 8. Branch order per spec §4a:
+	//   (a) force_password_change=true → issue session, skip MFA check.
+	//       AuthGuard routes to /change-password; MFA state is re-evaluated
+	//       after the change (refreshUser + AuthGuard's force_mfa_enrollment
+	//       redirect fires naturally).
+	//   (b) mfa_required + not enrolled → enrollment flow (no session yet)
+	//   (c) mfa_required + enrolled → challenge flow (no session yet)
+	//   (d) no MFA → legacy flow (session issued immediately)
+	//
+	// Ordering (a) FIRST means a user with a temp password completes password
+	// rotation BEFORE MFA enrollment. Temp passwords aren't real credentials;
+	// enrolling MFA against a temp password would tie the authenticator to a
+	// credential that's about to change.
+	if user.ForcePasswordChange {
+		// Audit-in-tx: login.succeeded fires here, inside the same tx as
+		// ResetFailedLogins above, before any Valkey side-effect.
+		if err := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+			EventType:  "login.succeeded",
+			ActorID:    &user.ID,
+			ActorEmail: user.Email,
+			TargetType: "user",
+			TargetID:   user.ID.String(),
+			IPAddress:  ip,
+			Outcome:    "success",
+			Metadata:   map[string]any{"force_password_change_pending": true},
+		}); err != nil {
+			slog.Error("audit login.succeeded failed (force-pw branch)", "error", err)
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+			return
+		}
+		if err := h.userStore.SetLastLoginAt(r.Context(), tx, user.ID); err != nil {
+			slog.Error("login: SetLastLoginAt failed (force-pw branch)", "error", err)
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+			return
+		}
+		if err := tx.Commit(r.Context()); err != nil {
+			slog.Error("login: commit failed (force-pw branch)", "error", err)
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+			return
+		}
+		sessionToken, err := h.sessionStore.Create(r.Context(), user.ID.String(), ip, r.Header.Get("User-Agent"))
+		if err != nil {
+			slog.Error("login: session.Create failed (force-pw branch)", "error", err)
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+			return
+		}
+		setSessionCookie(w, sessionToken, h.cookieSecure)
+		writeJSON(w, http.StatusOK, map[string]any{"user": userDTO(user)})
 		return
 	}
 
-	// 8. Post-tx: create session in Valkey, set cookie, return user.
-	token, err := h.sessionStore.Create(r.Context(), user.ID.String(), ip, r.Header.Get("User-Agent"))
+	// From here, user.ForcePasswordChange is false. Consult MFA state next.
+	mfaRequired, err := h.configStore.GetBool(r.Context(), tx, "mfa_required")
 	if err != nil {
-		slog.Error("session create failed", "error", err)
+		slog.Error("login: mfa_required read failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 		return
 	}
 
-	http.SetCookie(w, &http.Cookie{
-		Name:     "schlass_session",
-		Value:    token,
-		Path:     "/",
-		MaxAge:   86400,
-		HttpOnly: true,
-		Secure:   h.cookieSecure,
-		SameSite: http.SameSiteStrictMode,
-	})
+	switch {
+	case mfaRequired && user.TOTPEnrolledAt == nil:
+		// Enrollment required — commit the password-side work (ResetFailedLogins)
+		// without writing login.succeeded; that audit row moves to /enrollment/complete.
+		if err := tx.Commit(r.Context()); err != nil {
+			slog.Error("login: commit failed (enroll branch)", "error", err)
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+			return
+		}
+		enrollToken, err := generateRandomToken(32)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+			return
+		}
+		key := "mfa:enroll:" + enrollToken
+		if err := h.valkey.HSet(r.Context(), key, "user_id", user.ID.String()).Err(); err != nil {
+			slog.Error("login: Valkey HSet enroll token failed", "error", err)
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+			return
+		}
+		h.valkey.Expire(r.Context(), key, 10*time.Minute)
+		http.SetCookie(w, &http.Cookie{
+			Name:     "schlass_mfa_enroll",
+			Value:    enrollToken,
+			Path:     "/",
+			HttpOnly: true,
+			SameSite: http.SameSiteStrictMode,
+			Secure:   h.cookieSecure,
+			MaxAge:   600, // 10 min
+		})
+		writeJSON(w, http.StatusAccepted, map[string]any{"totp_enrollment_required": true})
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"user": map[string]any{
-			"id":                    user.ID.String(),
-			"email":                 user.Email,
-			"role":                  user.Role,
-			"force_password_change": user.ForcePasswordChange,
-		},
-	})
+	case mfaRequired && user.TOTPEnrolledAt != nil:
+		// Challenge required — commit the password-side work without login.succeeded;
+		// that audit row moves to /api/mfa/challenge on success.
+		if err := tx.Commit(r.Context()); err != nil {
+			slog.Error("login: commit failed (challenge branch)", "error", err)
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+			return
+		}
+		challengeToken, err := generateRandomToken(32)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+			return
+		}
+		key := "mfa:challenge:" + challengeToken
+		if err := h.valkey.HSet(r.Context(), key,
+			"user_id", user.ID.String(),
+			"attempts_remaining", 5,
+		).Err(); err != nil {
+			slog.Error("login: Valkey HSet challenge token failed", "error", err)
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+			return
+		}
+		h.valkey.Expire(r.Context(), key, 120*time.Second)
+		http.SetCookie(w, &http.Cookie{
+			Name:     "schlass_mfa_challenge",
+			Value:    challengeToken,
+			Path:     "/",
+			HttpOnly: true,
+			SameSite: http.SameSiteStrictMode,
+			Secure:   h.cookieSecure,
+			MaxAge:   120,
+		})
+		writeJSON(w, http.StatusAccepted, map[string]any{"totp_required": true})
+
+	default:
+		// No MFA required — legacy path. login.succeeded fires here.
+		if err := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+			EventType:  "login.succeeded",
+			ActorID:    &user.ID,
+			ActorEmail: user.Email,
+			TargetType: "user",
+			TargetID:   user.ID.String(),
+			IPAddress:  ip,
+			Outcome:    "success",
+		}); err != nil {
+			slog.Error("audit write failed", "error", err)
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+			return
+		}
+		if err := h.userStore.SetLastLoginAt(r.Context(), tx, user.ID); err != nil {
+			slog.Error("login: SetLastLoginAt failed (no-mfa branch)", "error", err)
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+			return
+		}
+		if err := tx.Commit(r.Context()); err != nil {
+			slog.Error("login: commit failed", "error", err)
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+			return
+		}
+		sessionToken, err := h.sessionStore.Create(r.Context(), user.ID.String(), ip, r.Header.Get("User-Agent"))
+		if err != nil {
+			slog.Error("login: session.Create failed", "error", err)
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+			return
+		}
+		setSessionCookie(w, sessionToken, h.cookieSecure)
+		writeJSON(w, http.StatusOK, map[string]any{"user": userDTO(user)})
+	}
 }
 
 // PostLogout destroys the current session. Logout is a state change so the
@@ -569,20 +691,150 @@ func (h *AuthHandler) PostChangePassword(w http.ResponseWriter, r *http.Request)
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// PostDisableMfa handles POST /api/me/mfa/disable — self-service MFA disable.
+// Requires the authenticated user to re-enter their password as proof of
+// possession. On success:
+//   - Clears totp_secret_encrypted, totp_enrolled_at, last_used_totp_counter
+//   - Deletes all recovery codes
+//   - Writes mfa.self_reset audit row
+//   - Revokes all Valkey sessions for the user (including the current one)
+//
+// Re-auth via password only (not password + current TOTP) — consistent with
+// POST /api/change-password which also requires only password.
+func (h *AuthHandler) PostDisableMfa(w http.ResponseWriter, r *http.Request) {
+	current, ok := middleware.CurrentUser(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "INVALID_SESSION", "Not authenticated.")
+		return
+	}
+
+	var req struct {
+		CurrentPassword string `json:"current_password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body.")
+		return
+	}
+
+	if current.TOTPEnrolledAt == nil {
+		writeError(w, http.StatusBadRequest, "MFA_NOT_ENROLLED", "Two-factor authentication is not enabled on this account.")
+		return
+	}
+
+	// Verify password. Load the full user (middleware may only have a subset)
+	// so we have the password_hash.
+	full, err := h.userStore.GetByID(r.Context(), h.pool, current.ID)
+	if err != nil {
+		slog.Error("disable-mfa: GetByID failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	ok2, err := crypto.VerifyPassword(req.CurrentPassword, full.PasswordHash)
+	if err != nil {
+		slog.Error("disable-mfa: VerifyPassword failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if !ok2 {
+		writeError(w, http.StatusUnauthorized, "INVALID_CREDENTIALS", "Invalid password.")
+		return
+	}
+
+	// Tx: clear TOTP + delete recovery codes + audit, atomic commit.
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	defer func() { _ = tx.Rollback(r.Context()) }()
+
+	deleted, err := h.recoveryCodeStore.DeleteAllForUser(r.Context(), tx, current.ID)
+	if err != nil {
+		slog.Error("disable-mfa: DeleteAllForUser failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if err := h.userStore.ClearTOTP(r.Context(), tx, current.ID); err != nil {
+		slog.Error("disable-mfa: ClearTOTP failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	wasEnrolledAt := current.TOTPEnrolledAt.Format(time.RFC3339)
+	if err := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+		EventType:  "mfa.self_reset",
+		ActorID:    &current.ID,
+		ActorEmail: current.Email,
+		TargetType: "user",
+		TargetID:   current.ID.String(),
+		IPAddress:  extractClientIP(r),
+		Outcome:    "success",
+		Metadata: map[string]any{
+			"recovery_codes_burned": deleted,
+			"was_enrolled_at":       wasEnrolledAt,
+		},
+	}); err != nil {
+		slog.Error("disable-mfa: audit write failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		slog.Error("disable-mfa: Commit failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	// Post-tx: revoke ALL sessions for this user (including the current one).
+	if err := h.sessionStore.DeleteAllForUser(r.Context(), current.ID.String()); err != nil {
+		slog.Error("disable-mfa: session revocation failed", "error", err, "user_id", current.ID)
+		// Non-fatal — the PG state is committed, audit row is written.
+	}
+
+	// Clear the session cookie client-side too.
+	http.SetCookie(w, &http.Cookie{
+		Name:     "schlass_session",
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+		Secure:   h.cookieSecure,
+		MaxAge:   -1,
+	})
+
+	writeJSON(w, http.StatusOK, map[string]any{"disabled": true})
+}
+
 // GetMe returns the authenticated user DTO from the request context (populated
 // by the auth middleware). Used by the frontend to rehydrate session state.
+// It also includes force_mfa_enrollment so the SPA AuthGuard can redirect to
+// /setup-mfa when the user has not yet enrolled and MFA is required.
 func (h *AuthHandler) GetMe(w http.ResponseWriter, r *http.Request) {
 	user, ok := middleware.CurrentUser(r.Context())
 	if !ok {
 		writeError(w, http.StatusUnauthorized, "INVALID_SESSION", "Not authenticated.")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"user": map[string]any{
-			"id":                    user.ID.String(),
-			"email":                 user.Email,
-			"role":                  user.Role,
-			"force_password_change": user.ForcePasswordChange,
-		},
-	})
+
+	mfaRequired, err := h.configStore.GetBool(r.Context(), h.pool, "mfa_required")
+	if err != nil {
+		slog.Error("GetMe: mfa_required read failed", "error", err)
+		mfaRequired = true // fail-safe — treat as required
+	}
+	forceMFAEnrollment := mfaRequired && user.TOTPEnrolledAt == nil
+
+	dto := userDTO(user)
+	dto["force_mfa_enrollment"] = forceMFAEnrollment
+
+	// Include recovery code count when the user is enrolled. Best-effort:
+	// a failure here (e.g. transient DB error) degrades to omitting the count
+	// rather than returning a 500, since it is display-only metadata.
+	if user.TOTPEnrolledAt != nil {
+		count, err := h.recoveryCodeStore.CountUnused(r.Context(), h.pool, user.ID)
+		if err != nil {
+			slog.Error("GetMe: CountUnused recovery codes failed", "error", err)
+		} else {
+			dto["mfa"] = map[string]any{"unused_recovery_codes": count}
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"user": dto})
 }

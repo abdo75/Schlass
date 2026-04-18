@@ -34,6 +34,20 @@ func (s *ConfigService) SetInstanceName(ctx context.Context, q database.Querier,
 	return s.store.Set(ctx, q, "instance_name", name)
 }
 
+// GetInstanceName returns the human-readable instance name from instance_config.
+// Returns "" on error or when the value is NULL/empty — callers should fall
+// back to "Schlass".
+func (s *ConfigService) GetInstanceName(ctx context.Context, q database.Querier) (string, error) {
+	isNull, err := s.store.IsNull(ctx, q, "instance_name")
+	if err != nil {
+		return "", err
+	}
+	if isNull {
+		return "", nil
+	}
+	return s.store.GetString(ctx, q, "instance_name")
+}
+
 func (s *ConfigService) GetPasswordPolicy(ctx context.Context, q database.Querier) (model.PasswordPolicy, error) {
 	minLength, err := s.store.GetInt(ctx, q, "password_min_length")
 	if err != nil {

@@ -63,11 +63,16 @@ func TestLogin_CaseInsensitiveEmail(t *testing.T) {
 	adminPass := "CorrectHorse1Battery"
 	env.SeedAdmin(t, adminEmail, adminPass)
 
+	// Disable MFA so each login attempt takes the legacy 200-path.
+	if _, err := env.Pool.Exec(t.Context(), `UPDATE instance_config SET value = 'false' WHERE key = 'mfa_required'`); err != nil {
+		t.Fatalf("disable mfa: %v", err)
+	}
+
 	cases := []string{
-		"admin@example.com",  // canonical
-		"ADMIN@example.com",  // upper local part
-		"Admin@Example.COM",  // fully mixed
-		"admin@EXAMPLE.com",  // upper domain
+		"admin@example.com", // canonical
+		"ADMIN@example.com", // upper local part
+		"Admin@Example.COM", // fully mixed
+		"admin@EXAMPLE.com", // upper domain
 	}
 	for _, email := range cases {
 		body, _ := json.Marshal(map[string]string{"email": email, "password": adminPass})

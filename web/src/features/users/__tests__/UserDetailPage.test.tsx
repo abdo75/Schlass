@@ -34,6 +34,7 @@ function makeDetail(
     email: "target@example.com",
     role: "user",
     force_password_change: false,
+    force_mfa_enrollment: false,
     status: "active",
     created_at: "2026-04-14T12:00:00Z",
   };
@@ -48,6 +49,7 @@ const ME_ADMIN = {
   email: "admin@example.com",
   role: "super_admin",
   force_password_change: false,
+  force_mfa_enrollment: false,
 };
 
 function renderPage(id = "user-1") {
@@ -87,10 +89,9 @@ describe("UserDetailPage", () => {
 
     renderPage();
 
-    // Page title renders email
-    expect(
-      await screen.findByText("alice@example.com", { selector: ".text-lg" }),
-    ).toBeInTheDocument();
+    // Email appears in the breadcrumb path header (may also appear in profile card body)
+    const emailEls = await screen.findAllByText("alice@example.com");
+    expect(emailEls.length).toBeGreaterThan(0);
 
     // Actions card visible
     expect(screen.getByText(/actions/i)).toBeInTheDocument();
@@ -114,7 +115,7 @@ describe("UserDetailPage", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows self-view variant: 'This is you', hides Disable/Delete, shows change password link", async () => {
+  it("shows self-view variant: 'This is you', hides Disable/Delete, shows change password link, Edit button present", async () => {
     // The current user IS the target user
     vi.mocked(usersApi.getUser).mockResolvedValue(
       makeDetail({ id: "admin-1", email: "admin@example.com", role: "super_admin" }),
@@ -128,7 +129,7 @@ describe("UserDetailPage", () => {
     // "This is you" marker
     expect(screen.getByText(/this is you/i)).toBeInTheDocument();
 
-    // No Disable/Delete buttons
+    // No Disable/Delete buttons — destructive self-ops remain blocked
     expect(
       screen.queryByRole("button", { name: /disable user/i }),
     ).not.toBeInTheDocument();
@@ -139,10 +140,11 @@ describe("UserDetailPage", () => {
     // Change your password link present
     expect(screen.getByText(/change your password/i)).toBeInTheDocument();
 
-    // No Edit button
+    // Edit button IS present — admins edit their own profile through the admin
+    // panel (2026 standard). Destructive self-ops stay blocked above.
     expect(
-      screen.queryByRole("button", { name: /^edit$/i }),
-    ).not.toBeInTheDocument();
+      screen.getByRole("button", { name: /^edit$/i }),
+    ).toBeInTheDocument();
   });
 
   it("edit mode: clicking Edit swaps to Cancel + Save, fields become inputs, actions card is dimmed", async () => {
@@ -155,6 +157,7 @@ describe("UserDetailPage", () => {
         email: "new@example.com",
         role: "super_admin",
         force_password_change: false,
+        force_mfa_enrollment: false,
       },
     });
 
@@ -354,6 +357,61 @@ describe("UserDetailPage", () => {
         "user-1",
         "tok-aaa",
       );
+    });
+  });
+
+  it("shows Reset MFA button when target user is enrolled and current user has permission", async () => {
+    vi.mocked(usersApi.getUser).mockResolvedValue(
+      makeDetail({ totp_enrolled_at: "2026-04-17T10:00:00Z" }),
+    );
+    vi.mocked(usersApi.resetMfa).mockResolvedValue({
+      user: makeDetail({ totp_enrolled_at: null }).user,
+    });
+
+    renderPage();
+    await screen.findByTestId("actions-card");
+
+    expect(
+      screen.getByRole("button", { name: /reset mfa/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("does not show Reset MFA button when target user is not enrolled", async () => {
+    vi.mocked(usersApi.getUser).mockResolvedValue(
+      makeDetail({ totp_enrolled_at: undefined }),
+    );
+
+    renderPage();
+    await screen.findByTestId("actions-card");
+
+    expect(
+      screen.queryByRole("button", { name: /reset mfa/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("Reset MFA flow: confirm dialog then calls resetMfa", async () => {
+    vi.mocked(usersApi.getUser).mockResolvedValue(
+      makeDetail({ totp_enrolled_at: "2026-04-17T10:00:00Z" }),
+    );
+    vi.mocked(usersApi.resetMfa).mockResolvedValue({
+      user: makeDetail({ totp_enrolled_at: null }).user,
+    });
+
+    renderPage();
+    const user = userEvent.setup();
+    await screen.findByTestId("actions-card");
+
+    await user.click(screen.getByRole("button", { name: /reset mfa/i }));
+
+    // Confirm dialog appears
+    const dialog = await screen.findByRole("dialog");
+    const confirmBtn = within(dialog).getByRole("button", {
+      name: /reset mfa/i,
+    });
+    await user.click(confirmBtn);
+
+    await waitFor(() => {
+      expect(usersApi.resetMfa).toHaveBeenCalledWith("user-1");
     });
   });
 

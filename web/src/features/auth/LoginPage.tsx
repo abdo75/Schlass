@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Navigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,7 +17,7 @@ import { useAuth } from "./AuthContext";
 export function LoginPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const { login, user, loading } = useAuth();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -27,14 +27,31 @@ export function LoginPage() {
   );
   const [submitting, setSubmitting] = useState(false);
 
+  // Redirect already-authenticated users away from /login. Standard pattern:
+  // GitHub, Okta, Linear all bounce authed users out of their login pages to
+  // the default post-auth destination.
+  if (loading) return null;
+  if (user) {
+    const dest = user.role === "super_admin" ? "/admin" : "/account";
+    return <Navigate to={dest} replace />;
+  }
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setErrorCode(null);
     setRetryAfterSeconds(null);
     setSubmitting(true);
     try {
-      const user = await login(email, password);
-      const destination = user.role === "super_admin" ? "/admin" : "/account";
+      const res = await login(email, password);
+      if (res.kind === "enrollment_required") {
+        void navigate("/setup-mfa", { replace: true });
+        return;
+      }
+      if (res.kind === "challenge_required") {
+        void navigate("/mfa-challenge", { replace: true, state: { email } });
+        return;
+      }
+      const destination = res.user.role === "super_admin" ? "/admin" : "/account";
       void navigate(destination, { replace: true });
     } catch (err: unknown) {
       // apiFetch throws ApiRequestError with { code, message, status,

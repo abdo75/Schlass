@@ -50,17 +50,20 @@ func main() {
 	configStore := store.NewConfigStore()
 	userStore := store.NewUserStore()
 	auditStore := store.NewAuditStore()
+	recoveryCodeStore := store.NewRecoveryCodeStore()
 	configService := config.NewConfigService(configStore, cfg.EncryptionKey)
 
 	h, err := server.BuildRouter(server.RouterDeps{
-		Cfg:            cfg,
-		Pool:           pool,
-		ValkeyClient:   valkeyClient,
-		ConfigStore:    configStore,
-		UserStore:      userStore,
-		AuditStore:     auditStore,
-		ConfigService:  configService,
-		LoginRateLimit: cfg.LoginRateLimit,
+		Cfg:                   cfg,
+		Pool:                  pool,
+		ValkeyClient:          valkeyClient,
+		ConfigStore:           configStore,
+		UserStore:             userStore,
+		RecoveryCodeStore:     recoveryCodeStore,
+		AuditStore:            auditStore,
+		ConfigService:         configService,
+		LoginRateLimit:        cfg.LoginRateLimit,
+		MfaChallengeRateLimit: cfg.MfaChallengeRateLimit,
 	})
 	if err != nil {
 		slog.Error("failed to build router", "error", err)

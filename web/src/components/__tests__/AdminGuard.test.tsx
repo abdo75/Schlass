@@ -3,12 +3,12 @@ import { render, screen } from "@testing-library/react";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { AuthContext } from "@/features/auth/AuthContext";
 import { AdminGuard } from "@/components/AdminGuard";
-import type { AuthUser } from "@/features/auth/api";
+import type { AuthUser, LoginResponse } from "@/features/auth/api";
 
 interface AuthState {
   user: AuthUser | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<AuthUser>;
+  login: (email: string, password: string) => Promise<LoginResponse>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<AuthUser | null>;
 }
@@ -18,7 +18,7 @@ function renderAtPath(path: string, user: AuthUser | null, loading = false) {
     user,
     loading,
     // eslint-disable-next-line @typescript-eslint/require-await
-    login: async () => (user ?? ({ id: "", email: "", role: "user", force_password_change: false } as AuthUser)),
+    login: async () => ({ kind: "session" as const, user: user ?? ({ id: "", email: "", role: "user", force_password_change: false, force_mfa_enrollment: false } as AuthUser) }),
     logout: async () => {},
     // eslint-disable-next-line @typescript-eslint/require-await
     refreshUser: async () => null,
@@ -48,12 +48,14 @@ const superAdmin: AuthUser = {
   email: "admin@x.com",
   role: "super_admin",
   force_password_change: false,
+  force_mfa_enrollment: false,
 };
 const regularUser: AuthUser = {
   id: "u1",
   email: "u@x.com",
   role: "user",
   force_password_change: false,
+  force_mfa_enrollment: false,
 };
 
 describe("AdminGuard", () => {

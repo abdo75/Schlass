@@ -43,6 +43,7 @@ describe("UserCreatePage", () => {
         email: "admin@example.com",
         role: "super_admin",
         force_password_change: false,
+        force_mfa_enrollment: false,
       },
     });
   });
@@ -61,6 +62,7 @@ describe("UserCreatePage", () => {
         email: "new@example.com",
         role: "user",
         force_password_change: true,
+        force_mfa_enrollment: false,
       },
       temporary_password: "TempPass123!",
     });
@@ -89,6 +91,7 @@ describe("UserCreatePage", () => {
         email: "another@example.com",
         role: "user",
         force_password_change: true,
+        force_mfa_enrollment: false,
       },
       temporary_password: "AnotherPass1!",
     });

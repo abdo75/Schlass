@@ -184,11 +184,23 @@
     "title": "Votre compte",
     "subtitle": "Session ouverte : {{email}}",
     "password_heading": "Mot de passe",
-    "password_hint": "Vous pouvez modifier votre mot de passe à tout moment.",
+    "password_hint": "Modifié aujourd'hui.",
     "change_password": "Modifier le mot de passe",
     "totp_heading": "Authentification à deux facteurs",
-    "totp_placeholder": "L'inscription à l'authentification à deux facteurs sera disponible dans une version ultérieure.",
-    "sign_out": "Se déconnecter"
+    "totp_placeholder": "Protégez votre compte avec une application d'authentification.",
+    "sign_out": "Se déconnecter",
+    "security_heading": "Sécurité",
+    "password_label": "Mot de passe",
+    "change_button": "Modifier",
+    "totp_label": "Authentification à deux facteurs",
+    "totp_setup_button": "Configurer",
+    "session_heading": "Session",
+    "signout_label": "Se déconnecter",
+    "signout_description": "Terminer votre session sur cet appareil."
+  },
+  "role": {
+    "admin": "Administrateur",
+    "user": "Utilisateur"
   },
   "errors": {
     "SETUP_ALREADY_COMPLETE": "La configuration a déjà été effectuée.",
@@ -210,7 +222,75 @@
     "FORBIDDEN": "Vous n'avez pas l'autorisation d'effectuer cette action.",
     "WRONG_CURRENT_PASSWORD": "Le mot de passe actuel est incorrect.",
     "passwordMismatch": "Les mots de passe ne correspondent pas.",
-    "unexpected": "Une erreur inattendue s'est produite."
+    "unexpected": "Une erreur inattendue s'est produite.",
+    "MFA_ENROLLMENT_REQUIRED": "La configuration de l'authentification à deux facteurs est obligatoire.",
+    "MFA_ENROLLMENT_EXPIRED": "La session de configuration de l'authentification à deux facteurs a expiré — veuillez vous reconnecter.",
+    "MFA_INVALID_CODE": "Code invalide.",
+    "MFA_INVALID_RECOVERY_CODE": "Code de récupération invalide.",
+    "MFA_CHALLENGE_REQUIRED": "Vérification à deux facteurs requise.",
+    "MFA_CHALLENGE_EXPIRED": "La session de connexion a expiré — veuillez vous reconnecter.",
+    "MFA_CHALLENGE_MAX_ATTEMPTS": "Trop de tentatives échouées — veuillez vous reconnecter.",
+    "MFA_NOT_ENROLLED": "Cet utilisateur n'a pas configuré l'authentification à deux facteurs.",
+    "MFA_ALREADY_ENROLLED": "Ce compte a déjà l'authentification à deux facteurs activée."
+  },
+  "mfa": {
+    "enrollment": {
+      "step1_label": "Scanner",
+      "step2_label": "Vérifier",
+      "step3_label": "Codes",
+      "step1_title": "Configurer l'authentification à deux facteurs",
+      "step1_description": "Scannez le QR code avec votre application d'authentification.",
+      "step2_title": "Vérifiez votre application",
+      "step2_description": "Entrez le code à 6 chiffres affiché dans votre application.",
+      "step3_title": "Sauvegardez vos codes de récupération",
+      "step3_description": "Conservez ces codes en lieu sûr — ils sont votre secours si vous perdez l'accès.",
+      "cannot_scan_link": "Impossible de scanner ? Saisissez la clé manuellement",
+      "hide_manual_secret": "Masquer la clé manuelle",
+      "next_button": "Suivant",
+      "verify_button": "Vérifier",
+      "verify_submitting": "Vérification...",
+      "verify_helper_one": "Coller depuis le presse-papiers · {{count}} tentative restante",
+      "verify_helper_other": "Coller depuis le presse-papiers · {{count}} tentatives restantes",
+      "step3_warning": "Enregistrez-les maintenant — elles ne pourront pas être récupérées.",
+      "copy_all": "Tout copier",
+      "download": "Télécharger",
+      "print": "Imprimer",
+      "copy_code_aria": "Copier le code {{code}}",
+      "acknowledgement": "J'ai enregistré ces codes en lieu sûr.",
+      "finish_button": "Terminer",
+      "finish_submitting": "Finalisation…"
+    },
+    "challenge": {
+      "title": "Code à deux facteurs",
+      "email_echo": "Connexion en tant que {{email}}",
+      "code_input_label": "Code de l'authentificateur",
+      "expires_in": "Expire dans {{time}}",
+      "verify_button": "Vérifier",
+      "verify_submitting": "Vérification…",
+      "use_recovery_link": "Utiliser un code de récupération à la place",
+      "back_to_code_link": "Saisir un code à 6 chiffres à la place",
+      "recovery_input_label": "Code de récupération"
+    },
+    "account": {
+      "enabled_badge": "Activé",
+      "enrolled_on": "Activé le {{date}}",
+      "codes_remaining_one": "{{count}} code de récupération restant",
+      "codes_remaining_other": "{{count}} codes de récupération restants",
+      "reset_contact_admin": "Contactez un administrateur pour réinitialiser l'authentification à deux facteurs.",
+      "disable_button": "Désactiver la double authentification",
+      "disable_dialog_title": "Désactiver l'authentification à deux facteurs ?",
+      "disable_dialog_description": "Cela désactive la double authentification sur votre compte et invalide votre application d'authentification ainsi que vos codes de récupération. Vous devrez configurer à nouveau la double authentification lors de votre prochaine connexion. Entrez votre mot de passe pour confirmer.",
+      "disable_password_label": "Mot de passe actuel",
+      "disable_confirm": "Désactiver",
+      "disable_cancel": "Annuler"
+    },
+    "admin_reset": {
+      "button_label": "Réinitialiser la 2FA",
+      "dialog_title": "Réinitialiser l'authentification à deux facteurs ?",
+      "dialog_description": "Cela efface l'authentificateur de {{email}} et ses codes de récupération. Il devra s'inscrire à nouveau lors de sa prochaine connexion et sera déconnecté de toutes les sessions actives.",
+      "dialog_confirm": "Réinitialiser la 2FA",
+      "dialog_cancel": "Annuler"
+    }
   },
   "language": {
     "en": "English",
@@ -220,7 +300,8 @@
   "user_menu": {
     "theme": { "heading": "Thème", "light": "Clair", "dark": "Sombre", "system": "Système" },
     "language": { "heading": "Langue" },
-    "change_password": "Changer le mot de passe",
+    "my_account": "Mon compte",
+    "admin_panel": "Panneau d'administration",
     "sign_out": "Se déconnecter"
   }
 }

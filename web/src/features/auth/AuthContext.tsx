@@ -1,10 +1,10 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { getMe, login as apiLogin, logout as apiLogout, type AuthUser } from "./api";
+import { getMe, login as apiLogin, logout as apiLogout, type AuthUser, type LoginResponse } from "./api";
 
 interface AuthState {
   user: AuthUser | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<AuthUser>;
+  login: (email: string, password: string) => Promise<LoginResponse>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<AuthUser | null>;
 }
@@ -39,10 +39,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("schlass:unauthorized", handler);
   }, []);
 
-  const login = async (email: string, password: string): Promise<AuthUser> => {
+  const login = async (email: string, password: string): Promise<LoginResponse> => {
     const res = await apiLogin(email, password);
-    setUser(res.user);
-    return res.user;
+    if (res.kind === "session") setUser(res.user);
+    return res;
   };
 
   const logout = async () => {

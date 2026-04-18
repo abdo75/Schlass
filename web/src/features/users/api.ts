@@ -104,3 +104,9 @@ export function terminateSession(id: string, token: string): Promise<void> {
     { method: "DELETE" },
   );
 }
+
+export function resetMfa(userId: string): Promise<{ user: UserRow }> {
+  return apiFetch<{ user: UserRow }>(`/api/users/${userId}/reset-mfa`, {
+    method: "POST",
+  });
+}

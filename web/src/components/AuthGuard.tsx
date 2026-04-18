@@ -16,5 +16,12 @@ export function AuthGuard({ children }: { children: ReactNode }) {
     return <Navigate to="/change-password" replace />;
   }
 
+  // Forced MFA enrollment: redirect to /setup-mfa unless already there.
+  // Order matters: force_password_change takes precedence over force_mfa_enrollment
+  // so a user with both flags goes through change-password first.
+  if (user.force_mfa_enrollment && location.pathname !== "/setup-mfa") {
+    return <Navigate to="/setup-mfa" replace />;
+  }
+
   return <>{children}</>;
 }

@@ -41,14 +41,13 @@ test.describe("role-based routing", () => {
 
       // ChangePasswordForm navigates role-aware: role=user lands on /account.
       await userPage.waitForURL("**/account", { timeout: 15000 });
-      // The CardTitle element renders the exact string "Your account".
-      await expect(userPage.getByText("Your account", { exact: true })).toBeVisible();
-      await expect(userPage.getByText(newUserEmail)).toBeVisible();
+      // The /account page shows the user's email as the identity hero heading.
+      await expect(userPage.getByRole("heading", { name: newUserEmail })).toBeVisible();
 
       // Typing /admin directly must redirect back to /account via AdminGuard.
       await userPage.goto("/admin/users");
       await userPage.waitForURL("**/account", { timeout: 10000 });
-      await expect(userPage.getByText("Your account", { exact: true })).toBeVisible();
+      await expect(userPage.getByRole("heading", { name: newUserEmail })).toBeVisible();
 
       // Sign out returns to /login so the new user's cookie is cleaned up.
       await userPage.getByRole("button", { name: /sign out/i }).click();

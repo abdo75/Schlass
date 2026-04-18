@@ -16,7 +16,7 @@ describe("AuthContext", () => {
 
   it("shows loading then user", async () => {
     vi.mocked(authApi.getMe).mockResolvedValue({
-      user: { id: "1", email: "a@b.co", role: "super_admin", force_password_change: false },
+      user: { id: "1", email: "a@b.co", role: "super_admin", force_password_change: false, force_mfa_enrollment: false },
     });
     render(
       <AuthProvider>
@@ -39,7 +39,7 @@ describe("AuthContext", () => {
 
   it("clears user on schlass:unauthorized event", async () => {
     vi.mocked(authApi.getMe).mockResolvedValue({
-      user: { id: "1", email: "a@b.co", role: "super_admin", force_password_change: false },
+      user: { id: "1", email: "a@b.co", role: "super_admin", force_password_change: false, force_mfa_enrollment: false },
     });
     render(
       <AuthProvider>

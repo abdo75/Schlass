@@ -10,6 +10,7 @@ import {
   Laptop,
   Smartphone,
   ChevronDown,
+  ShieldOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -41,11 +42,14 @@ import {
   enableUser,
   deleteUser,
   resetUserPassword,
+  resetMfa,
   terminateSession,
   terminateAllSessions,
   type UserDetailResponse,
   type UserSession,
 } from "./api";
+import { usePermission } from "@/features/auth/usePermission";
+import { PERMISSIONS } from "@/features/auth/permissions";
 
 type Role = "super_admin" | "user";
 
@@ -94,6 +98,7 @@ export function UserDetailPage() {
   const navigate = useNavigate();
   const { id = "" } = useParams<{ id: string }>();
   const { user: me } = useAuth();
+  const canResetMfa = usePermission(PERMISSIONS.USERS_RESET_MFA);
 
   const [data, setData] = useState<UserDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -117,6 +122,8 @@ export function UserDetailPage() {
     token: string;
     label: string;
   } | null>(null);
+  const [resetMfaOpen, setResetMfaOpen] = useState(false);
+  const [resetMfaSubmitting, setResetMfaSubmitting] = useState(false);
 
   // Reset password flow
   const [tempPassword, setTempPassword] = useState<string | null>(null);
@@ -240,6 +247,20 @@ export function UserDetailPage() {
     }
   };
 
+  const handleResetMfa = async () => {
+    setResetMfaSubmitting(true);
+    setErrorCode(null);
+    try {
+      await resetMfa(id);
+      await refetch();
+      setResetMfaOpen(false);
+    } catch (err: unknown) {
+      setErrorCode(extractErrorCode(err));
+    } finally {
+      setResetMfaSubmitting(false);
+    }
+  };
+
   // --- Not-found fallback ---
   if (notFound) {
     return (
@@ -310,8 +331,11 @@ export function UserDetailPage() {
   }
 
   // --- Top bar primary action ---
+  // Self-edit is permitted: admins manage user info — including their own —
+  // through the admin panel. Destructive self-ops (role demote, disable,
+  // delete, MFA reset) are still blocked handler-side via rejectSelfOp
+  // and on the UI via the per-action guards below.
   const topBarAction = (() => {
-    if (isSelf) return null;
     if (editing) {
       return (
         <div className="flex items-center gap-2">
@@ -337,8 +361,10 @@ export function UserDetailPage() {
   return (
     <>
       <AdminPageHeader
-        breadcrumb={{ label: t("users.title"), to: "/admin/users" }}
-        title={user.email}
+        breadcrumbPath={[
+          { label: t("users.title"), to: "/admin/users" },
+          { label: user.email },
+        ]}
         primaryAction={topBarAction}
       />
       <AdminPageContent>
@@ -394,7 +420,7 @@ export function UserDetailPage() {
                     t={t}
                   />
                 ) : (
-                  <ViewProfileGrid user={user} sessions={sessions} t={t} />
+                  <ViewProfileGrid user={user} t={t} />
                 )}
               </div>
             </CardContent>
@@ -417,12 +443,15 @@ export function UserDetailPage() {
                 ) : (
                   <OtherUserActions
                     isActive={isActive}
+                    totpEnrolledAt={user.totp_enrolled_at ?? null}
+                    canResetMfa={canResetMfa}
                     onResetOpen={() => setResetOpen(true)}
                     onDisableOpen={() => setDisableOpen(true)}
                     onEnableOpen={() => {
                       void handleEnable();
                     }}
                     onDeleteOpen={() => setDeleteOpen(true)}
+                    onResetMfaOpen={() => setResetMfaOpen(true)}
                     t={t}
                   />
                 )}
@@ -533,6 +562,23 @@ export function UserDetailPage() {
         />
       )}
 
+      <ConfirmDialog
+        open={resetMfaOpen}
+        onOpenChange={(open) => {
+          if (!resetMfaSubmitting) setResetMfaOpen(open);
+        }}
+        title={t("mfa.admin_reset.dialog_title")}
+        body={t("mfa.admin_reset.dialog_description", { email: user.email })}
+        confirmLabel={
+          resetMfaSubmitting
+            ? t("common.loading")
+            : t("mfa.admin_reset.dialog_confirm")
+        }
+        onConfirm={() => {
+          void handleResetMfa();
+        }}
+      />
+
       {/* ---- Temp password modal ---- */}
       {tempPassword && (
         <TempPasswordModal
@@ -554,19 +600,10 @@ export function UserDetailPage() {
 
 interface ViewProfileGridProps {
   user: UserDetailResponse["user"];
-  sessions: UserSession[];
   t: (key: string) => string;
 }
 
-function deriveLastSignIn(sessions: UserSession[]): string {
-  if (sessions.length === 0) return "Never";
-  const latest = sessions.reduce((a, b) =>
-    new Date(a.last_seen_at) > new Date(b.last_seen_at) ? a : b,
-  );
-  return formatRelativeTime(latest.last_seen_at);
-}
-
-function ViewProfileGrid({ user, sessions, t }: ViewProfileGridProps) {
+function ViewProfileGrid({ user, t }: ViewProfileGridProps) {
   const createdFormatted = user.created_at
     ? new Date(user.created_at).toLocaleDateString("en-US", {
         month: "long",
@@ -604,7 +641,9 @@ function ViewProfileGrid({ user, sessions, t }: ViewProfileGridProps) {
       <div>
         <dt className="text-[13px] text-muted-foreground">Last sign-in</dt>
         <dd className="mt-0.5 text-muted-foreground">
-          {deriveLastSignIn(sessions)}
+          {user.last_login_at
+            ? formatRelativeTime(user.last_login_at)
+            : "Never"}
         </dd>
       </div>
       <div>
@@ -757,19 +796,25 @@ function SelfActions() {
 
 interface OtherUserActionsProps {
   isActive: boolean;
+  totpEnrolledAt: string | null;
+  canResetMfa: boolean;
   onResetOpen: () => void;
   onDisableOpen: () => void;
   onEnableOpen: () => void;
   onDeleteOpen: () => void;
+  onResetMfaOpen: () => void;
   t: (key: string) => string;
 }
 
 function OtherUserActions({
   isActive,
+  totpEnrolledAt,
+  canResetMfa,
   onResetOpen,
   onDisableOpen,
   onEnableOpen,
   onDeleteOpen,
+  onResetMfaOpen,
   t,
 }: OtherUserActionsProps) {
   return (
@@ -799,6 +844,17 @@ function OtherUserActions({
         >
           <Check className="size-4" />
           {t("users.detail.enable")}
+        </Button>
+      )}
+
+      {totpEnrolledAt && canResetMfa && (
+        <Button
+          variant="outline"
+          className="w-full justify-start gap-2.5 border-destructive/35 text-destructive hover:bg-destructive/5 hover:text-destructive"
+          onClick={onResetMfaOpen}
+        >
+          <ShieldOff className="size-4" />
+          {t("mfa.admin_reset.button_label")}
         </Button>
       )}
 

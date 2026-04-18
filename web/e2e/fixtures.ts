@@ -1,6 +1,37 @@
 import { test as base, expect, type Page } from "@playwright/test";
+import { Client } from "pg";
 
 export { expect };
+
+// ---------------------------------------------------------------------------
+// MFA policy helper — allows the MFA spec to re-enable MFA while keeping all
+// other specs unaffected (MFA is orthogonal to what they test).
+// Connects to the Postgres instance exposed by docker-compose on localhost:5432.
+// ---------------------------------------------------------------------------
+export async function setMfaRequired(value: boolean): Promise<void> {
+  const client = new Client({
+    host: "localhost",
+    port: 5432,
+    database: "schlass",
+    user: "postgres",
+    password: "postgres",
+  });
+  await client.connect();
+  try {
+    // The Go config store JSON-unmarshals the value column, so it must be
+    // the JSON literal "true" or "false" (not the SQL string 'true'/'false').
+    // JSONB columns accept bare unquoted booleans as valid JSON.
+    const result = await client.query(
+      "UPDATE instance_config SET value = $1::jsonb WHERE key = 'mfa_required'",
+      [value ? "true" : "false"],
+    );
+    if (result.rowCount === 0) {
+      throw new Error(`setMfaRequired: key 'mfa_required' not found in instance_config`);
+    }
+  } finally {
+    await client.end();
+  }
+}
 
 // Test ordering note: Playwright runs files in alphabetical order, and with
 // `fullyParallel: false` + `workers: 1` the order within a file is also
@@ -69,6 +100,11 @@ export const test = base.extend<Fixtures>({
       await page.goto("/login");
       await page.waitForURL("**/login", { timeout: 15000 });
     }
+    // Disable MFA so every spec using completedSetup can sign in without the
+    // TOTP enrollment redirect. The default is mfa_required=true (migration
+    // seed). The MFA spec does NOT use completedSetup — it manages mfa_required
+    // in its own test body after setup is confirmed complete.
+    await setMfaRequired(false);
     await use(page);
   },
   // adminPage extends completedSetup by performing the shared-admin login

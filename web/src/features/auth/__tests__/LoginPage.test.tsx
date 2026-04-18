@@ -48,11 +48,13 @@ describe("LoginPage", () => {
 
   it("submits credentials and calls login on success", async () => {
     vi.mocked(authApi.login).mockResolvedValue({
+      kind: "session",
       user: {
         id: "1",
         email: "a@b.co",
         role: "super_admin",
         force_password_change: false,
+        force_mfa_enrollment: false,
       },
     });
     renderLogin();
@@ -134,11 +136,13 @@ describe("LoginPage", () => {
 
   it("Success navigates to /admin for super_admin", async () => {
     vi.mocked(authApi.login).mockResolvedValue({
+      kind: "session",
       user: {
         id: "1",
         email: "admin@example.com",
         role: "super_admin",
         force_password_change: false,
+        force_mfa_enrollment: false,
       },
     });
     renderLogin();
@@ -155,11 +159,13 @@ describe("LoginPage", () => {
 
   it("Success navigates to /account for role=user", async () => {
     vi.mocked(authApi.login).mockResolvedValue({
+      kind: "session",
       user: {
         id: "2",
         email: "alice@example.com",
         role: "user",
         force_password_change: false,
+        force_mfa_enrollment: false,
       },
     });
     renderLogin();
@@ -172,5 +178,45 @@ describe("LoginPage", () => {
     await waitFor(() =>
       expect(navigateMock).toHaveBeenCalledWith("/account", { replace: true }),
     );
+  });
+
+  it("redirects authenticated super_admin to /admin", async () => {
+    // Mock AuthProvider's getMe to return an authenticated super_admin user
+    // instead of rejecting. This simulates a user who is already logged in
+    // and navigates directly to /login.
+    vi.mocked(authApi.getMe).mockResolvedValue({
+      user: {
+        id: "1",
+        email: "admin@example.com",
+        role: "super_admin",
+        force_password_change: false,
+        force_mfa_enrollment: false,
+      },
+    });
+    renderLogin();
+    // After auth loading completes, the component returns null (loading state)
+    // then <Navigate> (redirect). The form should never be rendered.
+    await waitFor(() => {
+      expect(screen.queryByLabelText(/email/i)).not.toBeInTheDocument();
+    });
+  });
+
+  it("redirects authenticated regular user to /account", async () => {
+    // Mock AuthProvider's getMe to return an authenticated regular user.
+    vi.mocked(authApi.getMe).mockResolvedValue({
+      user: {
+        id: "2",
+        email: "alice@example.com",
+        role: "user",
+        force_password_change: false,
+        force_mfa_enrollment: false,
+      },
+    });
+    renderLogin();
+    // After auth loading completes, the component returns null (loading state)
+    // then <Navigate> (redirect). The form should never be rendered.
+    await waitFor(() => {
+      expect(screen.queryByLabelText(/email/i)).not.toBeInTheDocument();
+    });
   });
 });

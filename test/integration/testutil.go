@@ -3,10 +3,12 @@ package integration
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -23,24 +25,32 @@ import (
 	"github.com/abdo75/Schlass/internal/database"
 	"github.com/abdo75/Schlass/internal/handler"
 	"github.com/abdo75/Schlass/internal/server"
+	"github.com/abdo75/Schlass/internal/session"
 	"github.com/abdo75/Schlass/internal/store"
 )
 
 type TestEnv struct {
-	Pool            *pgxpool.Pool
-	MigrationsPool  *pgxpool.Pool
-	ValkeyClient    *redis.Client
-	AppConnString   string
-	MigrConnString  string
-	Router          http.Handler
-	Cfg             *config.Config
-	pgContainer     testcontainers.Container
-	valkeyContainer testcontainers.Container
+	Pool              *pgxpool.Pool
+	MigrationsPool    *pgxpool.Pool
+	ValkeyClient      *redis.Client
+	Valkey            *redis.Client // alias for ValkeyClient — MFA tests use this spelling
+	AppConnString     string
+	MigrConnString    string
+	Router            http.Handler
+	Cfg               *config.Config
+	UserStore         *store.UserStore
+	RecoveryCodeStore *store.RecoveryCodeStore
+	SessionStore      session.Store
+	pgContainer       testcontainers.Container
+	valkeyContainer   testcontainers.Container
 }
 
 // Cleanup is a no-op — t.Cleanup registered in NewTestEnv handles teardown.
 // Kept as a method so tests using `defer env.Cleanup()` compile cleanly.
 func (e *TestEnv) Cleanup() {}
+
+// Close is an alias for Cleanup — tests may use either spelling.
+func (e *TestEnv) Close() {}
 
 func NewTestEnv(t *testing.T) *TestEnv {
 	t.Helper()
@@ -108,14 +118,18 @@ func NewTestEnv(t *testing.T) *TestEnv {
 	}
 
 	env := &TestEnv{
-		Pool:            pool,
-		MigrationsPool:  migrPool,
-		ValkeyClient:    valkeyClient,
-		AppConnString:   appConnString,
-		MigrConnString:  migrConnString,
-		Cfg:             cfg,
-		pgContainer:     pgContainer,
-		valkeyContainer: valkeyContainer,
+		Pool:              pool,
+		MigrationsPool:    migrPool,
+		ValkeyClient:      valkeyClient,
+		Valkey:            valkeyClient,
+		AppConnString:     appConnString,
+		MigrConnString:    migrConnString,
+		Cfg:               cfg,
+		UserStore:         store.NewUserStore(),
+		RecoveryCodeStore: store.NewRecoveryCodeStore(),
+		SessionStore:      session.NewValkeyStore(valkeyClient, 24*time.Hour),
+		pgContainer:       pgContainer,
+		valkeyContainer:   valkeyContainer,
 	}
 
 	// Build the router via the same path main.go uses.
@@ -149,18 +163,23 @@ func setupIntegrationEnv(t *testing.T) *TestEnv {
 func (e *TestEnv) BuildDeps() server.RouterDeps {
 	configStore := store.NewConfigStore()
 	return server.RouterDeps{
-		Cfg:           e.Cfg,
-		Pool:          e.Pool,
-		ValkeyClient:  e.ValkeyClient,
-		ConfigStore:   configStore,
-		UserStore:     store.NewUserStore(),
-		AuditStore:    store.NewAuditStore(),
-		ConfigService: config.NewConfigService(configStore, e.Cfg.EncryptionKey),
+		Cfg:               e.Cfg,
+		Pool:              e.Pool,
+		ValkeyClient:      e.ValkeyClient,
+		ConfigStore:       configStore,
+		UserStore:         store.NewUserStore(),
+		RecoveryCodeStore: store.NewRecoveryCodeStore(),
+		AuditStore:        store.NewAuditStore(),
+		ConfigService:     config.NewConfigService(configStore, e.Cfg.EncryptionKey),
 		// Tests drive many login attempts from the same virtual client IP
 		// (httptest uses 192.0.2.1 for every request). Raise the login
 		// rate-limit cap so the production 5/min guard doesn't mask the
 		// application-level lockout semantics we're trying to test.
 		LoginRateLimit: 10000,
+		// Same rationale for MFA challenge: integration tests may fire many
+		// challenge requests from the same virtual IP without hitting the
+		// production 5/min guard.
+		MfaChallengeRateLimit: 10000,
 	}
 }
 
@@ -184,8 +203,24 @@ func (e *TestEnv) SeedAdmin(t *testing.T, email, password string) uuid.UUID {
 // LoginAsAdmin performs a real POST /api/login against the test router and
 // returns the schlass_session cookie set on the response. Fails the test if
 // the login did not succeed or the cookie was not set.
+//
+// MFA is temporarily disabled for the duration of the login so this helper
+// always exercises the legacy 200-path. Callers that want to test MFA-gated
+// login should drive the full flow themselves rather than using this helper.
 func (e *TestEnv) LoginAsAdmin(t *testing.T, email, password string) *http.Cookie {
 	t.Helper()
+
+	// Disable MFA so we always get a session cookie on the first request.
+	if _, err := e.Pool.Exec(context.Background(), `UPDATE instance_config SET value = 'false' WHERE key = 'mfa_required'`); err != nil {
+		t.Fatalf("LoginAsAdmin: disable mfa: %v", err)
+	}
+	// Re-enable MFA after the login so the rest of the test sees the real setting.
+	t.Cleanup(func() {
+		if _, err := e.Pool.Exec(context.Background(), `UPDATE instance_config SET value = 'true' WHERE key = 'mfa_required'`); err != nil {
+			t.Logf("LoginAsAdmin cleanup: re-enable mfa: %v", err)
+		}
+	})
+
 	body := bytes.NewBufferString(`{"email":"` + email + `","password":"` + password + `"}`)
 	req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/login", body)
 	req.Header.Set("Content-Type", "application/json")
@@ -261,4 +296,64 @@ func (e *TestEnv) StartValkey(t *testing.T) {
 	if err := e.valkeyContainer.Start(context.Background()); err != nil {
 		t.Fatalf("start valkey: %v", err)
 	}
+}
+
+// CompleteSetup calls POST /api/setup to initialise the instance with the
+// given admin email and password. Fails the test if setup does not return 200.
+func (e *TestEnv) CompleteSetup(t *testing.T, email, password string) {
+	t.Helper()
+	body, _ := json.Marshal(map[string]string{
+		"email":            email,
+		"password":         password,
+		"confirm_password": password,
+		"instance_name":    "Test Corp",
+	})
+	req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/setup", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	e.Router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("CompleteSetup: POST /api/setup returned %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// GetUserIDByEmail looks up the UUID for the user with the given email address.
+// Fails the test if the user is not found.
+func (e *TestEnv) GetUserIDByEmail(t *testing.T, email string) uuid.UUID {
+	t.Helper()
+	var id uuid.UUID
+	if err := e.Pool.QueryRow(context.Background(),
+		`SELECT id FROM users WHERE email = $1`, email,
+	).Scan(&id); err != nil {
+		t.Fatalf("GetUserIDByEmail(%q): %v", email, err)
+	}
+	return id
+}
+
+// DirectCreateUser inserts a user row directly (bypassing the API) for tests
+// that need a second user. Returns the UUID. Not a substitute for integration
+// testing POST /api/users — use only for test setup.
+func (e *TestEnv) DirectCreateUser(t *testing.T, email, role string) uuid.UUID {
+	t.Helper()
+	hash, err := crypto.HashPassword("test-placeholder-password")
+	if err != nil {
+		t.Fatalf("DirectCreateUser: hash password: %v", err)
+	}
+	id, err := e.UserStore.Create(context.Background(), e.Pool, strings.ToLower(email), hash, role, false)
+	if err != nil {
+		t.Fatalf("DirectCreateUser: %v", err)
+	}
+	return id
+}
+
+// DirectCreateSession creates a Valkey session for the given user without
+// going through POST /api/login. Returns a *http.Cookie ready to attach to
+// test requests.
+func (e *TestEnv) DirectCreateSession(t *testing.T, userID uuid.UUID) *http.Cookie {
+	t.Helper()
+	token, err := e.SessionStore.Create(context.Background(), userID.String(), "127.0.0.1", "test-agent")
+	if err != nil {
+		t.Fatalf("DirectCreateSession: %v", err)
+	}
+	return &http.Cookie{Name: "schlass_session", Value: token}
 }

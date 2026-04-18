@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -30,11 +31,12 @@ import (
 // internal/server/router.go and wrapped with middleware.Auth + a per-route
 // middleware.RequirePermission gate at wiring time.
 type UsersHandler struct {
-	pool          *pgxpool.Pool
-	userStore     *store.UserStore
-	auditStore    AuditLogger
-	sessionStore  session.Store
-	configService *config.ConfigService
+	pool              *pgxpool.Pool
+	userStore         *store.UserStore
+	auditStore        AuditLogger
+	sessionStore      session.Store
+	configService     *config.ConfigService
+	recoveryCodeStore *store.RecoveryCodeStore
 }
 
 // NewUsersHandler wires the dependencies UsersHandler needs. All fields are
@@ -46,13 +48,15 @@ func NewUsersHandler(
 	auditStore AuditLogger,
 	sessionStore session.Store,
 	configService *config.ConfigService,
+	recoveryCodeStore *store.RecoveryCodeStore,
 ) *UsersHandler {
 	return &UsersHandler{
-		pool:          pool,
-		userStore:     userStore,
-		auditStore:    auditStore,
-		sessionStore:  sessionStore,
-		configService: configService,
+		pool:              pool,
+		userStore:         userStore,
+		auditStore:        auditStore,
+		sessionStore:      sessionStore,
+		configService:     configService,
+		recoveryCodeStore: recoveryCodeStore,
 	}
 }
 
@@ -204,7 +208,7 @@ func (h *UsersHandler) List(w http.ResponseWriter, r *http.Request) {
 
 // userDTO returns the response shape — everything except the password hash.
 func userDTO(u *store.User) map[string]any {
-	return map[string]any{
+	dto := map[string]any{
 		"id":                    u.ID.String(),
 		"email":                 u.Email,
 		"role":                  u.Role,
@@ -212,7 +216,10 @@ func userDTO(u *store.User) map[string]any {
 		"force_password_change": u.ForcePasswordChange,
 		"created_at":            u.CreatedAt,
 		"updated_at":            u.UpdatedAt,
+		"totp_enrolled_at":      u.TOTPEnrolledAt, // nil when not enrolled
+		"last_login_at":         u.LastLoginAt,    // nil when user has never logged in
 	}
+	return dto
 }
 
 // Create handles POST /api/users.
@@ -987,6 +994,91 @@ func (h *UsersHandler) TerminateAllSessions(w http.ResponseWriter, r *http.Reque
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// ResetMFA handles POST /api/users/{id}/reset-mfa — clears totp_* columns
+// and deletes all recovery codes. Audit-in-tx. Self-op rejected (an admin
+// who lost their authenticator needs another super_admin to reset them, or
+// direct DB intervention if they're the only admin — same philosophy as
+// last-admin-lockout).
+func (h *UsersHandler) ResetMFA(w http.ResponseWriter, r *http.Request) {
+	targetID, ok := parseUserID(w, r)
+	if !ok {
+		return
+	}
+	if h.rejectSelfOp(w, r, targetID) {
+		return
+	}
+
+	acting, _ := middleware.CurrentUser(r.Context())
+
+	target, err := h.userStore.GetByID(r.Context(), h.pool, targetID)
+	if err != nil {
+		if errors.Is(err, store.ErrUserNotFound) {
+			writeError(w, http.StatusNotFound, "USER_NOT_FOUND", "User not found.")
+			return
+		}
+		slog.Error("reset-mfa: GetByID failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if target.TOTPEnrolledAt == nil {
+		writeError(w, http.StatusBadRequest, "MFA_NOT_ENROLLED", "This user has not enrolled in MFA.")
+		return
+	}
+
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	defer func() { _ = tx.Rollback(r.Context()) }()
+
+	deleted, err := h.recoveryCodeStore.DeleteAllForUser(r.Context(), tx, targetID)
+	if err != nil {
+		slog.Error("reset-mfa: DeleteAllForUser failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if err := h.userStore.ClearTOTP(r.Context(), tx, targetID); err != nil {
+		slog.Error("reset-mfa: ClearTOTP failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	wasEnrolledAt := target.TOTPEnrolledAt.Format(time.RFC3339)
+	if err := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+		EventType:  "mfa.reset",
+		ActorID:    &acting.ID,
+		ActorEmail: acting.Email,
+		TargetType: "user",
+		TargetID:   targetID.String(),
+		IPAddress:  extractClientIP(r),
+		Outcome:    "success",
+		Metadata: map[string]any{
+			"recovery_codes_burned": deleted,
+			"was_enrolled_at":       wasEnrolledAt,
+		},
+	}); err != nil {
+		slog.Error("reset-mfa: audit write failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		slog.Error("reset-mfa: Commit failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	// Post-tx: revoke all Valkey sessions for the target user — same pattern
+	// as Sprint 3's users.Disable.
+	if err := h.sessionStore.DeleteAllForUser(r.Context(), targetID.String()); err != nil {
+		slog.Error("reset-mfa: DeleteAllForUser sessions failed", "error", err, "user_id", targetID.String()) //nolint:gosec // G706: slog structured logging is not susceptible to log injection
+		// Non-fatal — the audit row is committed, sessions expire on their
+		// own if deletion fails.
+	}
+
+	updated, _ := h.userStore.GetByID(r.Context(), h.pool, targetID)
+	writeJSON(w, http.StatusOK, map[string]any{"user": userDTO(updated)})
 }
 
 // TerminateSession serves DELETE /api/users/:id/sessions/:token. Per-device

@@ -6,6 +6,8 @@ import { AdminGuard } from "@/components/AdminGuard";
 import { AdminLayout } from "@/components/AdminLayout";
 import { LoginPage } from "@/features/auth/LoginPage";
 import { ChangePasswordPage } from "@/features/auth/ChangePasswordPage";
+import { TotpEnrollmentWizard } from "@/features/mfa/TotpEnrollmentWizard";
+import { TotpChallengePage } from "@/features/mfa/TotpChallengePage";
 import { SetupPage } from "@/features/setup/SetupPage";
 import { UsersPage } from "@/features/users/UsersPage";
 import { UserCreatePage } from "@/features/users/UserCreatePage";
@@ -74,9 +76,14 @@ export default function App() {
               </Bootstrap>
             }
           />
-          {/* /change-password intentionally skips Bootstrap: AuthGuard redirects
-              force-password-change users here, and Bootstrap would race that
-              redirect with its own /setup check. */}
+          {/* /mfa-challenge is public — the server-side challenge cookie is the
+              real gate. A missing cookie manifests as a 401 on submit and
+              bounces the user back to /login. */}
+          <Route path="/mfa-challenge" element={<TotpChallengePage />} />
+          {/* /change-password and /setup-mfa intentionally skip Bootstrap: AuthGuard
+              redirects force-password-change and force-mfa-enrollment users here
+              respectively, and Bootstrap would race those redirects with its own
+              /setup check. */}
           <Route
             path="/change-password"
             element={
@@ -84,6 +91,17 @@ export default function App() {
                 <ChangePasswordPage />
               </AuthGuard>
             }
+          />
+          {/* /setup-mfa has two entry points:
+              (a) login returns 202 + schlass_mfa_enroll cookie (no session yet)
+              (b) AuthGuard redirects a user with force_mfa_enrollment=true (existing session)
+              AuthGuard cannot gate this route because case (a) has no session.
+              TotpEnrollmentWizard handles the 401 path itself — if the enrollment
+              cookie has expired, /api/mfa/enrollment/start returns MFA_ENROLLMENT_EXPIRED
+              and the wizard surfaces the error and lets the user return to /login. */}
+          <Route
+            path="/setup-mfa"
+            element={<TotpEnrollmentWizard />}
           />
           <Route
             path="/account"

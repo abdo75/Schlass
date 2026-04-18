@@ -18,8 +18,7 @@ var (
 )
 
 // User is the full user row fetched by GetByID / GetByEmail.
-// Fields mirror the users table (except TOTP fields, which are not needed
-// by the auth handler in Sprint 2).
+// Fields mirror the users table including TOTP enrollment and replay prevention.
 type User struct {
 	ID                  uuid.UUID
 	Email               string
@@ -27,8 +26,12 @@ type User struct {
 	Role                string
 	Status              string
 	ForcePasswordChange bool
+	TOTPSecretEncrypted []byte
+	TOTPEnrolledAt      *time.Time
 	FailedLoginAttempts int
 	LockedUntil         *time.Time
+	LastUsedTOTPCounter int64
+	LastLoginAt         *time.Time
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
 }
@@ -54,14 +57,17 @@ func (s *UserStore) Create(ctx context.Context, q database.Querier, email, passw
 }
 
 const userSelectColumns = `id, email, password_hash, role, status,
-force_password_change, failed_login_attempts, locked_until, created_at, updated_at`
+force_password_change, totp_secret_encrypted, totp_enrolled_at,
+failed_login_attempts, locked_until, last_used_totp_counter,
+last_login_at, created_at, updated_at`
 
 func scanUser(row pgx.Row) (*User, error) {
 	var u User
 	err := row.Scan(
 		&u.ID, &u.Email, &u.PasswordHash, &u.Role, &u.Status,
-		&u.ForcePasswordChange, &u.FailedLoginAttempts, &u.LockedUntil,
-		&u.CreatedAt, &u.UpdatedAt,
+		&u.ForcePasswordChange, &u.TOTPSecretEncrypted, &u.TOTPEnrolledAt,
+		&u.FailedLoginAttempts, &u.LockedUntil, &u.LastUsedTOTPCounter,
+		&u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -232,8 +238,9 @@ func (s *UserStore) List(ctx context.Context, q database.Querier, params ListUse
 		var u User
 		if err := rows.Scan(
 			&u.ID, &u.Email, &u.PasswordHash, &u.Role, &u.Status,
-			&u.ForcePasswordChange, &u.FailedLoginAttempts, &u.LockedUntil,
-			&u.CreatedAt, &u.UpdatedAt,
+			&u.ForcePasswordChange, &u.TOTPSecretEncrypted, &u.TOTPEnrolledAt,
+			&u.FailedLoginAttempts, &u.LockedUntil, &u.LastUsedTOTPCounter,
+			&u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("list users scan: %w", err)
 		}
@@ -298,6 +305,62 @@ func (s *UserStore) SetPasswordHash(ctx context.Context, q database.Querier, id 
 	)
 	if err != nil {
 		return fmt.Errorf("set password hash: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrUserNotFound
+	}
+	return nil
+}
+
+// SetTOTPEnrolled persists the encrypted TOTP secret and stamps
+// totp_enrolled_at. Called inside the MFA enrollment-complete tx.
+func (s *UserStore) SetTOTPEnrolled(ctx context.Context, q database.Querier, userID uuid.UUID, encryptedSecret []byte) error {
+	_, err := q.Exec(ctx,
+		`UPDATE users SET totp_secret_encrypted = $1, totp_enrolled_at = now() WHERE id = $2`,
+		encryptedSecret, userID)
+	if err != nil {
+		return fmt.Errorf("set totp enrolled: %w", err)
+	}
+	return nil
+}
+
+// ClearTOTP wipes the TOTP secret, enrollment timestamp, and replay counter.
+// Called by the admin reset-MFA handler inside the same tx as recovery-code
+// deletion.
+func (s *UserStore) ClearTOTP(ctx context.Context, q database.Querier, userID uuid.UUID) error {
+	_, err := q.Exec(ctx,
+		`UPDATE users SET totp_secret_encrypted = NULL, totp_enrolled_at = NULL, last_used_totp_counter = 0 WHERE id = $1`,
+		userID)
+	if err != nil {
+		return fmt.Errorf("clear totp: %w", err)
+	}
+	return nil
+}
+
+// AdvanceTOTPCounter sets last_used_totp_counter to the given step value.
+// Called inside the challenge-success tx. The gate (counter > previous)
+// lives in the handler — this method is a dumb setter.
+func (s *UserStore) AdvanceTOTPCounter(ctx context.Context, q database.Querier, userID uuid.UUID, counter int64) error {
+	_, err := q.Exec(ctx,
+		`UPDATE users SET last_used_totp_counter = $1 WHERE id = $2`,
+		counter, userID)
+	if err != nil {
+		return fmt.Errorf("advance totp counter: %w", err)
+	}
+	return nil
+}
+
+// SetLastLoginAt stamps users.last_login_at = now() for the given user.
+// Called inside the same PG tx as the login.succeeded audit row so the
+// stamp and the audit entry are atomic with the state change that issues
+// the session cookie. See CLAUDE.md audit-in-tx rule.
+func (s *UserStore) SetLastLoginAt(ctx context.Context, q database.Querier, id uuid.UUID) error {
+	tag, err := q.Exec(ctx,
+		`UPDATE users SET last_login_at = now(), updated_at = now() WHERE id = $1`,
+		id,
+	)
+	if err != nil {
+		return fmt.Errorf("set last_login_at: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrUserNotFound

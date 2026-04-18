@@ -74,9 +74,8 @@ test.describe("user management", () => {
       // After clearing the flag the ChangePasswordForm navigates role-aware:
       // role=user lands on /account (AdminGuard blocks /admin for non-admins).
       await userPage.waitForURL("**/account", { timeout: 15000 });
-      await expect(
-        userPage.getByText("Your account", { exact: true }),
-      ).toBeVisible();
+      // The /account page shows the user's email as the identity hero heading.
+      await expect(userPage.getByRole("heading", { name: newUserEmail })).toBeVisible();
     } finally {
       await userContext.close();
     }

@@ -184,11 +184,23 @@
     "title": "Your account",
     "subtitle": "Signed in as {{email}}",
     "password_heading": "Password",
-    "password_hint": "You can change your account password at any time.",
+    "password_hint": "Last changed today.",
     "change_password": "Change password",
     "totp_heading": "Two-factor authentication",
-    "totp_placeholder": "Two-factor enrollment will be available in a future release.",
-    "sign_out": "Sign out"
+    "totp_placeholder": "Protect your account with an authenticator app.",
+    "sign_out": "Sign out",
+    "security_heading": "Security",
+    "password_label": "Password",
+    "change_button": "Change",
+    "totp_label": "Two-factor authentication",
+    "totp_setup_button": "Set up",
+    "session_heading": "Session",
+    "signout_label": "Sign out",
+    "signout_description": "End your session on this device."
+  },
+  "role": {
+    "admin": "Admin",
+    "user": "User"
   },
   "errors": {
     "SETUP_ALREADY_COMPLETE": "Setup has already been completed.",
@@ -210,7 +222,75 @@
     "FORBIDDEN": "You don't have permission to perform this action.",
     "WRONG_CURRENT_PASSWORD": "Current password is incorrect.",
     "passwordMismatch": "Passwords do not match.",
-    "unexpected": "An unexpected error occurred."
+    "unexpected": "An unexpected error occurred.",
+    "MFA_ENROLLMENT_REQUIRED": "Two-factor setup is required.",
+    "MFA_ENROLLMENT_EXPIRED": "Two-factor setup session expired — please sign in again.",
+    "MFA_INVALID_CODE": "Invalid code.",
+    "MFA_INVALID_RECOVERY_CODE": "Invalid recovery code.",
+    "MFA_CHALLENGE_REQUIRED": "Two-factor verification required.",
+    "MFA_CHALLENGE_EXPIRED": "Sign-in session expired — please sign in again.",
+    "MFA_CHALLENGE_MAX_ATTEMPTS": "Too many failed attempts — please sign in again.",
+    "MFA_NOT_ENROLLED": "This user has not enrolled in two-factor authentication.",
+    "MFA_ALREADY_ENROLLED": "This account already has two-factor authentication enabled."
+  },
+  "mfa": {
+    "enrollment": {
+      "step1_label": "Scan",
+      "step2_label": "Verify",
+      "step3_label": "Codes",
+      "step1_title": "Set up two-factor authentication",
+      "step1_description": "Scan the QR code with your authenticator app.",
+      "step2_title": "Verify your authenticator",
+      "step2_description": "Enter the 6-digit code shown in your app.",
+      "step3_title": "Save your recovery codes",
+      "step3_description": "Store these codes somewhere safe — they're your backup if you lose access.",
+      "cannot_scan_link": "Can't scan? Enter the key manually",
+      "hide_manual_secret": "Hide manual key",
+      "next_button": "Next",
+      "verify_button": "Verify",
+      "verify_submitting": "Verifying...",
+      "verify_helper_one": "Paste from clipboard supported · {{count}} attempt remaining",
+      "verify_helper_other": "Paste from clipboard supported · {{count}} attempts remaining",
+      "step3_warning": "Save these now — they cannot be recovered.",
+      "copy_all": "Copy all",
+      "download": "Download",
+      "print": "Print",
+      "copy_code_aria": "Copy code {{code}}",
+      "acknowledgement": "I've saved these codes somewhere safe.",
+      "finish_button": "Finish setup",
+      "finish_submitting": "Finishing…"
+    },
+    "challenge": {
+      "title": "Two-factor code",
+      "email_echo": "Signing in as {{email}}",
+      "code_input_label": "Authenticator code",
+      "expires_in": "Expires in {{time}}",
+      "verify_button": "Verify",
+      "verify_submitting": "Verifying…",
+      "use_recovery_link": "Use a recovery code instead",
+      "back_to_code_link": "Enter a 6-digit code instead",
+      "recovery_input_label": "Recovery code"
+    },
+    "account": {
+      "enabled_badge": "Enabled",
+      "enrolled_on": "Enabled on {{date}}",
+      "codes_remaining_one": "{{count}} recovery code remaining",
+      "codes_remaining_other": "{{count}} recovery codes remaining",
+      "reset_contact_admin": "Contact an administrator to reset two-factor authentication.",
+      "disable_button": "Disable two-factor",
+      "disable_dialog_title": "Disable two-factor authentication?",
+      "disable_dialog_description": "This turns off two-factor for your account and invalidates your authenticator + recovery codes. You'll need to set up two-factor again on your next sign-in. Enter your password to confirm.",
+      "disable_password_label": "Current password",
+      "disable_confirm": "Disable",
+      "disable_cancel": "Cancel"
+    },
+    "admin_reset": {
+      "button_label": "Reset MFA",
+      "dialog_title": "Reset two-factor authentication?",
+      "dialog_description": "This clears {{email}}'s authenticator and recovery codes. They will re-enroll on their next sign-in and be signed out of any active sessions.",
+      "dialog_confirm": "Reset MFA",
+      "dialog_cancel": "Cancel"
+    }
   },
   "language": {
     "en": "English",
@@ -220,7 +300,8 @@
   "user_menu": {
     "theme": { "heading": "Theme", "light": "Light", "dark": "Dark", "system": "System" },
     "language": { "heading": "Language" },
-    "change_password": "Change password",
+    "my_account": "My account",
+    "admin_panel": "Admin panel",
     "sign_out": "Sign out"
   }
 }
