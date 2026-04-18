@@ -331,8 +331,11 @@ export function UserDetailPage() {
   }
 
   // --- Top bar primary action ---
+  // Self-edit is permitted: admins manage user info — including their own —
+  // through the admin panel. Destructive self-ops (role demote, disable,
+  // delete, MFA reset) are still blocked handler-side via rejectSelfOp
+  // and on the UI via the per-action guards below.
   const topBarAction = (() => {
-    if (isSelf) return null;
     if (editing) {
       return (
         <div className="flex items-center gap-2">

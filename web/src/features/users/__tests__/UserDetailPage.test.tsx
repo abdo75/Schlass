@@ -115,7 +115,7 @@ describe("UserDetailPage", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows self-view variant: 'This is you', hides Disable/Delete, shows change password link", async () => {
+  it("shows self-view variant: 'This is you', hides Disable/Delete, shows change password link, Edit button present", async () => {
     // The current user IS the target user
     vi.mocked(usersApi.getUser).mockResolvedValue(
       makeDetail({ id: "admin-1", email: "admin@example.com", role: "super_admin" }),
@@ -129,7 +129,7 @@ describe("UserDetailPage", () => {
     // "This is you" marker
     expect(screen.getByText(/this is you/i)).toBeInTheDocument();
 
-    // No Disable/Delete buttons
+    // No Disable/Delete buttons — destructive self-ops remain blocked
     expect(
       screen.queryByRole("button", { name: /disable user/i }),
     ).not.toBeInTheDocument();
@@ -140,10 +140,11 @@ describe("UserDetailPage", () => {
     // Change your password link present
     expect(screen.getByText(/change your password/i)).toBeInTheDocument();
 
-    // No Edit button
+    // Edit button IS present — admins edit their own profile through the admin
+    // panel (2026 standard). Destructive self-ops stay blocked above.
     expect(
-      screen.queryByRole("button", { name: /^edit$/i }),
-    ).not.toBeInTheDocument();
+      screen.getByRole("button", { name: /^edit$/i }),
+    ).toBeInTheDocument();
   });
 
   it("edit mode: clicking Edit swaps to Cancel + Save, fields become inputs, actions card is dimmed", async () => {
