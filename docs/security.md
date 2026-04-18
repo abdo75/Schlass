@@ -34,6 +34,11 @@ Admins never type passwords when creating or resetting users. The server generat
 - **Admin MFA reset** — `POST /api/users/{id}/reset-mfa` clears `totp_secret_encrypted`, `totp_enrolled_at`, `last_used_totp_counter` on the user row and deletes all recovery codes in a single tx with a `mfa.reset` audit row. After reset, the user is forced through enrollment again on next login (if `mfa_required = true`). `internal/handler/users.go`
 - **Challenge failed audit (best-effort)** — `mfa.challenge_failed` audit rows use a separate short-lived tx (not the decrement tx), logged ERROR-level on failure but never blocking the HTTP response. This is a documented exception to the audit-in-tx rule: the decrement is the atomic brute-force guard; the audit row is forensic, not the control plane. See CLAUDE.md "Documented exception" pattern. `internal/handler/mfa.go`
 
+### Known v1 limitations
+
+- **No step-up re-authentication at enrollment completion.** The enrollment-token cookie (`schlass_mfa_enroll`) grants the ability to finish TOTP setup for the associated user. An attacker who steals this cookie (malware on the user's machine, physical access) could complete enrollment with their own authenticator. Mitigations in place: `SameSite=Strict` + `HttpOnly` prevent cross-site theft; 10-minute TTL limits the window; the user physically holds the authenticator during setup. **Gold-standard defence would require the user to re-enter their password at `POST /api/mfa/enrollment/complete`** — not in v1, deferred to Sprint 6 alongside the forgot-password flow where a similar proof-of-possession step lands. v1's threat model is the SME with trusted company devices, not consumer-grade attack surface.
+- **No session binding on enrollment tokens.** Since enrollment happens before a session exists (the very first login for a mandatory-MFA instance), the enrollment cookie cannot be bound to a session token. v2 could introduce a pre-session signed token (like PKCE's `code_verifier`) but the implementation cost exceeds the marginal security gain at the v1 threat level.
+
 ## Login surface hardening
 
 - **Per-IP login rate limit** — 5 requests per minute per IP on `POST /api/login` via Valkey-backed sliding window. Defends against credential-stuffing bursts. `internal/middleware/ratelimit.go`, `internal/server/router.go`
