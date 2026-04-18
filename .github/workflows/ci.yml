@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [main]
 
+# Cancel superseded runs on the same branch/PR so rapid pushes don't stack
+# full ~11-min runs.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint:
     name: Lint
@@ -16,12 +22,16 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.25"
+          cache: true
 
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: "npm"
           cache-dependency-path: web/package-lock.json
+
+      - name: Install frontend deps
+        run: cd web && npm ci
 
       - name: Go lint
         uses: golangci/golangci-lint-action@v7
@@ -29,59 +39,40 @@ jobs:
           version: latest
 
       - name: Frontend lint
-        run: |
-          cd web
-          npm ci
-          npx eslint src/ --max-warnings=0
+        run: cd web && npx eslint src/ --max-warnings=0
 
       - name: Frontend tests
-        run: |
-          cd web
-          npx vitest run
+        run: cd web && npx vitest run
 
   test:
-    name: Test
-    needs: lint
+    name: Test (${{ matrix.tier }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        tier: [unit, integration]
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
         with:
           go-version: "1.25"
+          cache: true
 
-      - name: Run all tests
-        run: go test ./... -count=1 -timeout 5m
+      - name: Unit tests
+        if: matrix.tier == 'unit'
+        run: make test-unit
 
-  build:
-    name: Build
-    needs: test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+      - name: Integration tests
+        if: matrix.tier == 'integration'
+        run: make test-integration
 
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.25"
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: "npm"
-          cache-dependency-path: web/package-lock.json
-
-      - name: Build frontend
-        run: |
-          cd web
-          npm ci
-          npm run build
-
-      - name: Build Go binary
-        run: go build -o bin/schlass ./cmd/schlass
-
+  # E2E builds its own Docker stack, so it depends on nothing the test or
+  # lint jobs produce. Running it in parallel from t=0 means the overall
+  # workflow wall-clock is max(lint, test matrix, e2e) rather than the
+  # sum of test + e2e.
   e2e:
     name: E2E
-    needs: build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -94,6 +85,12 @@ jobs:
 
       - name: Install web deps
         run: cd web && npm ci
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('web/package-lock.json') }}
 
       - name: Install Playwright browsers
         run: cd web && npx playwright install --with-deps chromium
@@ -124,4 +121,3 @@ jobs:
       - name: Dump docker logs on failure
         if: failure()
         run: docker compose logs
-
