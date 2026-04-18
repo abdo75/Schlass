@@ -265,6 +265,11 @@ func (h *OIDCAuthorizeHandler) Handle(w http.ResponseWriter, r *http.Request) {
 // renderLocalError writes a best-effort audit row with a correlation ID and
 // 302s to /oidc/error?ref=<corrid>. The SPA page at /oidc/error renders the
 // user-visible message; we only drop a marker + audit trail here.
+//
+// Metadata key is error_ref (not correlation_id) because audit_store.Log
+// already reserves "correlation_id" for the HTTP request trace ID injected
+// by middleware.RequestLogging. Admins look up local-error events via
+// metadata->>'error_ref' = $1 using the ref value the user reported.
 func (h *OIDCAuthorizeHandler) renderLocalError(r *http.Request, w http.ResponseWriter, ae *oidc.AuthorizeError, extra map[string]any) {
 	corrID, cerr := oidc.NewCorrelationID()
 	if cerr != nil {
