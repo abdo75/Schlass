@@ -43,6 +43,18 @@ func Set(ctx context.Context, v redis.Cmdable, userID string, at time.Time) erro
 	return v.Set(ctx, key(userID), strconv.FormatInt(secs, 10), ttl).Err()
 }
 
+// SetNow writes the cutoff for userID to the next whole second after now.
+// Readers compare with strict "<" (spec §5g), so rounding up is what makes
+// "mutation + still-outstanding token issued in the same wall-clock second"
+// resolve as stale. Without this bump, second-granularity truncation would let
+// an outstanding token issued a few hundred ms before the mutation survive.
+// Conversely a fresh login after the mutation produces iat ≥ cutoff in the
+// next full second and is accepted. Used by all mutation handlers.
+func SetNow(ctx context.Context, v redis.Cmdable, userID string) error {
+	cutoff := time.Now().UTC().Truncate(time.Second).Add(time.Second)
+	return Set(ctx, v, userID, cutoff)
+}
+
 // Get returns the revocation cutoff for userID.
 //
 // Returns (time.Time{}, ErrNotSet, nil) when no cutoff has been written —

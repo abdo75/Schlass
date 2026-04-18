@@ -10,8 +10,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/abdo75/Schlass/internal/oidc"
+	"github.com/abdo75/Schlass/internal/revokebefore"
 	"github.com/abdo75/Schlass/internal/store"
 )
 
@@ -30,8 +32,9 @@ const bearerClockSkew = 30 * time.Second
 type BearerAuthDeps struct {
 	Pool            *pgxpool.Pool
 	UserStore       *store.UserStore
-	SigningKeyStore  *store.SigningKeyStore
-	Issuer          string // SCHLASS_PUBLIC_URL with no trailing slash
+	SigningKeyStore *store.SigningKeyStore
+	Valkey          *redis.Client // for revoke_before check (spec §5g)
+	Issuer          string        // SCHLASS_PUBLIC_URL with no trailing slash
 }
 
 // BearerAuth validates a Bearer JWT against the published signing keys and
@@ -115,10 +118,19 @@ func BearerAuth(d BearerAuthDeps) func(http.Handler) http.Handler {
 				return
 			}
 
-			// TODO(M5 revoke_before): when internal/revokebefore lands, add a
-			// check here: if revoke_before.Get(userID) is set AND
-			// claims.IssuedAt < revokeBefore.Unix(), reject as invalid_token.
-			// Spec §5g.
+			// revoke_before: reject access tokens issued before the user
+			// mutation cutoff (spec §5g). Fail-open on transport errors —
+			// degraded Valkey must not log out all active users.
+			if d.Valkey != nil {
+				cutoff, rbErr := revokebefore.Get(r.Context(), d.Valkey, user.ID.String())
+				if rbErr == nil && claims.IssuedAt < cutoff.Unix() {
+					writeBearerError(w, http.StatusUnauthorized, "invalid_token", "token revoked")
+					return
+				}
+				if rbErr != nil && rbErr != revokebefore.ErrNotSet {
+					slog.Warn("bearer auth: revoke_before Get failed (allowing)", "error", rbErr)
+				}
+			}
 
 			ctx := context.WithValue(r.Context(), userCtxKey, user)
 			ctx = context.WithValue(ctx, bearerClaimsCtxKey{}, claims)

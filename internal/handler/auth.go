@@ -676,7 +676,7 @@ func (h *AuthHandler) PostChangePassword(w http.ResponseWriter, r *http.Request)
 
 	// 4. Post-commit: set revoke_before so OIDC tokens issued before the
 	//    password change are rejected at /token refresh and /userinfo.
-	if err := revokebefore.Set(r.Context(), h.valkey, current.ID.String(), time.Now()); err != nil {
+	if err := revokebefore.SetNow(r.Context(), h.valkey, current.ID.String()); err != nil {
 		slog.Error("auth.PostChangePassword: revoke_before Valkey write failed", "error", err, "user_id", current.ID) //nolint:gosec // G706: slog structured logging is not susceptible to log injection
 	}
 
@@ -830,7 +830,7 @@ func (h *AuthHandler) PostDisableMfa(w http.ResponseWriter, r *http.Request) {
 	}
 	// Post-commit, best-effort: set revoke_before so OIDC tokens issued
 	// before the self MFA disable are rejected at /token refresh and /userinfo.
-	if err := revokebefore.Set(r.Context(), h.valkey, current.ID.String(), time.Now()); err != nil {
+	if err := revokebefore.SetNow(r.Context(), h.valkey, current.ID.String()); err != nil {
 		slog.Error("disable-mfa: revoke_before Valkey write failed", "error", err, "user_id", current.ID) //nolint:gosec // G706: slog structured logging is not susceptible to log injection
 	}
 

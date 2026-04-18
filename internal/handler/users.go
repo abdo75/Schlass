@@ -633,7 +633,7 @@ func (h *UsersHandler) Disable(w http.ResponseWriter, r *http.Request) {
 	}
 	// Post-commit, best-effort: set revoke_before so OIDC tokens issued
 	// before the disable are rejected at /token refresh and /userinfo.
-	if err := revokebefore.Set(r.Context(), h.valkey, id.String(), time.Now()); err != nil {
+	if err := revokebefore.SetNow(r.Context(), h.valkey, id.String()); err != nil {
 		slog.Error("users.Disable: revoke_before Valkey write failed", "error", err, "user_id", id) //nolint:gosec // G706: slog structured logging is not susceptible to log injection
 	}
 
@@ -829,7 +829,7 @@ func (h *UsersHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	}
 	// Post-commit, best-effort: set revoke_before so OIDC tokens issued
 	// before the password reset are rejected at /token refresh and /userinfo.
-	if err := revokebefore.Set(r.Context(), h.valkey, id.String(), time.Now()); err != nil {
+	if err := revokebefore.SetNow(r.Context(), h.valkey, id.String()); err != nil {
 		slog.Error("users.ResetPassword: revoke_before Valkey write failed", "error", err, "user_id", id) //nolint:gosec // G706: slog structured logging is not susceptible to log injection
 	}
 
@@ -1142,7 +1142,7 @@ func (h *UsersHandler) ResetMFA(w http.ResponseWriter, r *http.Request) {
 	}
 	// Post-commit, best-effort: set revoke_before so OIDC tokens issued
 	// before the MFA reset are rejected at /token refresh and /userinfo.
-	if err := revokebefore.Set(r.Context(), h.valkey, targetID.String(), time.Now()); err != nil {
+	if err := revokebefore.SetNow(r.Context(), h.valkey, targetID.String()); err != nil {
 		slog.Error("reset-mfa: revoke_before Valkey write failed", "error", err, "user_id", targetID) //nolint:gosec // G706: slog structured logging is not susceptible to log injection
 	}
 

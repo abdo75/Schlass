@@ -13,6 +13,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/abdo75/Schlass/internal/oidc"
+	"github.com/abdo75/Schlass/internal/revokebefore"
 	"github.com/abdo75/Schlass/internal/session"
 	"github.com/abdo75/Schlass/internal/store"
 )
@@ -28,8 +29,8 @@ type tokenResponse struct {
 }
 
 const (
-	refreshTokenTTL    = 24 * time.Hour // absolute TTL from initial code exchange (spec §5f)
-	defaultTokenRateLimit = int64(60)   // per minute, per client_id (spec §5e)
+	refreshTokenTTL       = 24 * time.Hour // absolute TTL from initial code exchange (spec §5f)
+	defaultTokenRateLimit = int64(60)      // per minute, per client_id (spec §5e)
 )
 
 // OIDCTokenHandler serves POST /token for the authorization_code grant.
@@ -513,8 +514,37 @@ func (h *OIDCTokenHandler) handleRefreshToken(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// TODO(M5 revoke_before): check revokeBefore.Get(userID); if set AND the
-	// original token's CreatedAt < revoke_before.Unix(), RevokeFamily + reject.
+	// 6-pre. revoke_before: reject if the refresh was issued before the user
+	// mutation cutoff (spec §5g). We anchor on the refresh's CreatedAt (not
+	// the access token's iat) because the refresh is what we're rotating; any
+	// access token derived from it inherits the same stale provenance. Fail-open
+	// on transport errors — a Valkey blip must not revoke all active sessions.
+	rbCutoff, rbErr := revokebefore.Get(r.Context(), h.valkey, user.ID.String())
+	if rbErr == nil && oldPayload.CreatedAt < rbCutoff.Unix() {
+		if rerr := h.refreshStore.RevokeFamily(r.Context(), oldPayload.FamilyID); rerr != nil {
+			slog.Error("token refresh: RevokeFamily on revoke_before", "error", rerr)
+		}
+		h.writeBestEffortAudit(r, store.AuditEntry{
+			EventType:  "user.revoke_before_enforced",
+			ActorID:    &user.ID,
+			ActorEmail: user.Email,
+			TargetType: "client",
+			TargetID:   client.ID.String(),
+			ClientID:   &client.ID,
+			IPAddress:  extractClientIP(r),
+			Outcome:    "failure",
+			Metadata: map[string]any{
+				"family_id":          oldPayload.FamilyID,
+				"refresh_created_at": oldPayload.CreatedAt,
+				"revoke_before":      rbCutoff.Unix(),
+			},
+		})
+		writeTokenError(w, http.StatusBadRequest, "invalid_grant", "Token revoked by user mutation.")
+		return
+	}
+	if rbErr != nil && rbErr != revokebefore.ErrNotSet {
+		slog.Warn("token refresh: revoke_before Get failed (allowing)", "error", rbErr)
+	}
 
 	// 6. Load active signing key.
 	activeKey, err := h.signingKeyStore.GetActive(r.Context(), h.pool)
