@@ -326,7 +326,53 @@ func (h *AuthHandler) PostLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 8. Check MFA state and branch accordingly.
+	// 8. Branch order per spec §4a:
+	//   (a) force_password_change=true → issue session, skip MFA check.
+	//       AuthGuard routes to /change-password; MFA state is re-evaluated
+	//       after the change (refreshUser + AuthGuard's force_mfa_enrollment
+	//       redirect fires naturally).
+	//   (b) mfa_required + not enrolled → enrollment flow (no session yet)
+	//   (c) mfa_required + enrolled → challenge flow (no session yet)
+	//   (d) no MFA → legacy flow (session issued immediately)
+	//
+	// Ordering (a) FIRST means a user with a temp password completes password
+	// rotation BEFORE MFA enrollment. Temp passwords aren't real credentials;
+	// enrolling MFA against a temp password would tie the authenticator to a
+	// credential that's about to change.
+	if user.ForcePasswordChange {
+		// Audit-in-tx: login.succeeded fires here, inside the same tx as
+		// ResetFailedLogins above, before any Valkey side-effect.
+		if err := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+			EventType:  "login.succeeded",
+			ActorID:    &user.ID,
+			ActorEmail: user.Email,
+			TargetType: "user",
+			TargetID:   user.ID.String(),
+			IPAddress:  ip,
+			Outcome:    "success",
+			Metadata:   map[string]any{"force_password_change_pending": true},
+		}); err != nil {
+			slog.Error("audit login.succeeded failed (force-pw branch)", "error", err)
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+			return
+		}
+		if err := tx.Commit(r.Context()); err != nil {
+			slog.Error("login: commit failed (force-pw branch)", "error", err)
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+			return
+		}
+		sessionToken, err := h.sessionStore.Create(r.Context(), user.ID.String(), ip, r.Header.Get("User-Agent"))
+		if err != nil {
+			slog.Error("login: session.Create failed (force-pw branch)", "error", err)
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+			return
+		}
+		setSessionCookie(w, sessionToken, h.cookieSecure)
+		writeJSON(w, http.StatusOK, map[string]any{"user": userDTO(user)})
+		return
+	}
+
+	// From here, user.ForcePasswordChange is false. Consult MFA state next.
 	mfaRequired, err := h.configStore.GetBool(r.Context(), tx, "mfa_required")
 	if err != nil {
 		slog.Error("login: mfa_required read failed", "error", err)
