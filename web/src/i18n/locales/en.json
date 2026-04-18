@@ -294,7 +294,8 @@
   "user_menu": {
     "theme": { "heading": "Theme", "light": "Light", "dark": "Dark", "system": "System" },
     "language": { "heading": "Language" },
-    "change_password": "Change password",
+    "my_account": "My account",
+    "admin_panel": "Admin panel",
     "sign_out": "Sign out"
   }
 }

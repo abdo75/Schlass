@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation, Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "@/features/auth/AuthContext";
 import { LanguageSwitcher } from "./LanguageSwitcher";
@@ -61,6 +61,7 @@ function ChevronIcon({ open }: { open: boolean }) {
 export function UserMenuPopover() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const { t } = useTranslation();
   const { theme, setTheme } = useTheme();
   const [open, setOpen] = useState(false);
@@ -88,10 +89,17 @@ export function UserMenuPopover() {
   const role = user?.role ?? "";
   const avatarLetter = email.charAt(0).toUpperCase();
 
-  const handleChangePassword = () => {
-    setOpen(false);
-    void navigate("/change-password");
-  };
+  const isOnAccount = location.pathname === "/account";
+  const isAdmin = user?.role === "super_admin";
+
+  let contextualEntry: { labelKey: string; to: string } | null;
+  if (isOnAccount && isAdmin) {
+    contextualEntry = { labelKey: "user_menu.admin_panel", to: "/admin/users" };
+  } else if (isOnAccount && !isAdmin) {
+    contextualEntry = null;
+  } else {
+    contextualEntry = { labelKey: "user_menu.my_account", to: "/account" };
+  }
 
   const handleSignOut = async () => {
     setOpen(false);
@@ -170,13 +178,15 @@ export function UserMenuPopover() {
           </div>
 
           <div className="p-1.5">
-            <button
-              type="button"
-              onClick={handleChangePassword}
-              className="flex h-9 w-full items-center rounded-md px-3 text-sm transition-colors hover:bg-accent"
-            >
-              {t("user_menu.change_password")}
-            </button>
+            {contextualEntry && (
+              <Link
+                to={contextualEntry.to}
+                onClick={() => setOpen(false)}
+                className="flex h-9 w-full items-center rounded-md px-3 text-sm transition-colors hover:bg-accent"
+              >
+                {t(contextualEntry.labelKey)}
+              </Link>
+            )}
             <button
               type="button"
               onClick={() => void handleSignOut()}
