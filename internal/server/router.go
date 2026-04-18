@@ -139,6 +139,12 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 	// Challenge endpoint rate-limited per IP — primary brute-force surface.
 	mux.Handle("POST /api/mfa/challenge", mfaChallengeRL.Middleware(http.HandlerFunc(mfaHandler.PostChallenge)))
 
+	// OIDC authorization endpoint — optionally authenticated (session injected
+	// when present, unauthenticated requests redirected to /login).
+	authorizeHandler := handler.NewOIDCAuthorizeHandler(d.Pool, sessionStore, d.AuditStore, d.Cfg.SchlassPublicURL)
+	optionalAuth := middleware.OptionalAuth(sessionStore, d.UserStore, d.AuditStore, d.Pool)
+	mux.Handle("GET /authorize", optionalAuth(http.HandlerFunc(authorizeHandler.Handle)))
+
 	mux.Handle("/", web.SPAHandler())
 
 	var h http.Handler = mux
