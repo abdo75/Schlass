@@ -2,6 +2,13 @@ import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { AuthLayout } from "@/components/AuthLayout";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 
 export function AuthorizeErrorPage() {
   const [params] = useSearchParams();
@@ -22,21 +29,23 @@ export function AuthorizeErrorPage() {
 
   return (
     <AuthLayout>
-      <div className="flex min-h-screen items-center justify-center px-4">
-        <div className="w-full max-w-[440px] rounded-xl border border-border bg-card p-8 text-center shadow-sm">
-          <div className="mx-auto mb-4 flex h-11 w-11 items-center justify-center rounded-full bg-destructive/10 text-2xl text-destructive">
+      <Card className="w-full overflow-hidden border-border text-center">
+        <CardHeader className="justify-items-center px-8 pt-8 pb-4">
+          <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-full bg-destructive/10 text-2xl font-semibold text-destructive">
             !
           </div>
-          <h1 className="mb-2 text-xl font-semibold text-foreground">
+          <CardTitle className="text-2xl font-semibold tracking-tight leading-tight">
             {t("oidc.errorTitle")}
-          </h1>
-          <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
+          </CardTitle>
+          <CardDescription className="mt-2 text-[13px] leading-relaxed">
             {t("oidc.errorBody1")}
-          </p>
-          <p className="mb-5 text-sm leading-relaxed text-muted-foreground">
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="px-8 pb-7">
+          <p className="mb-5 text-[13px] leading-relaxed text-muted-foreground">
             {t("oidc.errorBody2")}
           </p>
-          <div className="mt-2 border-t border-border pt-4">
+          <div className="border-t border-border pt-4">
             <div className="mb-2 text-[11px] uppercase tracking-wider text-muted-foreground">
               {t("oidc.errorRefLabel")}
             </div>
@@ -59,8 +68,8 @@ export function AuthorizeErrorPage() {
               {t("oidc.errorRefHint")}
             </div>
           </div>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
     </AuthLayout>
   );
 }
