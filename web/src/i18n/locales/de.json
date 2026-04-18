@@ -276,7 +276,13 @@
       "enrolled_on": "Aktiviert am {{date}}",
       "codes_remaining_one": "{{count}} Wiederherstellungscode verbleibend",
       "codes_remaining_other": "{{count}} Wiederherstellungscodes verbleibend",
-      "reset_contact_admin": "Kontaktieren Sie einen Administrator, um die Zwei-Faktor-Authentifizierung zurückzusetzen."
+      "reset_contact_admin": "Kontaktieren Sie einen Administrator, um die Zwei-Faktor-Authentifizierung zurückzusetzen.",
+      "disable_button": "Zwei-Faktor deaktivieren",
+      "disable_dialog_title": "Zwei-Faktor-Authentifizierung deaktivieren?",
+      "disable_dialog_description": "Dadurch wird die Zwei-Faktor-Authentifizierung für Ihr Konto deaktiviert und Ihre Authenticator-App sowie Ihre Wiederherstellungscodes werden ungültig. Sie müssen die Zwei-Faktor-Authentifizierung bei Ihrer nächsten Anmeldung erneut einrichten. Geben Sie Ihr Passwort zur Bestätigung ein.",
+      "disable_password_label": "Aktuelles Passwort",
+      "disable_confirm": "Deaktivieren",
+      "disable_cancel": "Abbrechen"
     },
     "admin_reset": {
       "button_label": "2FA zurücksetzen",

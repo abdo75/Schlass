@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import type { ReactNode } from "react";
@@ -92,8 +92,10 @@ describe("UserAccountPage", () => {
     expect(badge).toBeInTheDocument();
     // Recovery codes text
     expect(screen.getByText(/7 recovery codes? remaining/i)).toBeInTheDocument();
-    // Admin contact footnote
-    expect(screen.getByText(/contact an administrator/i)).toBeInTheDocument();
+    // Disable button present (replaces the old admin-contact footnote)
+    expect(
+      screen.getByRole("button", { name: /disable two-factor/i }),
+    ).toBeInTheDocument();
   });
 
   it("does not show 'Enabled' badge when user has no totp_enrolled_at", () => {
@@ -111,5 +113,34 @@ describe("UserAccountPage", () => {
     render(wrap(<UserAccountPage />));
     const link = screen.getByRole("link", { name: /set up/i });
     expect(link).toHaveAttribute("href", "/setup-mfa");
+  });
+
+  it("shows Disable button when user is enrolled", () => {
+    const wrap = withProviders(enrolledUser);
+    render(wrap(<UserAccountPage />));
+    expect(
+      screen.getByRole("button", { name: /disable two-factor/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("does not show Disable button when user is not enrolled", () => {
+    const wrap = withProviders(regularUser);
+    render(wrap(<UserAccountPage />));
+    expect(
+      screen.queryByRole("button", { name: /disable two-factor/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("opens the disable dialog when Disable button is clicked", async () => {
+    const wrap = withProviders(enrolledUser);
+    render(wrap(<UserAccountPage />));
+    await userEvent.click(
+      screen.getByRole("button", { name: /disable two-factor/i }),
+    );
+    await waitFor(() => {
+      expect(
+        screen.getByRole("dialog", { name: /disable two-factor/i }),
+      ).toBeInTheDocument();
+    });
   });
 });

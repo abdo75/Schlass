@@ -31,6 +31,14 @@ export async function completeEnrollment(): Promise<void> {
   });
 }
 
+export async function disableMfa(currentPassword: string): Promise<void> {
+  await apiFetch<{ disabled: true }>("/api/me/mfa/disable", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ current_password: currentPassword }),
+  });
+}
+
 export async function submitChallenge(input: { code?: string; recovery_code?: string }): Promise<void> {
   await apiFetch<void>("/api/mfa/challenge", {
     method: "POST",

@@ -681,6 +681,118 @@ func (h *AuthHandler) PostChangePassword(w http.ResponseWriter, r *http.Request)
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// PostDisableMfa handles POST /api/me/mfa/disable — self-service MFA disable.
+// Requires the authenticated user to re-enter their password as proof of
+// possession. On success:
+//   - Clears totp_secret_encrypted, totp_enrolled_at, last_used_totp_counter
+//   - Deletes all recovery codes
+//   - Writes mfa.self_reset audit row
+//   - Revokes all Valkey sessions for the user (including the current one)
+//
+// Re-auth via password only (not password + current TOTP) — consistent with
+// POST /api/change-password which also requires only password.
+func (h *AuthHandler) PostDisableMfa(w http.ResponseWriter, r *http.Request) {
+	current, ok := middleware.CurrentUser(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "INVALID_SESSION", "Not authenticated.")
+		return
+	}
+
+	var req struct {
+		CurrentPassword string `json:"current_password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body.")
+		return
+	}
+
+	if current.TOTPEnrolledAt == nil {
+		writeError(w, http.StatusBadRequest, "MFA_NOT_ENROLLED", "Two-factor authentication is not enabled on this account.")
+		return
+	}
+
+	// Verify password. Load the full user (middleware may only have a subset)
+	// so we have the password_hash.
+	full, err := h.userStore.GetByID(r.Context(), h.pool, current.ID)
+	if err != nil {
+		slog.Error("disable-mfa: GetByID failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	ok2, err := crypto.VerifyPassword(req.CurrentPassword, full.PasswordHash)
+	if err != nil {
+		slog.Error("disable-mfa: VerifyPassword failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if !ok2 {
+		writeError(w, http.StatusUnauthorized, "INVALID_CREDENTIALS", "Invalid password.")
+		return
+	}
+
+	// Tx: clear TOTP + delete recovery codes + audit, atomic commit.
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	defer func() { _ = tx.Rollback(r.Context()) }()
+
+	deleted, err := h.recoveryCodeStore.DeleteAllForUser(r.Context(), tx, current.ID)
+	if err != nil {
+		slog.Error("disable-mfa: DeleteAllForUser failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if err := h.userStore.ClearTOTP(r.Context(), tx, current.ID); err != nil {
+		slog.Error("disable-mfa: ClearTOTP failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	wasEnrolledAt := current.TOTPEnrolledAt.Format(time.RFC3339)
+	if err := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+		EventType:  "mfa.self_reset",
+		ActorID:    &current.ID,
+		ActorEmail: current.Email,
+		TargetType: "user",
+		TargetID:   current.ID.String(),
+		IPAddress:  extractClientIP(r),
+		Outcome:    "success",
+		Metadata: map[string]any{
+			"recovery_codes_burned": deleted,
+			"was_enrolled_at":       wasEnrolledAt,
+		},
+	}); err != nil {
+		slog.Error("disable-mfa: audit write failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		slog.Error("disable-mfa: Commit failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	// Post-tx: revoke ALL sessions for this user (including the current one).
+	if err := h.sessionStore.DeleteAllForUser(r.Context(), current.ID.String()); err != nil {
+		slog.Error("disable-mfa: session revocation failed", "error", err, "user_id", current.ID)
+		// Non-fatal — the PG state is committed, audit row is written.
+	}
+
+	// Clear the session cookie client-side too.
+	http.SetCookie(w, &http.Cookie{
+		Name:     "schlass_session",
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+		Secure:   h.cookieSecure,
+		MaxAge:   -1,
+	})
+
+	writeJSON(w, http.StatusOK, map[string]any{"disabled": true})
+}
+
 // GetMe returns the authenticated user DTO from the request context (populated
 // by the auth middleware). Used by the frontend to rehydrate session state.
 // It also includes force_mfa_enrollment so the SPA AuthGuard can redirect to

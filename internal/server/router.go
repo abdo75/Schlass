@@ -106,6 +106,7 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 	mux.Handle("POST /api/logout", authMW(http.HandlerFunc(authHandler.PostLogout)))
 	mux.Handle("GET /api/me", authMW(http.HandlerFunc(authHandler.GetMe)))
 	mux.Handle("POST /api/change-password", authMW(http.HandlerFunc(authHandler.PostChangePassword)))
+	mux.Handle("POST /api/me/mfa/disable", authMW(http.HandlerFunc(authHandler.PostDisableMfa)))
 
 	mux.Handle("GET /api/users", gated("users.list", http.HandlerFunc(usersHandler.List)))
 	mux.Handle("POST /api/users", gated("users.create", http.HandlerFunc(usersHandler.Create)))

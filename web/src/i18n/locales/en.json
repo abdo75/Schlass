@@ -276,7 +276,13 @@
       "enrolled_on": "Enabled on {{date}}",
       "codes_remaining_one": "{{count}} recovery code remaining",
       "codes_remaining_other": "{{count}} recovery codes remaining",
-      "reset_contact_admin": "Contact an administrator to reset two-factor authentication."
+      "reset_contact_admin": "Contact an administrator to reset two-factor authentication.",
+      "disable_button": "Disable two-factor",
+      "disable_dialog_title": "Disable two-factor authentication?",
+      "disable_dialog_description": "This turns off two-factor for your account and invalidates your authenticator + recovery codes. You'll need to set up two-factor again on your next sign-in. Enter your password to confirm.",
+      "disable_password_label": "Current password",
+      "disable_confirm": "Disable",
+      "disable_cancel": "Cancel"
     },
     "admin_reset": {
       "button_label": "Reset MFA",

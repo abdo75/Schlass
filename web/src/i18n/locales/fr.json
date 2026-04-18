@@ -276,7 +276,13 @@
       "enrolled_on": "Activé le {{date}}",
       "codes_remaining_one": "{{count}} code de récupération restant",
       "codes_remaining_other": "{{count}} codes de récupération restants",
-      "reset_contact_admin": "Contactez un administrateur pour réinitialiser l'authentification à deux facteurs."
+      "reset_contact_admin": "Contactez un administrateur pour réinitialiser l'authentification à deux facteurs.",
+      "disable_button": "Désactiver la double authentification",
+      "disable_dialog_title": "Désactiver l'authentification à deux facteurs ?",
+      "disable_dialog_description": "Cela désactive la double authentification sur votre compte et invalide votre application d'authentification ainsi que vos codes de récupération. Vous devrez configurer à nouveau la double authentification lors de votre prochaine connexion. Entrez votre mot de passe pour confirmer.",
+      "disable_password_label": "Mot de passe actuel",
+      "disable_confirm": "Désactiver",
+      "disable_cancel": "Annuler"
     },
     "admin_reset": {
       "button_label": "Réinitialiser la 2FA",
