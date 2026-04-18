@@ -9,7 +9,6 @@ import (
 	"github.com/abdo75/Schlass/internal/handler"
 )
 
-
 func TestHealthCheckHealthy(t *testing.T) {
 	env := NewTestEnv(t)
 	h := handler.NewHealthHandler(env.Pool, env.ValkeyClient)

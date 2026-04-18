@@ -28,7 +28,9 @@ func enrollAndCaptureRecoveryCodes(t *testing.T, env *TestEnv, email, password s
 	startReq.AddCookie(&http.Cookie{Name: "schlass_mfa_enroll", Value: token})
 	sr := httptest.NewRecorder()
 	env.Router.ServeHTTP(sr, startReq)
-	var so struct{ SecretBase32 string `json:"secret_base32"` }
+	var so struct {
+		SecretBase32 string `json:"secret_base32"`
+	}
 	_ = json.Unmarshal(sr.Body.Bytes(), &so)
 
 	code, _ := totp.GenerateCode(so.SecretBase32, time.Now())
@@ -38,7 +40,9 @@ func enrollAndCaptureRecoveryCodes(t *testing.T, env *TestEnv, email, password s
 	vReq.AddCookie(&http.Cookie{Name: "schlass_mfa_enroll", Value: token})
 	vRec := httptest.NewRecorder()
 	env.Router.ServeHTTP(vRec, vReq)
-	var vo struct{ RecoveryCodes []string `json:"recovery_codes"` }
+	var vo struct {
+		RecoveryCodes []string `json:"recovery_codes"`
+	}
 	_ = json.Unmarshal(vRec.Body.Bytes(), &vo)
 
 	cBody, _ := json.Marshal(map[string]bool{"acknowledged": true})

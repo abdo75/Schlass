@@ -69,10 +69,10 @@ func TestLogin_CaseInsensitiveEmail(t *testing.T) {
 	}
 
 	cases := []string{
-		"admin@example.com",  // canonical
-		"ADMIN@example.com",  // upper local part
-		"Admin@Example.COM",  // fully mixed
-		"admin@EXAMPLE.com",  // upper domain
+		"admin@example.com", // canonical
+		"ADMIN@example.com", // upper local part
+		"Admin@Example.COM", // fully mixed
+		"admin@EXAMPLE.com", // upper domain
 	}
 	for _, email := range cases {
 		body, _ := json.Marshal(map[string]string{"email": email, "password": adminPass})

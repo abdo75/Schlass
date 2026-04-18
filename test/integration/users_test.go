@@ -212,7 +212,6 @@ func TestUsers_Create_DuplicateEmail_409(t *testing.T) {
 	}
 }
 
-
 func TestUsers_List_PaginationAndSearch(t *testing.T) {
 	env := NewTestEnv(t)
 	env.SeedAdmin(t, "admin@example.com", "CorrectHorse42Battery")

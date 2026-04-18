@@ -420,7 +420,7 @@ export function UserDetailPage() {
                     t={t}
                   />
                 ) : (
-                  <ViewProfileGrid user={user} sessions={sessions} t={t} />
+                  <ViewProfileGrid user={user} t={t} />
                 )}
               </div>
             </CardContent>
@@ -600,19 +600,10 @@ export function UserDetailPage() {
 
 interface ViewProfileGridProps {
   user: UserDetailResponse["user"];
-  sessions: UserSession[];
   t: (key: string) => string;
 }
 
-function deriveLastSignIn(sessions: UserSession[]): string {
-  if (sessions.length === 0) return "Never";
-  const latest = sessions.reduce((a, b) =>
-    new Date(a.last_seen_at) > new Date(b.last_seen_at) ? a : b,
-  );
-  return formatRelativeTime(latest.last_seen_at);
-}
-
-function ViewProfileGrid({ user, sessions, t }: ViewProfileGridProps) {
+function ViewProfileGrid({ user, t }: ViewProfileGridProps) {
   const createdFormatted = user.created_at
     ? new Date(user.created_at).toLocaleDateString("en-US", {
         month: "long",
@@ -650,7 +641,9 @@ function ViewProfileGrid({ user, sessions, t }: ViewProfileGridProps) {
       <div>
         <dt className="text-[13px] text-muted-foreground">Last sign-in</dt>
         <dd className="mt-0.5 text-muted-foreground">
-          {deriveLastSignIn(sessions)}
+          {user.last_login_at
+            ? formatRelativeTime(user.last_login_at)
+            : "Never"}
         </dd>
       </div>
       <div>

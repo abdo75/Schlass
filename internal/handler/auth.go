@@ -356,6 +356,11 @@ func (h *AuthHandler) PostLogin(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 			return
 		}
+		if err := h.userStore.SetLastLoginAt(r.Context(), tx, user.ID); err != nil {
+			slog.Error("login: SetLastLoginAt failed (force-pw branch)", "error", err)
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+			return
+		}
 		if err := tx.Commit(r.Context()); err != nil {
 			slog.Error("login: commit failed (force-pw branch)", "error", err)
 			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
@@ -458,6 +463,11 @@ func (h *AuthHandler) PostLogin(w http.ResponseWriter, r *http.Request) {
 			Outcome:    "success",
 		}); err != nil {
 			slog.Error("audit write failed", "error", err)
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+			return
+		}
+		if err := h.userStore.SetLastLoginAt(r.Context(), tx, user.ID); err != nil {
+			slog.Error("login: SetLastLoginAt failed (no-mfa branch)", "error", err)
 			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 			return
 		}

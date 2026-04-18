@@ -54,14 +54,14 @@ func main() {
 	configService := config.NewConfigService(configStore, cfg.EncryptionKey)
 
 	h, err := server.BuildRouter(server.RouterDeps{
-		Cfg:               cfg,
-		Pool:              pool,
-		ValkeyClient:      valkeyClient,
-		ConfigStore:       configStore,
-		UserStore:         userStore,
-		RecoveryCodeStore: recoveryCodeStore,
-		AuditStore:        auditStore,
-		ConfigService:     configService,
+		Cfg:                   cfg,
+		Pool:                  pool,
+		ValkeyClient:          valkeyClient,
+		ConfigStore:           configStore,
+		UserStore:             userStore,
+		RecoveryCodeStore:     recoveryCodeStore,
+		AuditStore:            auditStore,
+		ConfigService:         configService,
 		LoginRateLimit:        cfg.LoginRateLimit,
 		MfaChallengeRateLimit: cfg.MfaChallengeRateLimit,
 	})

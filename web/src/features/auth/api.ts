@@ -7,6 +7,7 @@ export interface AuthUser {
   force_password_change: boolean;
   force_mfa_enrollment: boolean;
   totp_enrolled_at?: string | null;
+  last_login_at?: string | null;
   mfa?: { unused_recovery_codes: number };
 }
 

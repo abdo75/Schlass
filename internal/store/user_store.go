@@ -20,19 +20,20 @@ var (
 // User is the full user row fetched by GetByID / GetByEmail.
 // Fields mirror the users table including TOTP enrollment and replay prevention.
 type User struct {
-	ID                     uuid.UUID
-	Email                  string
-	PasswordHash           string
-	Role                   string
-	Status                 string
-	ForcePasswordChange    bool
-	TOTPSecretEncrypted    []byte
-	TOTPEnrolledAt         *time.Time
-	FailedLoginAttempts    int
-	LockedUntil            *time.Time
-	LastUsedTOTPCounter    int64
-	CreatedAt              time.Time
-	UpdatedAt              time.Time
+	ID                  uuid.UUID
+	Email               string
+	PasswordHash        string
+	Role                string
+	Status              string
+	ForcePasswordChange bool
+	TOTPSecretEncrypted []byte
+	TOTPEnrolledAt      *time.Time
+	FailedLoginAttempts int
+	LockedUntil         *time.Time
+	LastUsedTOTPCounter int64
+	LastLoginAt         *time.Time
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
 }
 
 type UserStore struct{}
@@ -57,7 +58,8 @@ func (s *UserStore) Create(ctx context.Context, q database.Querier, email, passw
 
 const userSelectColumns = `id, email, password_hash, role, status,
 force_password_change, totp_secret_encrypted, totp_enrolled_at,
-failed_login_attempts, locked_until, last_used_totp_counter, created_at, updated_at`
+failed_login_attempts, locked_until, last_used_totp_counter,
+last_login_at, created_at, updated_at`
 
 func scanUser(row pgx.Row) (*User, error) {
 	var u User
@@ -65,7 +67,7 @@ func scanUser(row pgx.Row) (*User, error) {
 		&u.ID, &u.Email, &u.PasswordHash, &u.Role, &u.Status,
 		&u.ForcePasswordChange, &u.TOTPSecretEncrypted, &u.TOTPEnrolledAt,
 		&u.FailedLoginAttempts, &u.LockedUntil, &u.LastUsedTOTPCounter,
-		&u.CreatedAt, &u.UpdatedAt,
+		&u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -238,7 +240,7 @@ func (s *UserStore) List(ctx context.Context, q database.Querier, params ListUse
 			&u.ID, &u.Email, &u.PasswordHash, &u.Role, &u.Status,
 			&u.ForcePasswordChange, &u.TOTPSecretEncrypted, &u.TOTPEnrolledAt,
 			&u.FailedLoginAttempts, &u.LockedUntil, &u.LastUsedTOTPCounter,
-			&u.CreatedAt, &u.UpdatedAt,
+			&u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("list users scan: %w", err)
 		}
@@ -344,6 +346,24 @@ func (s *UserStore) AdvanceTOTPCounter(ctx context.Context, q database.Querier, 
 		counter, userID)
 	if err != nil {
 		return fmt.Errorf("advance totp counter: %w", err)
+	}
+	return nil
+}
+
+// SetLastLoginAt stamps users.last_login_at = now() for the given user.
+// Called inside the same PG tx as the login.succeeded audit row so the
+// stamp and the audit entry are atomic with the state change that issues
+// the session cookie. See CLAUDE.md audit-in-tx rule.
+func (s *UserStore) SetLastLoginAt(ctx context.Context, q database.Querier, id uuid.UUID) error {
+	tag, err := q.Exec(ctx,
+		`UPDATE users SET last_login_at = now(), updated_at = now() WHERE id = $1`,
+		id,
+	)
+	if err != nil {
+		return fmt.Errorf("set last_login_at: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrUserNotFound
 	}
 	return nil
 }

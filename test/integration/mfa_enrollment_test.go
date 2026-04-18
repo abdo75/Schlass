@@ -230,7 +230,9 @@ func TestMfaEnrollmentComplete_Happy(t *testing.T) {
 	startReq.AddCookie(&http.Cookie{Name: "schlass_mfa_enroll", Value: token})
 	startRec := httptest.NewRecorder()
 	env.Router.ServeHTTP(startRec, startReq)
-	var startOut struct{ SecretBase32 string `json:"secret_base32"` }
+	var startOut struct {
+		SecretBase32 string `json:"secret_base32"`
+	}
 	_ = json.Unmarshal(startRec.Body.Bytes(), &startOut)
 
 	// /verify
@@ -319,7 +321,9 @@ func TestMfaEnrollmentComplete_NotAcknowledged_400(t *testing.T) {
 	startReq.AddCookie(&http.Cookie{Name: "schlass_mfa_enroll", Value: token})
 	startRec := httptest.NewRecorder()
 	env.Router.ServeHTTP(startRec, startReq)
-	var startOut struct{ SecretBase32 string `json:"secret_base32"` }
+	var startOut struct {
+		SecretBase32 string `json:"secret_base32"`
+	}
 	_ = json.Unmarshal(startRec.Body.Bytes(), &startOut)
 
 	code, _ := totp.GenerateCode(startOut.SecretBase32, time.Now())

@@ -422,6 +422,12 @@ func (h *MfaHandler) PostEnrollmentComplete(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// Read session_authed flag from the Valkey state BEFORE opening the tx.
+	// The stamp inside the tx only fires when this is false — the session-
+	// authed path already had last_login_at set when the user originally
+	// logged in, so we don't overwrite that with the enrollment moment.
+	sessionAuthed := state["session_authed"] == "1"
+
 	// PG tx: SetTOTPEnrolled + Insert recovery codes + audit, atomic commit.
 	tx, err := h.pool.Begin(r.Context())
 	if err != nil {
@@ -465,14 +471,23 @@ func (h *MfaHandler) PostEnrollmentComplete(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// Only stamp last_login_at when this enrollment issues a fresh session.
+	// The session-authed path (setup-wizard admin, or a user who got admin-
+	// reset while holding an active session) already had last_login_at set
+	// when the original session was issued.
+	if !sessionAuthed {
+		if err := h.userStore.SetLastLoginAt(r.Context(), tx, userID); err != nil {
+			slog.Error("mfa complete: SetLastLoginAt failed", "error", err)
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+			return
+		}
+	}
+
 	if err := tx.Commit(r.Context()); err != nil {
 		slog.Error("mfa complete: Commit failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 		return
 	}
-
-	// Read session_authed flag before destroying the Valkey state.
-	sessionAuthed := state["session_authed"] == "1"
 
 	// Post-tx: destroy enrollment token in Valkey and clear enrollment cookie.
 	h.valkey.Del(r.Context(), key)
@@ -622,6 +637,11 @@ func (h *MfaHandler) PostChallenge(w http.ResponseWriter, r *http.Request) {
 		Outcome:    "success",
 		Metadata:   map[string]any{"method": "totp"},
 	}); err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if err := h.userStore.SetLastLoginAt(r.Context(), tx, userID); err != nil {
+		slog.Error("mfa challenge: SetLastLoginAt failed (totp)", "error", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 		return
 	}
@@ -777,6 +797,11 @@ func (h *MfaHandler) verifyRecoveryCode(w http.ResponseWriter, r *http.Request, 
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 		return
 	}
+	if err := h.userStore.SetLastLoginAt(r.Context(), tx, user.ID); err != nil {
+		slog.Error("mfa challenge: SetLastLoginAt failed (recovery)", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
 	if err := tx.Commit(r.Context()); err != nil {
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 		return
@@ -801,4 +826,3 @@ func (h *MfaHandler) verifyRecoveryCode(w http.ResponseWriter, r *http.Request, 
 	setSessionCookie(w, sessionToken, h.secureCookie)
 	writeJSON(w, http.StatusOK, map[string]any{"user": userDTO(user)})
 }
-

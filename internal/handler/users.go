@@ -217,6 +217,7 @@ func userDTO(u *store.User) map[string]any {
 		"created_at":            u.CreatedAt,
 		"updated_at":            u.UpdatedAt,
 		"totp_enrolled_at":      u.TOTPEnrolledAt, // nil when not enrolled
+		"last_login_at":         u.LastLoginAt,    // nil when user has never logged in
 	}
 	return dto
 }
