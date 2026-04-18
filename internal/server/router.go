@@ -125,6 +125,10 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 	mux.Handle("POST /api/admin/signing-keys/rotate",
 		gated("signing_keys.rotate", http.HandlerFunc(adminSigningKeysHandler.Rotate)))
 
+	discoveryHandler := handler.NewOIDCDiscoveryHandler(d.Cfg.SchlassPublicURL, d.Pool)
+	mux.HandleFunc("GET /.well-known/openid-configuration", discoveryHandler.GetConfiguration)
+	mux.HandleFunc("GET /.well-known/jwks.json", discoveryHandler.GetJWKS)
+
 	// Enrollment endpoints are gated only by possession of the schlass_mfa_enroll
 	// cookie (validated inside each handler). No middleware.Auth wrapper — the
 	// user is NOT authenticated yet at enrollment time.
