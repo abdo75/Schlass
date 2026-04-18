@@ -54,6 +54,13 @@ func (s *AuditStore) Log(ctx context.Context, q database.Querier, entry AuditEnt
 		}
 	}
 
+	// ip_address is INET (nullable). Pass nil when empty so pgx does not
+	// attempt to cast "" to inet, which Postgres rejects with 22P02.
+	var ipAddress *string
+	if entry.IPAddress != "" {
+		ipAddress = &entry.IPAddress
+	}
+
 	_, err := q.Exec(ctx,
 		`INSERT INTO audit_logs (event_type, actor_id, actor_email, target_type, target_id, client_id, ip_address, outcome, metadata)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
@@ -63,7 +70,7 @@ func (s *AuditStore) Log(ctx context.Context, q database.Querier, entry AuditEnt
 		entry.TargetType,
 		entry.TargetID,
 		entry.ClientID,
-		entry.IPAddress,
+		ipAddress,
 		entry.Outcome,
 		metadataJSON,
 	)

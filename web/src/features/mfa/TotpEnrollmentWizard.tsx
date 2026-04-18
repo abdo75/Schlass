@@ -112,12 +112,17 @@ export function TotpEnrollmentWizard() {
           {step === 3 && (
             <EnrollStepRecoveryCodes
               codes={recoveryCodes}
-              onComplete={async () => {
+              onComplete={async (redirectTo) => {
                 // The enrollment-complete endpoint issued a session cookie.
                 // Refresh AuthContext so AuthGuard on destination routes sees
-                // the user. Navigate based on role so super_admin lands at
-                // /admin and regular users land at /account.
+                // the user. If the original /api/login call carried a
+                // return_to through the enroll Valkey hash, the backend
+                // emits it as redirect_to — follow verbatim.
                 const u = await refreshUser();
+                if (redirectTo) {
+                  window.location.href = redirectTo;
+                  return;
+                }
                 const dest = u?.role === "super_admin" ? "/admin" : "/account";
                 void navigate(dest, { replace: true });
               }}

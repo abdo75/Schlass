@@ -24,7 +24,7 @@ describe("EnrollStepRecoveryCodes", () => {
   });
 
   it("calls completeEnrollment and onComplete on finish", async () => {
-    completeMock.mockResolvedValue(undefined);
+    completeMock.mockResolvedValue({});
     const onComplete = vi.fn();
     render(
       <I18nextProvider i18n={i18n}>

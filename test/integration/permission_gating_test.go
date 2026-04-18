@@ -58,8 +58,8 @@ func TestPermissionGating_NonAdminBlockedFromAllUserRoutes(t *testing.T) {
 	chReq.AddCookie(userCookie)
 	chRec := httptest.NewRecorder()
 	env.Router.ServeHTTP(chRec, chReq)
-	if chRec.Code != http.StatusNoContent {
-		t.Fatalf("change-password: want 204, got %d: %s", chRec.Code, chRec.Body.String())
+	if chRec.Code != http.StatusOK {
+		t.Fatalf("change-password: want 200, got %d: %s", chRec.Code, chRec.Body.String())
 	}
 
 	// Log in again with the new password to get a fresh session.

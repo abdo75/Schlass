@@ -18,6 +18,7 @@ import (
 	"github.com/abdo75/Schlass/internal/database"
 	"github.com/abdo75/Schlass/internal/middleware"
 	"github.com/abdo75/Schlass/internal/model"
+	"github.com/abdo75/Schlass/internal/revokebefore"
 	"github.com/abdo75/Schlass/internal/session"
 	"github.com/abdo75/Schlass/internal/store"
 )
@@ -96,6 +97,17 @@ func (h *AuthHandler) PostLogin(w http.ResponseWriter, r *http.Request) {
 	if err := req.Validate(); err != nil {
 		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
 		return
+	}
+
+	// 2a. Sanitize an optional return_to. Fail-closed: an invalid value is
+	// silently dropped rather than rejected, so a malformed deep link does
+	// not block login. Only the canonical relative form is threaded
+	// further; downstream carriers never see the raw input.
+	sanitizedReturnTo := ""
+	if req.ReturnTo != "" {
+		if clean, ok := SanitizeReturnTo(req.ReturnTo, h.publicURL); ok {
+			sanitizedReturnTo = clean
+		}
 	}
 
 	// 3. Read lockout policy from config (read-only, outside tx).
@@ -366,13 +378,17 @@ func (h *AuthHandler) PostLogin(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 			return
 		}
-		sessionToken, err := h.sessionStore.Create(r.Context(), user.ID.String(), ip, r.Header.Get("User-Agent"))
+		sessionToken, err := h.sessionStore.CreateWithPendingReturnTo(
+			r.Context(), user.ID.String(), ip, r.Header.Get("User-Agent"), sanitizedReturnTo,
+		)
 		if err != nil {
 			slog.Error("login: session.Create failed (force-pw branch)", "error", err)
 			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 			return
 		}
 		setSessionCookie(w, sessionToken, h.cookieSecure)
+		// redirect_to is NOT emitted here — the caller must first rotate the
+		// temp password. It resurfaces on /api/change-password success.
 		writeJSON(w, http.StatusOK, map[string]any{"user": userDTO(user)})
 		return
 	}
@@ -400,7 +416,11 @@ func (h *AuthHandler) PostLogin(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		key := "mfa:enroll:" + enrollToken
-		if err := h.valkey.HSet(r.Context(), key, "user_id", user.ID.String()).Err(); err != nil {
+		enrollFields := []any{"user_id", user.ID.String()}
+		if sanitizedReturnTo != "" {
+			enrollFields = append(enrollFields, "return_to", sanitizedReturnTo)
+		}
+		if err := h.valkey.HSet(r.Context(), key, enrollFields...).Err(); err != nil {
 			slog.Error("login: Valkey HSet enroll token failed", "error", err)
 			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 			return
@@ -431,10 +451,14 @@ func (h *AuthHandler) PostLogin(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		key := "mfa:challenge:" + challengeToken
-		if err := h.valkey.HSet(r.Context(), key,
+		challengeFields := []any{
 			"user_id", user.ID.String(),
 			"attempts_remaining", 5,
-		).Err(); err != nil {
+		}
+		if sanitizedReturnTo != "" {
+			challengeFields = append(challengeFields, "return_to", sanitizedReturnTo)
+		}
+		if err := h.valkey.HSet(r.Context(), key, challengeFields...).Err(); err != nil {
 			slog.Error("login: Valkey HSet challenge token failed", "error", err)
 			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 			return
@@ -483,7 +507,11 @@ func (h *AuthHandler) PostLogin(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		setSessionCookie(w, sessionToken, h.cookieSecure)
-		writeJSON(w, http.StatusOK, map[string]any{"user": userDTO(user)})
+		resp := map[string]any{"user": userDTO(user)}
+		if sanitizedReturnTo != "" {
+			resp["redirect_to"] = sanitizedReturnTo
+		}
+		writeJSON(w, http.StatusOK, resp)
 	}
 }
 
@@ -575,6 +603,16 @@ func (h *AuthHandler) PostChangePassword(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Pull the current session's PendingReturnTo (if any) BEFORE any
+	// mutation. The upcoming rotate-on-success path destroys the old
+	// session, so this is the last opportunity to read the value.
+	pendingReturnTo := ""
+	if oldCookie, cookieErr := r.Cookie("schlass_session"); cookieErr == nil {
+		if sess, err := h.sessionStore.Get(r.Context(), oldCookie.Value); err == nil && sess != nil {
+			pendingReturnTo = sess.PendingReturnTo
+		}
+	}
+
 	var req changePasswordRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body.")
@@ -651,13 +689,35 @@ func (h *AuthHandler) PostChangePassword(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Revoke all OIDC tokens issued before this moment (spec §5g).
+	if auditErr := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+		EventType:  "user.revoke_before_set",
+		ActorID:    &current.ID,
+		ActorEmail: current.Email,
+		TargetType: "user",
+		TargetID:   current.ID.String(),
+		IPAddress:  ip,
+		Outcome:    "success",
+		Metadata:   map[string]any{"reason": "self_change_password"},
+	}); auditErr != nil {
+		slog.Error("audit user.revoke_before_set (self_change_password)", "error", auditErr)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
 	if err := tx.Commit(r.Context()); err != nil {
 		slog.Error("auth.PostChangePassword: commit", "error", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 		return
 	}
 
-	// 4. Post-commit: rotate the session token (OWASP Session Management —
+	// 4. Post-commit: set revoke_before so OIDC tokens issued before the
+	//    password change are rejected at /token refresh and /userinfo.
+	if err := revokebefore.SetNow(r.Context(), h.valkey, current.ID.String()); err != nil {
+		slog.Error("auth.PostChangePassword: revoke_before Valkey write failed", "error", err, "user_id", current.ID) //nolint:gosec // G706: slog structured logging is not susceptible to log injection
+	}
+
+	// 5. Post-commit: rotate the session token (OWASP Session Management —
 	//    renew session identifier after credential change). Delete the
 	//    caller's old session; if that fails, degrade to WARN and continue
 	//    — an orphaned Valkey entry is less harmful than leaving the user
@@ -688,7 +748,16 @@ func (h *AuthHandler) PostChangePassword(w http.ResponseWriter, r *http.Request)
 		SameSite: http.SameSiteStrictMode,
 	})
 
-	w.WriteHeader(http.StatusNoContent)
+	// The old session (and its PendingReturnTo) was already destroyed above,
+	// and the new session is minted via plain Create — no explicit clear
+	// required. Emit redirect_to in the success response when the original
+	// session carried one; otherwise return an empty JSON object so the SPA
+	// can branch on presence without worrying about 204 vs 200.
+	resp := map[string]any{}
+	if pendingReturnTo != "" {
+		resp["redirect_to"] = pendingReturnTo
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // PostDisableMfa handles POST /api/me/mfa/disable — self-service MFA disable.
@@ -777,6 +846,23 @@ func (h *AuthHandler) PostDisableMfa(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 		return
 	}
+
+	// Revoke all OIDC tokens issued before this moment (spec §5g).
+	if auditErr := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+		EventType:  "user.revoke_before_set",
+		ActorID:    &current.ID,
+		ActorEmail: current.Email,
+		TargetType: "user",
+		TargetID:   current.ID.String(),
+		IPAddress:  extractClientIP(r),
+		Outcome:    "success",
+		Metadata:   map[string]any{"reason": "self_disable_mfa"},
+	}); auditErr != nil {
+		slog.Error("audit user.revoke_before_set (self_disable_mfa)", "error", auditErr)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
 	if err := tx.Commit(r.Context()); err != nil {
 		slog.Error("disable-mfa: Commit failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
@@ -787,6 +873,11 @@ func (h *AuthHandler) PostDisableMfa(w http.ResponseWriter, r *http.Request) {
 	if err := h.sessionStore.DeleteAllForUser(r.Context(), current.ID.String()); err != nil {
 		slog.Error("disable-mfa: session revocation failed", "error", err, "user_id", current.ID)
 		// Non-fatal — the PG state is committed, audit row is written.
+	}
+	// Post-commit, best-effort: set revoke_before so OIDC tokens issued
+	// before the self MFA disable are rejected at /token refresh and /userinfo.
+	if err := revokebefore.SetNow(r.Context(), h.valkey, current.ID.String()); err != nil {
+		slog.Error("disable-mfa: revoke_before Valkey write failed", "error", err, "user_id", current.ID) //nolint:gosec // G706: slog structured logging is not susceptible to log injection
 	}
 
 	// Clear the session cookie client-side too.

@@ -51,7 +51,7 @@ describe("TotpChallengePage", () => {
   });
 
   it("submits TOTP code and calls refreshUser on success", async () => {
-    submitMock.mockResolvedValue(undefined);
+    submitMock.mockResolvedValue({});
     refreshUserMock.mockResolvedValue({
       id: "1",
       email: "a@x.com",

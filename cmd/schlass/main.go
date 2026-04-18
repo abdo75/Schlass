@@ -9,8 +9,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/abdo75/Schlass/internal/bootstrap"
 	"github.com/abdo75/Schlass/internal/config"
 	"github.com/abdo75/Schlass/internal/database"
+	"github.com/abdo75/Schlass/internal/oidc"
 	"github.com/abdo75/Schlass/internal/server"
 	"github.com/abdo75/Schlass/internal/store"
 	"github.com/abdo75/Schlass/internal/valkey"
@@ -52,6 +54,25 @@ func main() {
 	auditStore := store.NewAuditStore()
 	recoveryCodeStore := store.NewRecoveryCodeStore()
 	configService := config.NewConfigService(configStore, cfg.EncryptionKey)
+
+	slog.Info("bootstrapping signing key")
+	if err := oidc.BootstrapSigningKey(ctx, pool, auditStore, cfg.EncryptionKey); err != nil {
+		slog.Error("signing-key bootstrap failed", "error", err)
+		os.Exit(1)
+	}
+
+	retireCutoff := time.Now().Add(-(15*time.Minute + 24*time.Hour + 30*time.Second))
+	if err := oidc.RetireSweep(ctx, pool, auditStore, retireCutoff); err != nil {
+		slog.Warn("signing-key retire sweep failed", "error", err)
+		// Non-fatal — orphan retiring keys just stay listed.
+	}
+
+	// Developer-mode OIDC client seeding. No-op unless SCHLASS_DEV=1 AND
+	// SCHLASS_PUBLIC_URL is http. Idempotent against the seed-client name.
+	if err := bootstrap.SeedDevClient(ctx, pool, os.Getenv("SCHLASS_DEV"), os.Getenv("SCHLASS_DEV_SECRET"), cfg.SchlassPublicURL); err != nil {
+		slog.Error("dev-seed failed", "error", err)
+		os.Exit(1)
+	}
 
 	h, err := server.BuildRouter(server.RouterDeps{
 		Cfg:                   cfg,

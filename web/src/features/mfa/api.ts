@@ -23,12 +23,17 @@ export async function verifyEnrollment(code: string): Promise<EnrollmentVerifyRe
   });
 }
 
-export async function completeEnrollment(): Promise<void> {
-  await apiFetch<void>("/api/mfa/enrollment/complete", {
+export interface TerminalMfaResponse {
+  redirectTo?: string;
+}
+
+export async function completeEnrollment(): Promise<TerminalMfaResponse> {
+  const data = await apiFetch<{ redirect_to?: string }>("/api/mfa/enrollment/complete", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ acknowledged: true }),
   });
+  return { redirectTo: data?.redirect_to };
 }
 
 export async function disableMfa(currentPassword: string): Promise<void> {
@@ -39,10 +44,11 @@ export async function disableMfa(currentPassword: string): Promise<void> {
   });
 }
 
-export async function submitChallenge(input: { code?: string; recovery_code?: string }): Promise<void> {
-  await apiFetch<void>("/api/mfa/challenge", {
+export async function submitChallenge(input: { code?: string; recovery_code?: string }): Promise<TerminalMfaResponse> {
+  const data = await apiFetch<{ redirect_to?: string }>("/api/mfa/challenge", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
+  return { redirectTo: data?.redirect_to };
 }

@@ -292,6 +292,15 @@
       "dialog_cancel": "Abbrechen"
     }
   },
+  "oidc": {
+    "errorTitle": "Anmeldung nicht möglich",
+    "errorBody1": "Die Anwendung, bei der Sie sich anmelden möchten, ist nicht registriert oder ihre Konfiguration hat sich geändert.",
+    "errorBody2": "Bitte wenden Sie sich an Ihre Administratorin oder Ihren Administrator und geben Sie die untenstehende Referenz an.",
+    "errorRefLabel": "Referenz",
+    "errorRefHint": "Ihre Administration kann diese Referenz im Prüfprotokoll nachschlagen.",
+    "copy": "Kopieren",
+    "copied": "Kopiert"
+  },
   "language": {
     "en": "English",
     "fr": "Français",

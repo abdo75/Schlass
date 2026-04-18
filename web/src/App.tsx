@@ -13,6 +13,7 @@ import { UsersPage } from "@/features/users/UsersPage";
 import { UserCreatePage } from "@/features/users/UserCreatePage";
 import { UserDetailPage } from "@/features/users/UserDetailPage";
 import { UserAccountPage } from "@/features/account/UserAccountPage";
+import { AuthorizeErrorPage } from "@/features/oidc/AuthorizeErrorPage";
 
 // GET /api/setup returns 200 when setup is incomplete (with a body) and 404
 // when setup is complete — matches the existing setup handler contract.
@@ -102,6 +103,13 @@ export default function App() {
           <Route
             path="/setup-mfa"
             element={<TotpEnrollmentWizard />}
+          />
+          {/* /oidc/error is public — rendered when /authorize can't safely bounce back
+              to the RP (untrusted client_id or redirect_uri). Shows generic message
+              plus opaque error reference with copy button. */}
+          <Route
+            path="/oidc/error"
+            element={<AuthorizeErrorPage />}
           />
           <Route
             path="/account"

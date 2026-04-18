@@ -53,8 +53,14 @@ export function TotpChallengePage() {
     setSubmitting(true);
     setErrorCode(null);
     try {
-      await submitChallenge(mode === "totp" ? { code } : { recovery_code: code });
+      const { redirectTo } = await submitChallenge(
+        mode === "totp" ? { code } : { recovery_code: code },
+      );
       const u = await refreshUser();
+      if (redirectTo) {
+        window.location.href = redirectTo;
+        return;
+      }
       const dest = u?.role === "super_admin" ? "/admin" : "/account";
       void navigate(dest, { replace: true });
     } catch (err: unknown) {

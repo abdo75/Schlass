@@ -43,6 +43,10 @@ type RouterDeps struct {
 	// cap. Zero means "use 5/min". E2E tests set this to a large value so the
 	// limiter doesn't trip across repeated challenge requests.
 	MfaChallengeRateLimit int64
+	// TokenRateLimit overrides the per-client_id /token rate-limit cap. Zero
+	// means "use 60/min". Integration tests that want to exercise the 429 path
+	// set this to a small value (e.g. 3).
+	TokenRateLimit int64
 }
 
 // BuildRouter assembles the full HTTP handler chain: mux with every route,
@@ -63,7 +67,8 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 
 	authMW := middleware.Auth(sessionStore, d.UserStore, d.AuditStore, d.Pool)
 
-	usersHandler := handler.NewUsersHandler(d.Pool, d.UserStore, d.AuditStore, sessionStore, d.ConfigService, d.RecoveryCodeStore)
+	usersHandler := handler.NewUsersHandler(d.Pool, d.ValkeyClient, d.UserStore, d.AuditStore, sessionStore, d.ConfigService, d.RecoveryCodeStore)
+	adminSigningKeysHandler := handler.NewAdminSigningKeysHandler(d.Pool, d.AuditStore, d.Cfg.EncryptionKey)
 
 	mfaHandler := handler.NewMfaHandler(
 		d.Pool, d.ValkeyClient, d.UserStore, d.RecoveryCodeStore,
@@ -121,6 +126,13 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 	mux.Handle("DELETE /api/users/{id}/sessions", gated("users.sessions.terminate", http.HandlerFunc(usersHandler.TerminateAllSessions)))
 	mux.Handle("DELETE /api/users/{id}/sessions/{token}", gated("users.sessions.terminate", http.HandlerFunc(usersHandler.TerminateSession)))
 
+	mux.Handle("POST /api/admin/signing-keys/rotate",
+		gated("signing_keys.rotate", http.HandlerFunc(adminSigningKeysHandler.Rotate)))
+
+	discoveryHandler := handler.NewOIDCDiscoveryHandler(d.Cfg.SchlassPublicURL, d.Pool)
+	mux.HandleFunc("GET /.well-known/openid-configuration", discoveryHandler.GetConfiguration)
+	mux.HandleFunc("GET /.well-known/jwks.json", discoveryHandler.GetJWKS)
+
 	// Enrollment endpoints are gated only by possession of the schlass_mfa_enroll
 	// cookie (validated inside each handler). No middleware.Auth wrapper — the
 	// user is NOT authenticated yet at enrollment time.
@@ -130,6 +142,32 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 
 	// Challenge endpoint rate-limited per IP — primary brute-force surface.
 	mux.Handle("POST /api/mfa/challenge", mfaChallengeRL.Middleware(http.HandlerFunc(mfaHandler.PostChallenge)))
+
+	// OIDC authorization endpoint — optionally authenticated (session injected
+	// when present, unauthenticated requests redirected to /login).
+	authorizeHandler := handler.NewOIDCAuthorizeHandler(d.Pool, sessionStore, d.AuditStore, d.Cfg.SchlassPublicURL)
+	optionalAuth := middleware.OptionalAuth(sessionStore, d.UserStore, d.AuditStore, d.Pool)
+	mux.Handle("GET /authorize", optionalAuth(http.HandlerFunc(authorizeHandler.Handle)))
+
+	// OIDC token endpoint — client auth happens inside the handler.
+	tokenHandler := handler.NewOIDCTokenHandler(
+		d.Pool, d.ValkeyClient,
+		d.UserStore, d.AuditStore,
+		sessionStore,
+		d.Cfg.SchlassPublicURL, d.Cfg.EncryptionKey,
+		d.TokenRateLimit,
+	)
+	mux.Handle("POST /token", http.HandlerFunc(tokenHandler.Handle))
+
+	// OIDC userinfo endpoint — gated by Bearer access token.
+	userInfoHandler := handler.NewOIDCUserInfoHandler(d.Pool, d.AuditStore)
+	bearerAuth := middleware.BearerAuth(middleware.BearerAuthDeps{
+		Pool:      d.Pool,
+		UserStore: d.UserStore,
+		Valkey:    d.ValkeyClient,
+		Issuer:    d.Cfg.SchlassPublicURL,
+	})
+	mux.Handle("GET /userinfo", bearerAuth(http.HandlerFunc(userInfoHandler.Handle)))
 
 	mux.Handle("/", web.SPAHandler())
 

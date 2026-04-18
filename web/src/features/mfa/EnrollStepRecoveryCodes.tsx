@@ -6,7 +6,7 @@ import { RecoveryCodesDisplay } from "./RecoveryCodesDisplay";
 
 interface Props {
   codes: string[];
-  onComplete: () => void | Promise<void>;
+  onComplete: (redirectTo?: string) => void | Promise<void>;
 }
 
 export function EnrollStepRecoveryCodes({ codes, onComplete }: Props) {
@@ -20,8 +20,8 @@ export function EnrollStepRecoveryCodes({ codes, onComplete }: Props) {
     setSubmitting(true);
     setErrorCode(null);
     try {
-      await completeEnrollment();
-      await onComplete();
+      const { redirectTo } = await completeEnrollment();
+      await onComplete(redirectTo);
     } catch (err: unknown) {
       const ec =
         err && typeof err === "object" && "code" in err

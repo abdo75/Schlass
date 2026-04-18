@@ -29,6 +29,7 @@ var rolePermissions = map[string][]string{
 		"users.sessions.read",
 		"users.sessions.terminate",
 		"users.reset_mfa",
+		"signing_keys.rotate",
 	},
 	"user": {},
 }

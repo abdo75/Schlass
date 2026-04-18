@@ -71,8 +71,8 @@ func TestChangePassword_RotatesSessionToken(t *testing.T) {
 	oldCookie := env.LoginAsAdmin(t, "admin@example.com", "CorrectHorse42!")
 
 	rec := changePassword(t, env, oldCookie, "CorrectHorse42!", "NewPasscode99!")
-	if rec.Code != http.StatusNoContent {
-		t.Fatalf("want 204, got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 
 	newCookie := sessionCookie(rec)
@@ -218,8 +218,8 @@ func TestChangePassword_FromForcedFlow(t *testing.T) {
 
 	// Self-change.
 	rec := changePassword(t, env, cookie, tempPw, "RealPassword55!")
-	if rec.Code != http.StatusNoContent {
-		t.Fatalf("change-password: want 204, got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("change-password: want 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 	newCookie := sessionCookie(rec)
 	if newCookie == nil {

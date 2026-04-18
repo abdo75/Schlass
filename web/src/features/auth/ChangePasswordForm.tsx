@@ -41,10 +41,17 @@ export function ChangePasswordForm({ forced }: ChangePasswordFormProps) {
 
     setSubmitting(true);
     try {
-      await changePassword(currentPassword, newPassword);
+      const { redirectTo } = await changePassword(currentPassword, newPassword);
       // refreshUser re-reads /api/me so the cleared force_password_change flag
       // is visible to AuthGuard; otherwise it would bounce us back here.
       const refreshedUser = await refreshUser();
+      // If login threaded a return_to through this forced-password-change
+      // flow, the backend emits it as redirect_to — follow verbatim (it is
+      // already a sanitized same-origin /authorize URL).
+      if (redirectTo) {
+        window.location.href = redirectTo;
+        return;
+      }
       // Use the refreshed user's role for navigation, not the pre-refresh
       // closure value — that would be incorrect if password-change ever
       // triggers a role mutation upstream.

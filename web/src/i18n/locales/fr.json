@@ -292,6 +292,15 @@
       "dialog_cancel": "Annuler"
     }
   },
+  "oidc": {
+    "errorTitle": "Connexion impossible",
+    "errorBody1": "L'application à laquelle vous tentez de vous connecter n'est pas reconnue ou sa configuration a changé.",
+    "errorBody2": "Veuillez contacter votre administrateur en indiquant la référence ci-dessous.",
+    "errorRefLabel": "Référence",
+    "errorRefHint": "Votre administrateur peut retrouver cette référence dans le journal d'audit.",
+    "copy": "Copier",
+    "copied": "Copié"
+  },
   "language": {
     "en": "English",
     "fr": "Français",
