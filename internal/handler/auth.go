@@ -793,6 +793,93 @@ func (h *AuthHandler) PostDisableMfa(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"disabled": true})
 }
 
+// PatchProfile handles PATCH /api/me/profile — self-service profile update.
+// v1 only supports email updates; future sprints can extend this payload with
+// display_name, avatar, etc.
+//
+// Email canonicalization (strings.ToLower) is applied at the handler
+// boundary, matching the convention in setup / users.Create / users.Update /
+// PostLogin. The functional unique index on LOWER(email) catches any stale
+// path that bypasses this.
+func (h *AuthHandler) PatchProfile(w http.ResponseWriter, r *http.Request) {
+	current, ok := middleware.CurrentUser(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "INVALID_SESSION", "Not authenticated.")
+		return
+	}
+
+	var req struct {
+		Email *string `json:"email,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body.")
+		return
+	}
+	if req.Email == nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "No changes specified.")
+		return
+	}
+	if err := model.ValidateEmail(*req.Email); err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid email.")
+		return
+	}
+	newEmail := strings.ToLower(*req.Email)
+
+	// No-op short-circuit: if the email hasn't changed, return the current
+	// user unchanged without writing an audit row.
+	if newEmail == current.Email {
+		writeJSON(w, http.StatusOK, map[string]any{"user": userDTO(current)})
+		return
+	}
+
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	defer func() { _ = tx.Rollback(r.Context()) }()
+
+	if err := h.userStore.UpdateEmail(r.Context(), tx, current.ID, newEmail); err != nil {
+		if uniqueViolationAsEmailConflict(w, err) {
+			return
+		}
+		slog.Error("patch profile: UpdateEmail failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if err := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+		EventType:  "user.updated",
+		ActorID:    &current.ID,
+		ActorEmail: current.Email, // actor's pre-change email — stable identity record for the row
+		TargetType: "user",
+		TargetID:   current.ID.String(),
+		IPAddress:  extractClientIP(r),
+		Outcome:    "success",
+		Metadata: map[string]any{
+			"self_update": true,
+			"email":       map[string]any{"from": current.Email, "to": newEmail},
+		},
+	}); err != nil {
+		slog.Error("patch profile: audit write failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		slog.Error("patch profile: commit failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	// Load the updated user and return.
+	updated, err := h.userStore.GetByID(r.Context(), h.pool, current.ID)
+	if err != nil {
+		// Tx committed, but we can't re-read — return minimal response.
+		writeJSON(w, http.StatusOK, map[string]any{"user": map[string]any{"id": current.ID, "email": newEmail}})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"user": userDTO(updated)})
+}
+
 // GetMe returns the authenticated user DTO from the request context (populated
 // by the auth middleware). Used by the frontend to rehydrate session state.
 // It also includes force_mfa_enrollment so the SPA AuthGuard can redirect to
