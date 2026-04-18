@@ -275,3 +275,44 @@ func TestSetupRateLimiting(t *testing.T) {
 		t.Fatal("expected Retry-After header")
 	}
 }
+
+func TestSetup_PersisstsInstanceNameToConfig(t *testing.T) {
+	env := NewTestEnv(t)
+	router := setupRouter(env)
+
+	// Complete setup with a distinctive instance_name that should be persisted
+	// to instance_config. This verifies the TOTP issuer fix (commit 61331fd)
+	// will read the correct name from config on fresh installs.
+	const wantName = "ACME Corporation"
+	body := map[string]string{
+		"email":            "admin@test.com",
+		"password":         "SecurePass123!",
+		"confirm_password": "SecurePass123!",
+		"instance_name":    wantName,
+	}
+	bodyJSON, _ := json.Marshal(body)
+	req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/setup", bytes.NewReader(bodyJSON))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/setup: expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Assert instance_config.instance_name was persisted with the correct value.
+	// instance_config.value is JSONB; strings are stored as quoted JSON strings.
+	var got string
+	err := env.Pool.QueryRow(t.Context(),
+		"SELECT value FROM instance_config WHERE key = 'instance_name'",
+	).Scan(&got)
+	if err != nil {
+		t.Fatalf("query instance_config.instance_name: %v", err)
+	}
+
+	// Stored as JSON, so "ACME Corporation" is wrapped in quotes
+	wantJSON := `"` + wantName + `"`
+	if got != wantJSON {
+		t.Fatalf("instance_config.instance_name: want %q, got %q", wantJSON, got)
+	}
+}
