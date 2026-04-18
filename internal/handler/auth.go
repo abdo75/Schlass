@@ -603,6 +603,16 @@ func (h *AuthHandler) PostChangePassword(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Pull the current session's PendingReturnTo (if any) BEFORE any
+	// mutation. The upcoming rotate-on-success path destroys the old
+	// session, so this is the last opportunity to read the value.
+	pendingReturnTo := ""
+	if oldCookie, cookieErr := r.Cookie("schlass_session"); cookieErr == nil {
+		if sess, err := h.sessionStore.Get(r.Context(), oldCookie.Value); err == nil && sess != nil {
+			pendingReturnTo = sess.PendingReturnTo
+		}
+	}
+
 	var req changePasswordRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body.")
@@ -738,7 +748,16 @@ func (h *AuthHandler) PostChangePassword(w http.ResponseWriter, r *http.Request)
 		SameSite: http.SameSiteStrictMode,
 	})
 
-	w.WriteHeader(http.StatusNoContent)
+	// The old session (and its PendingReturnTo) was already destroyed above,
+	// and the new session is minted via plain Create — no explicit clear
+	// required. Emit redirect_to in the success response when the original
+	// session carried one; otherwise return an empty JSON object so the SPA
+	// can branch on presence without worrying about 204 vs 200.
+	resp := map[string]any{}
+	if pendingReturnTo != "" {
+		resp["redirect_to"] = pendingReturnTo
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // PostDisableMfa handles POST /api/me/mfa/disable — self-service MFA disable.

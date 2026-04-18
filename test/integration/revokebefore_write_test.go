@@ -165,8 +165,8 @@ func TestRevokeBefore_WriteOnSelfChangePassword(t *testing.T) {
 	req.AddCookie(cookie)
 	rec := httptest.NewRecorder()
 	env.Router.ServeHTTP(rec, req)
-	if rec.Code != http.StatusNoContent {
-		t.Fatalf("change-password: want 204, got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("change-password: want 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 
 	assertRevokeBeforeAuditRow(t, env, userID.String(), "self_change_password")

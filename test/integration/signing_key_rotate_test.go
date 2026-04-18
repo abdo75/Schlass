@@ -108,7 +108,7 @@ func TestRotateSigningKey_RejectsNonSuperAdmin(t *testing.T) {
 	chReq.AddCookie(userCookie)
 	chRec := httptest.NewRecorder()
 	env.Router.ServeHTTP(chRec, chReq)
-	if chRec.Code != http.StatusNoContent {
+	if chRec.Code != http.StatusOK {
 		t.Fatalf("change-password: %d: %s", chRec.Code, chRec.Body.String())
 	}
 
