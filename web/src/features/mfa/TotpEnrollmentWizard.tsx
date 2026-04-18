@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/features/auth/AuthContext";
 import { AuthLayout } from "@/components/AuthLayout";
 import {
   Card,
@@ -78,6 +79,7 @@ function Stepper({ current }: StepperProps) {
 export function TotpEnrollmentWizard() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const { refreshUser } = useAuth();
   const [step, setStep] = useState<Step>(1);
   const [enrollment, setEnrollment] = useState<EnrollmentStartResponse | null>(null);
   const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
@@ -110,7 +112,15 @@ export function TotpEnrollmentWizard() {
           {step === 3 && (
             <EnrollStepRecoveryCodes
               codes={recoveryCodes}
-              onComplete={() => void navigate("/account", { replace: true })}
+              onComplete={async () => {
+                // The enrollment-complete endpoint issued a session cookie.
+                // Refresh AuthContext so AuthGuard on destination routes sees
+                // the user. Navigate based on role so super_admin lands at
+                // /admin and regular users land at /account.
+                const u = await refreshUser();
+                const dest = u?.role === "super_admin" ? "/admin" : "/account";
+                void navigate(dest, { replace: true });
+              }}
             />
           )}
         </CardContent>

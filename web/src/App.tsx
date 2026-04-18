@@ -92,13 +92,16 @@ export default function App() {
               </AuthGuard>
             }
           />
+          {/* /setup-mfa has two entry points:
+              (a) login returns 202 + schlass_mfa_enroll cookie (no session yet)
+              (b) AuthGuard redirects a user with force_mfa_enrollment=true (existing session)
+              AuthGuard cannot gate this route because case (a) has no session.
+              TotpEnrollmentWizard handles the 401 path itself — if the enrollment
+              cookie has expired, /api/mfa/enrollment/start returns MFA_ENROLLMENT_EXPIRED
+              and the wizard surfaces the error and lets the user return to /login. */}
           <Route
             path="/setup-mfa"
-            element={
-              <AuthGuard>
-                <TotpEnrollmentWizard />
-              </AuthGuard>
-            }
+            element={<TotpEnrollmentWizard />}
           />
           <Route
             path="/account"

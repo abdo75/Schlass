@@ -6,7 +6,7 @@ import { RecoveryCodesDisplay } from "./RecoveryCodesDisplay";
 
 interface Props {
   codes: string[];
-  onComplete: () => void;
+  onComplete: () => void | Promise<void>;
 }
 
 export function EnrollStepRecoveryCodes({ codes, onComplete }: Props) {
@@ -21,7 +21,7 @@ export function EnrollStepRecoveryCodes({ codes, onComplete }: Props) {
     setErrorCode(null);
     try {
       await completeEnrollment();
-      onComplete();
+      await onComplete();
     } catch (err: unknown) {
       const ec =
         err && typeof err === "object" && "code" in err

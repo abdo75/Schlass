@@ -106,6 +106,40 @@ Destructive handlers (disable, delete, role-demote PATCH) call `rejectSelfOp` as
 
 Admin-created users receive a server-generated 16-character temporary password (`internal/crypto/password.go:GenerateTemporaryPassword`). The alphabet is base58-minus-ambiguous-characters (no `0/O/I/l/1`), yielding ~93 bits of entropy. The plaintext is returned once in the HTTP response body and never stored, logged, or written to audit rows. `force_password_change=true` forces the user to rotate it on first sign-in. Both `POST /api/users` (create) and `POST /api/users/:id/reset-password` (admin reset) use this flow — admins never type passwords.
 
+### MFA — TOTP enrollment and challenge (Sprint 3+)
+
+**Overview.** When `mfa_required = true` in `instance_config`, users who are not enrolled must complete the 3-step enrollment wizard before receiving a session. Users who are enrolled must pass a TOTP or recovery-code challenge on every login. Both flows are stateless in PG until their respective commit points; transient state lives in Valkey hashes keyed by an opaque cookie token.
+
+**Enrollment flow (3 steps, gated by `schlass_mfa_enroll` cookie):**
+
+1. `POST /api/mfa/enrollment/start` — generates a 160-bit TOTP secret (`crypto/rand`, base32), stores it in the Valkey enrollment hash, returns `{ secret_base32, provision_uri }`. Idempotent: re-calling overwrites the secret and resets the 10-minute TTL.
+2. `POST /api/mfa/enrollment/verify` — verifies the first TOTP code (max 5 attempts before token is nuked), generates 10 recovery codes (`XXXX-XXXX`, base58-minus-ambiguous alphabet, ~46 bits each, Argon2id-hashed), stashes the hashes in the enrollment hash, returns plaintext codes once.
+3. `POST /api/mfa/enrollment/complete` — requires `{ acknowledged: true }`. Commits atomically: `SetTOTPEnrolled` (writes AES-GCM-encrypted secret + `totp_enrolled_at` + resets counter), `RecoveryCodeStore.Insert` (10 hashes), `mfa.enrollment_completed` audit row. On commit: destroys enrollment Valkey key, clears enroll cookie, creates a real session. This is the audit-in-tx commit point.
+
+**Challenge flow (gated by `schlass_mfa_challenge` cookie, 120s TTL):**
+
+`POST /api/login` for an enrolled user sets `schlass_mfa_challenge` instead of a session cookie, writing `user_id` + `attempts_remaining=5` to a Valkey hash keyed by the challenge token.
+
+`POST /api/mfa/challenge` dispatches on request body:
+- TOTP path (`{ code }`): decrypts secret, calls `ValidateTOTP` with `±1 step` skew and `lastCounter` replay gate. On success: `AdvanceTOTPCounter` + `login.succeeded` + `mfa.challenge_succeeded` in one tx, then creates session.
+- Recovery path (`{ recovery_code }`): loads all unused codes, iterates all of them in constant time (no early exit — prevents timing-based enumeration of remaining count), burns the matched code via `MarkUsed` + 3 audit rows in one tx, then creates session.
+
+Attempts are decremented atomically before any verification work (`HIncrBy ... -1`). When `attempts_remaining < 0`, the Valkey key is deleted immediately and `MFA_CHALLENGE_MAX_ATTEMPTS` is returned.
+
+**Admin MFA reset:** `POST /api/users/{id}/reset-mfa` (`users.reset_mfa` permission) clears `totp_secret_encrypted`, `totp_enrolled_at`, `last_used_totp_counter`, and deletes all recovery codes atomically. The user is forced through enrollment again on next login. Audit: `mfa.reset`.
+
+**Documented exception — challenge failed audit is best-effort.** `mfa.challenge_failed` rows are written in a separate short-lived tx (not the decrement tx). Failure is logged ERROR-level but does not block the response. This is consistent with the middleware-revocation exception rationale: the brute-force guard is the atomic decrement (structural), not the audit row (forensic). Do not "fix" this to audit-in-tx.
+
+**Key files:** `internal/handler/mfa.go` (all handler logic), `internal/crypto/totp.go` (`GenerateTOTPSecret`, `ValidateTOTP`, `BuildProvisionURI`), `internal/crypto/recovery_codes.go` (`GenerateRecoveryCodes`), `internal/store/recovery_code_store.go` (`Insert`, `ListUnused`, `CountUnused`, `MarkUsed`, `DeleteAllForUser`), `internal/store/user_store.go` (`SetTOTPEnrolled`, `AdvanceTOTPCounter`, `ClearTOTPEnrollment`).
+
+**Rate limiting.** `POST /api/mfa/challenge` has its own 5/min per-IP rate limiter independent of the login limiter. Override via `SCHLASS_MFA_CHALLENGE_RATE_LIMIT` env var (integer; 0 = default 5). This follows the same pattern as `SCHLASS_LOGIN_RATE_LIMIT`. E2E tests set this to 1000 via `docker-compose.e2e.yml`; integration tests set `MfaChallengeRateLimit: 10000` in `RouterDeps` via `test/integration/testutil.go`.
+
+**Frontend routes:**
+- `/setup-mfa` — `TotpEnrollmentWizard` (3-step: Scan QR, Verify code, Acknowledge recovery codes). Uses `qrcode.react` (ESM/React 19 compatible; do NOT replace with `react-qr-code` v2 which uses CJS Babel format incompatible with Vite production builds). After complete, `super_admin` lands on `/admin`, others on `/account`.
+- `/mfa-challenge` — `TotpChallengePage`. Supports TOTP (6-digit `SixDigitInput`) and recovery-code mode (plain text input, XXXX-XXXX placeholder). Recovery code input must NOT apply `.toUpperCase()` — the alphabet is mixed-case and Argon2id hashes are case-sensitive.
+
+**`/api/me` MFA fields.** `GetMe` includes `totp_enrolled_at` (from `userDTO`) and, if enrolled, `mfa.unused_recovery_codes` (from `RecoveryCodeStore.CountUnused`). The account page uses both: `totp_enrolled_at` to render the "Enabled" badge, `mfa.unused_recovery_codes` to display the remaining code count.
+
 ## Database
 
 ### Two Roles
