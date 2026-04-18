@@ -428,6 +428,11 @@ func (h *MfaHandler) PostEnrollmentComplete(w http.ResponseWriter, r *http.Reque
 	// logged in, so we don't overwrite that with the enrollment moment.
 	sessionAuthed := state["session_authed"] == "1"
 
+	// Optional return_to threaded in at /api/login and stashed on the enroll
+	// hash. Present only for cookie-path enrollments (session-path users
+	// came from elsewhere and follow role-based routing).
+	returnTo := state["return_to"]
+
 	// PG tx: SetTOTPEnrolled + Insert recovery codes + audit, atomic commit.
 	tx, err := h.pool.Begin(r.Context())
 	if err != nil {
@@ -513,9 +518,11 @@ func (h *MfaHandler) PostEnrollmentComplete(w http.ResponseWriter, r *http.Reque
 		setSessionCookie(w, sessionToken, h.secureCookie)
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"user": userDTO(user),
-	})
+	resp := map[string]any{"user": userDTO(user)}
+	if returnTo != "" {
+		resp["redirect_to"] = returnTo
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (h *MfaHandler) PostChallenge(w http.ResponseWriter, r *http.Request) {

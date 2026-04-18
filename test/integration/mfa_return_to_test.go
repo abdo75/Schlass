@@ -79,6 +79,101 @@ func TestMfaChallenge_TOTP_NoReturnTo_OmitsRedirectTo(t *testing.T) {
 	}
 }
 
+// TestMfaEnrollmentComplete_ReturnTo_EmitsRedirectTo proves that a
+// return_to stashed on the mfa:enroll hash by PostLogin surfaces in the
+// enrollment-complete 200.
+func TestMfaEnrollmentComplete_ReturnTo_EmitsRedirectTo(t *testing.T) {
+	env := NewTestEnv(t)
+	defer env.Close()
+	env.CompleteSetup(t, "admin@example.com", "CorrectHorse1Battery")
+	uid := env.GetUserIDByEmail(t, "admin@example.com")
+
+	token := "enroll-" + t.Name()
+	enrollKey := "mfa:enroll:" + token
+	want := "/authorize?client_id=abc&state=xyz"
+	env.Valkey.HSet(t.Context(), enrollKey,
+		"user_id", uid.String(),
+		"return_to", want,
+	)
+	env.Valkey.Expire(t.Context(), enrollKey, 10*60)
+
+	startReq := httptest.NewRequestWithContext(t.Context(), "POST", "/api/mfa/enrollment/start", nil)
+	startReq.AddCookie(&http.Cookie{Name: "schlass_mfa_enroll", Value: token})
+	startRec := httptest.NewRecorder()
+	env.Router.ServeHTTP(startRec, startReq)
+	var startOut struct {
+		SecretBase32 string `json:"secret_base32"`
+	}
+	_ = json.Unmarshal(startRec.Body.Bytes(), &startOut)
+
+	code, _ := totp.GenerateCode(startOut.SecretBase32, time.Now())
+	vBody, _ := json.Marshal(map[string]string{"code": code})
+	vReq := httptest.NewRequestWithContext(t.Context(), "POST", "/api/mfa/enrollment/verify", bytes.NewReader(vBody))
+	vReq.Header.Set("Content-Type", "application/json")
+	vReq.AddCookie(&http.Cookie{Name: "schlass_mfa_enroll", Value: token})
+	env.Router.ServeHTTP(httptest.NewRecorder(), vReq)
+
+	cBody, _ := json.Marshal(map[string]bool{"acknowledged": true})
+	cReq := httptest.NewRequestWithContext(t.Context(), "POST", "/api/mfa/enrollment/complete", bytes.NewReader(cBody))
+	cReq.Header.Set("Content-Type", "application/json")
+	cReq.AddCookie(&http.Cookie{Name: "schlass_mfa_enroll", Value: token})
+	cRec := httptest.NewRecorder()
+	env.Router.ServeHTTP(cRec, cReq)
+	if cRec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", cRec.Code, cRec.Body.String())
+	}
+	var resp map[string]any
+	_ = json.Unmarshal(cRec.Body.Bytes(), &resp)
+	if got := resp["redirect_to"]; got != want {
+		t.Fatalf("redirect_to: got %v want %q", got, want)
+	}
+}
+
+// TestMfaEnrollmentComplete_NoReturnTo_OmitsRedirectTo confirms the field
+// is absent when no return_to was stashed (legacy enrollment path).
+func TestMfaEnrollmentComplete_NoReturnTo_OmitsRedirectTo(t *testing.T) {
+	env := NewTestEnv(t)
+	defer env.Close()
+	env.CompleteSetup(t, "admin@example.com", "CorrectHorse1Battery")
+	uid := env.GetUserIDByEmail(t, "admin@example.com")
+
+	token := "enroll-" + t.Name()
+	enrollKey := "mfa:enroll:" + token
+	env.Valkey.HSet(t.Context(), enrollKey, "user_id", uid.String())
+	env.Valkey.Expire(t.Context(), enrollKey, 10*60)
+
+	startReq := httptest.NewRequestWithContext(t.Context(), "POST", "/api/mfa/enrollment/start", nil)
+	startReq.AddCookie(&http.Cookie{Name: "schlass_mfa_enroll", Value: token})
+	startRec := httptest.NewRecorder()
+	env.Router.ServeHTTP(startRec, startReq)
+	var startOut struct {
+		SecretBase32 string `json:"secret_base32"`
+	}
+	_ = json.Unmarshal(startRec.Body.Bytes(), &startOut)
+
+	code, _ := totp.GenerateCode(startOut.SecretBase32, time.Now())
+	vBody, _ := json.Marshal(map[string]string{"code": code})
+	vReq := httptest.NewRequestWithContext(t.Context(), "POST", "/api/mfa/enrollment/verify", bytes.NewReader(vBody))
+	vReq.Header.Set("Content-Type", "application/json")
+	vReq.AddCookie(&http.Cookie{Name: "schlass_mfa_enroll", Value: token})
+	env.Router.ServeHTTP(httptest.NewRecorder(), vReq)
+
+	cBody, _ := json.Marshal(map[string]bool{"acknowledged": true})
+	cReq := httptest.NewRequestWithContext(t.Context(), "POST", "/api/mfa/enrollment/complete", bytes.NewReader(cBody))
+	cReq.Header.Set("Content-Type", "application/json")
+	cReq.AddCookie(&http.Cookie{Name: "schlass_mfa_enroll", Value: token})
+	cRec := httptest.NewRecorder()
+	env.Router.ServeHTTP(cRec, cReq)
+	if cRec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", cRec.Code, cRec.Body.String())
+	}
+	var resp map[string]any
+	_ = json.Unmarshal(cRec.Body.Bytes(), &resp)
+	if _, present := resp["redirect_to"]; present {
+		t.Fatalf("unexpected redirect_to: %v", resp["redirect_to"])
+	}
+}
+
 // TestMfaChallenge_Recovery_ReturnTo_EmitsRedirectTo exercises the recovery-
 // code branch of the challenge dispatch.
 func TestMfaChallenge_Recovery_ReturnTo_EmitsRedirectTo(t *testing.T) {
