@@ -64,6 +64,7 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 	authMW := middleware.Auth(sessionStore, d.UserStore, d.AuditStore, d.Pool)
 
 	usersHandler := handler.NewUsersHandler(d.Pool, d.UserStore, d.AuditStore, sessionStore, d.ConfigService, d.RecoveryCodeStore)
+	adminSigningKeysHandler := handler.NewAdminSigningKeysHandler(d.Pool, d.AuditStore, d.Cfg.EncryptionKey)
 
 	mfaHandler := handler.NewMfaHandler(
 		d.Pool, d.ValkeyClient, d.UserStore, d.RecoveryCodeStore,
@@ -120,6 +121,9 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 	mux.Handle("GET /api/users/{id}/sessions", gated("users.sessions.read", http.HandlerFunc(usersHandler.ListSessions)))
 	mux.Handle("DELETE /api/users/{id}/sessions", gated("users.sessions.terminate", http.HandlerFunc(usersHandler.TerminateAllSessions)))
 	mux.Handle("DELETE /api/users/{id}/sessions/{token}", gated("users.sessions.terminate", http.HandlerFunc(usersHandler.TerminateSession)))
+
+	mux.Handle("POST /api/admin/signing-keys/rotate",
+		gated("signing_keys.rotate", http.HandlerFunc(adminSigningKeysHandler.Rotate)))
 
 	// Enrollment endpoints are gated only by possession of the schlass_mfa_enroll
 	// cookie (validated inside each handler). No middleware.Auth wrapper — the
