@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
@@ -12,6 +13,7 @@ import (
 	"github.com/abdo75/Schlass/internal/bootstrap"
 	"github.com/abdo75/Schlass/internal/config"
 	"github.com/abdo75/Schlass/internal/database"
+	"github.com/abdo75/Schlass/internal/handler"
 	"github.com/abdo75/Schlass/internal/oidc"
 	"github.com/abdo75/Schlass/internal/server"
 	"github.com/abdo75/Schlass/internal/store"
@@ -74,6 +76,15 @@ func main() {
 		os.Exit(1)
 	}
 
+	publicURL, err := url.Parse(cfg.SchlassPublicURL)
+	if err != nil {
+		slog.Error("failed to parse SCHLASS_PUBLIC_URL", "error", err)
+		os.Exit(1)
+	}
+
+	clientStore := store.NewClientStore()
+	clientsHandler := handler.NewClientsHandler(pool, valkeyClient, clientStore, auditStore, publicURL)
+
 	h, err := server.BuildRouter(server.RouterDeps{
 		Cfg:                   cfg,
 		Pool:                  pool,
@@ -85,6 +96,7 @@ func main() {
 		ConfigService:         configService,
 		LoginRateLimit:        cfg.LoginRateLimit,
 		MfaChallengeRateLimit: cfg.MfaChallengeRateLimit,
+		ClientsHandler:        clientsHandler,
 	})
 	if err != nil {
 		slog.Error("failed to build router", "error", err)
