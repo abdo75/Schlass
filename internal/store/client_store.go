@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -12,19 +13,23 @@ import (
 	"github.com/abdo75/Schlass/internal/database"
 )
 
-// Client mirrors the clients row for Ship B's read path. Sprint 5 grows this
-// with CreatedAt/UpdatedAt shaped DTOs; Ship B only needs what the OIDC
-// handlers consume.
+// Client mirrors the clients row, including the Sprint 5 metadata columns.
 type Client struct {
 	ID                      uuid.UUID
 	Name                    string
 	ClientType              string
 	SecretHash              *string
+	SecretHashPrevious      *string
+	SecretPreviousExpiresAt *time.Time
 	RedirectURIs            []string
 	AllowedGrantTypes       []string
 	AllowedScopes           []string
 	TokenEndpointAuthMethod string
 	Status                  string
+	DisabledAt              *time.Time
+	CreatedByUserID         *uuid.UUID
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
 }
 
 // ErrClientNotFound is returned by GetByID on unknown OR disabled clients —
@@ -37,46 +42,112 @@ type ClientStore struct{}
 
 func NewClientStore() *ClientStore { return &ClientStore{} }
 
-// GetByID loads an active client by its UUID. Returns ErrClientNotFound
-// for disabled, unknown, or malformed-UUID inputs.
+const clientSelectColumns = `
+	id, name, client_type, secret_hash, secret_hash_previous, secret_previous_expires_at,
+	redirect_uris, allowed_grant_types, allowed_scopes, token_endpoint_auth_method,
+	status, disabled_at, created_by_user_id, created_at, updated_at
+`
+
+func scanClient(row pgx.Row) (*Client, error) {
+	var c Client
+	err := row.Scan(&c.ID, &c.Name, &c.ClientType, &c.SecretHash,
+		&c.SecretHashPrevious, &c.SecretPreviousExpiresAt,
+		&c.RedirectURIs, &c.AllowedGrantTypes, &c.AllowedScopes,
+		&c.TokenEndpointAuthMethod, &c.Status, &c.DisabledAt, &c.CreatedByUserID,
+		&c.CreatedAt, &c.UpdatedAt)
+	return &c, err
+}
+
+// GetByID — OIDC-safe: active clients only. Used by /authorize and /token.
+// Returns ErrClientNotFound for disabled, unknown, or malformed-UUID inputs
+// (enumeration defense).
 func (s *ClientStore) GetByID(ctx context.Context, q database.Querier, id string) (*Client, error) {
 	uid, err := uuid.Parse(id)
 	if err != nil {
 		return nil, ErrClientNotFound
 	}
-	var c Client
-	err = q.QueryRow(ctx, `
-		SELECT id, name, client_type, secret_hash, redirect_uris,
-		       allowed_grant_types, allowed_scopes, token_endpoint_auth_method, status
-		FROM clients
-		WHERE id = $1 AND status = 'active'
-	`, uid).Scan(&c.ID, &c.Name, &c.ClientType, &c.SecretHash,
-		&c.RedirectURIs, &c.AllowedGrantTypes, &c.AllowedScopes,
-		&c.TokenEndpointAuthMethod, &c.Status)
+	row := q.QueryRow(ctx, `SELECT `+clientSelectColumns+` FROM clients WHERE id = $1 AND status = 'active'`, uid)
+	c, err := scanClient(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrClientNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("client get: %w", err)
 	}
-	return &c, nil
+	return c, nil
 }
 
-// VerifySecret checks a provided plaintext secret against the stored Argon2id
-// hash. Constant-time via Argon2id verify.
+// GetByIDAny — admin: returns client regardless of status. Used by the admin
+// /api/clients/:id endpoint which must surface disabled clients.
+func (s *ClientStore) GetByIDAny(ctx context.Context, q database.Querier, id string) (*Client, error) {
+	uid, err := uuid.Parse(id)
+	if err != nil {
+		return nil, ErrClientNotFound
+	}
+	row := q.QueryRow(ctx, `SELECT `+clientSelectColumns+` FROM clients WHERE id = $1`, uid)
+	c, err := scanClient(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrClientNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("client get: %w", err)
+	}
+	return c, nil
+}
+
+// GetByIDForUpdate — admin: returns client under a row lock. Serializes
+// concurrent PATCHes on the same client. Must be called inside a tx.
+func (s *ClientStore) GetByIDForUpdate(ctx context.Context, q database.Querier, id string) (*Client, error) {
+	uid, err := uuid.Parse(id)
+	if err != nil {
+		return nil, ErrClientNotFound
+	}
+	row := q.QueryRow(ctx, `SELECT `+clientSelectColumns+` FROM clients WHERE id = $1 FOR UPDATE`, uid)
+	c, err := scanClient(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrClientNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("client get-for-update: %w", err)
+	}
+	return c, nil
+}
+
+// VerifySecret returns true if the plaintext matches the current secret OR
+// the previous secret while the overlap window is still open. The ~30ms
+// Argon2id cost difference between current-match (1 op) and previous-match
+// (2 ops) is an accepted timing side-channel — consistent with the Sprint 2
+// enumeration-timing precedent documented in CLAUDE.md. The only information
+// leaked is "rotation happened recently", which the attacker already infers
+// from possessing the old secret.
 func (s *ClientStore) VerifySecret(ctx context.Context, q database.Querier, id, secret string) (bool, error) {
 	c, err := s.GetByID(ctx, q, id)
 	if err != nil {
 		return false, err
 	}
-	if c.SecretHash == nil {
-		return false, nil
+	if c.SecretHash != nil {
+		ok, err := crypto.VerifyPassword(secret, *c.SecretHash)
+		if err != nil {
+			return false, err
+		}
+		if ok {
+			return true, nil
+		}
 	}
-	return crypto.VerifyPassword(secret, *c.SecretHash)
+	if c.SecretHashPrevious != nil && c.SecretPreviousExpiresAt != nil && c.SecretPreviousExpiresAt.After(time.Now().UTC()) {
+		ok, err := crypto.VerifyPassword(secret, *c.SecretHashPrevious)
+		if err != nil {
+			return false, err
+		}
+		if ok {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
-// ValidateRedirectURI does an exact-string match against registered URIs.
-// Case-sensitive, scheme-sensitive, no wildcards.
+// ValidateRedirectURI — exact-string match, case-sensitive, scheme-sensitive,
+// no wildcards.
 func (s *ClientStore) ValidateRedirectURI(c *Client, presented string) bool {
 	for _, r := range c.RedirectURIs {
 		if r == presented {
