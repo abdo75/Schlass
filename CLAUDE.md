@@ -92,6 +92,8 @@ The auth middleware (`internal/middleware/auth.go`) reads the cookie, fetches th
 
 End-user (third-party client) OIDC sessions are a separate mechanism — see the OIDC authorization server section below. Admin web sessions never interact with OIDC refresh tokens; the two credential stores are fully independent.
 
+**Session-terminate asymmetry.** `DELETE /api/users/:id/sessions` (all-sessions nuclear terminate) bumps `user:revoke_before` because it's a full session-identity revocation — every outstanding OIDC access + refresh token for the user must fail on next use. `DELETE /api/users/:id/sessions/:token` (single-device terminate) deliberately does NOT bump `revoke_before`: an opaque admin-web session token cannot map to a specific OIDC token, and bumping revoke_before there would revoke every OIDC token regardless of device, contradicting the "sign out my other laptop" intent. This asymmetry is correct; do not "fix" it to match.
+
 ### OIDC authorization server (Sprint 4+)
 
 Self-hosted OIDC provider implementing OAuth 2.1 + OIDC Core: `GET /authorize` (authorization_code + PKCE S256 mandatory, `state` required, exact-match `redirect_uri` whitelist), `POST /token` (authorization_code and refresh_token grants, `client_secret_post` auth), `GET /userinfo` (RS256 Bearer JWT, per-scope claims), `GET /.well-known/openid-configuration`, `GET /.well-known/jwks.json`. Access tokens carry `typ=at+jwt`, ID tokens `typ=JWT`; alg-confusion and `alg=none` are rejected at verify.

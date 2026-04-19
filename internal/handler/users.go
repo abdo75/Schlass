@@ -1025,6 +1025,26 @@ func (h *UsersHandler) TerminateAllSessions(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// Second audit row inside the same tx: a force-terminate is a full
+	// identity revocation, so we must also bump user:revoke_before below.
+	// Writing the audit row in-tx keeps the compliance trail atomic with
+	// the state change (audit-in-tx rule); the Valkey SetNow call after
+	// commit is the best-effort side-effect.
+	if err := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+		EventType:  "user.revoke_before_set",
+		ActorID:    &current.ID,
+		ActorEmail: current.Email,
+		TargetType: "user",
+		TargetID:   id.String(),
+		IPAddress:  ip,
+		Outcome:    "success",
+		Metadata:   map[string]any{"reason": "sessions_terminated"},
+	}); err != nil {
+		slog.Error("users.TerminateAllSessions: audit user.revoke_before_set", "error", err) //nolint:gosec // G706
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
 	if err := tx.Commit(r.Context()); err != nil {
 		slog.Error("users.TerminateAllSessions: commit", "error", err) //nolint:gosec // G706
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
@@ -1038,6 +1058,16 @@ func (h *UsersHandler) TerminateAllSessions(w http.ResponseWriter, r *http.Reque
 	// by the session TTL.
 	if err := h.sessionStore.DeleteAllForUser(r.Context(), id.String()); err != nil {
 		slog.Warn("users.TerminateAllSessions: session revocation degraded", "error", err, "user_id", id) //nolint:gosec // G706
+	}
+
+	// Post-commit, best-effort: bump revoke_before so outstanding OIDC
+	// access + refresh tokens for the target user fail on next use. This
+	// is the load-bearing revocation event for bearer tokens (mirrors
+	// ResetMFA / Disable / ResetPassword). Non-fatal: the audit row is
+	// already committed; a Valkey transport blip at worst leaves a brief
+	// window of staleness bounded by the AT TTL (15m).
+	if err := revokebefore.SetNow(r.Context(), h.valkey, id.String()); err != nil {
+		slog.Error("users.TerminateAllSessions: revoke_before Valkey write failed", "error", err, "user_id", id) //nolint:gosec // G706
 	}
 
 	w.WriteHeader(http.StatusNoContent)
