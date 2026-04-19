@@ -70,7 +70,7 @@ describe("SigningKeysPage", () => {
       expect(screen.getByText("kid-active")).toBeInTheDocument(),
     );
     expect(screen.getByText("Active key")).toBeInTheDocument();
-    expect(screen.getByText("active")).toBeInTheDocument();
+    expect(screen.getByText("Signs all new tokens")).toBeInTheDocument();
     expect(screen.getByText("RS256")).toBeInTheDocument();
   });
 

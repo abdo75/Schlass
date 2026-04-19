@@ -104,40 +104,56 @@ export function SigningKeysPage() {
           <p className="text-sm text-muted-foreground">Loading…</p>
         ) : (
           <div className="mx-auto max-w-[760px]">
-            {/* Active key card */}
+            {/* Active key card — featured key id, top accent strip,
+                status dot + label, bottom metadata strip. */}
             {active && (
-              <div className="mb-3 rounded-xl border border-border bg-background px-7 py-6">
-                <div className="mb-4 flex items-center justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+              <div className="mb-3 overflow-hidden rounded-xl border border-border bg-background">
+                <div className="h-[3px] bg-gradient-to-r from-primary to-primary/60" />
+                <div className="px-7 pb-[22px] pt-5">
+                  <div className="mb-3.5 flex items-center justify-between">
+                    <span className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+                      <span className="relative flex size-[7px]">
+                        <span className="absolute inset-0 rounded-full bg-primary opacity-25 ring-4 ring-primary/15" />
+                        <span className="relative inline-block size-[7px] rounded-full bg-primary" />
+                      </span>
                       Active key
                     </span>
-                    <span className="inline-flex h-[22px] items-center rounded-full bg-success/15 px-2 text-[12px] font-medium text-success">
-                      active
+                    <span className="text-[12px] text-muted-foreground">
+                      Signs all new tokens
                     </span>
                   </div>
-                  <span className="text-[12px] text-muted-foreground">
-                    Signs all new tokens
-                  </span>
-                </div>
 
-                <dl className="grid gap-x-5 gap-y-3.5" style={{ gridTemplateColumns: "140px 1fr" }}>
-                  <dt className="pt-0.5 text-[13px] text-muted-foreground">Key ID</dt>
-                  <dd className="flex items-center gap-2">
-                    <code className="rounded-md border border-border bg-muted px-2.5 py-1 font-mono text-[13px]">
+                  {/* Featured key id */}
+                  <div className="mb-4 flex items-center gap-2.5">
+                    <code className="min-w-0 flex-1 break-all rounded-[10px] border border-border bg-muted px-3.5 py-2.5 font-mono text-[13px] tracking-[-0.01em] text-foreground">
                       {active.kid}
                     </code>
-                    <CopyButton value={active.kid} label="key ID" />
-                  </dd>
+                    <CopyButton value={active.kid} label="key ID" size="md" />
+                  </div>
 
-                  <dt className="pt-0.5 text-[13px] text-muted-foreground">Algorithm</dt>
-                  <dd className="font-mono text-sm">{active.algorithm}</dd>
-
-                  <dt className="pt-0.5 text-[13px] text-muted-foreground">Generated</dt>
-                  <dd className="text-sm">
-                    {relative(active.created_at)} · {absUTC(active.created_at)}
-                  </dd>
-                </dl>
+                  {/* Metadata strip */}
+                  <div className="flex gap-7 border-t border-border/60 pt-3.5 text-[13px]">
+                    <div>
+                      <div className="mb-0.5 text-[11px] font-medium uppercase tracking-[0.04em] text-muted-foreground/80">
+                        Algorithm
+                      </div>
+                      <div className="font-mono text-foreground">
+                        {active.algorithm}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="mb-0.5 text-[11px] font-medium uppercase tracking-[0.04em] text-muted-foreground/80">
+                        Generated
+                      </div>
+                      <div className="text-foreground">
+                        {relative(active.created_at)}{" "}
+                        <span className="text-muted-foreground/80">
+                          · {absUTC(active.created_at)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
 
