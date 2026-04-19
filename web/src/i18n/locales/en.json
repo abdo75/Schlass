@@ -301,6 +301,12 @@
     "copy": "Copy",
     "copied": "Copied"
   },
+  "clients": {
+    "title": "Clients"
+  },
+  "signing_keys": {
+    "title": "Signing keys"
+  },
   "language": {
     "en": "English",
     "fr": "Français",

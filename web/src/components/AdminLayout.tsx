@@ -24,6 +24,47 @@ function UsersIcon() {
   );
 }
 
+function ClientsIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M3 10h18" />
+      <path d="M8 4v16" />
+    </svg>
+  );
+}
+
+function KeyIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="8" cy="15" r="4" />
+      <path d="M10.85 12.15 19 4" />
+      <path d="m18 5 2 2" />
+      <path d="m15 8 2 2" />
+    </svg>
+  );
+}
+
 function ChevronLeftIcon() {
   return (
     <svg
@@ -65,6 +106,32 @@ export function AdminSidebar() {
         >
           <UsersIcon />
           {t("users.title")}
+        </NavLink>
+        <NavLink
+          to="/admin/clients"
+          className={({ isActive }) =>
+            `flex h-8 items-center gap-2.5 rounded-lg px-3 text-sm font-semibold transition-colors ${
+              isActive
+                ? "bg-accent text-accent-foreground"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+            }`
+          }
+        >
+          <ClientsIcon />
+          {t("clients.title")}
+        </NavLink>
+        <NavLink
+          to="/admin/signing-keys"
+          className={({ isActive }) =>
+            `flex h-8 items-center gap-2.5 rounded-lg px-3 text-sm font-semibold transition-colors ${
+              isActive
+                ? "bg-accent text-accent-foreground"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+            }`
+          }
+        >
+          <KeyIcon />
+          {t("signing_keys.title")}
         </NavLink>
       </nav>
     </aside>
