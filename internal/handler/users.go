@@ -940,7 +940,7 @@ func (h *UsersHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		Outcome:    "success",
 		Metadata:   map[string]any{"rows_updated": rowsScrubbed},
 	}); auditErr != nil {
-		slog.Error("audit user.audit_pseudonymized", "error", auditErr)
+		slog.Error("audit user.audit_pseudonymized", "error", auditErr, "user_id", id) //nolint:gosec // G706: slog structured logging is not susceptible to log injection
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 		return
 	}
