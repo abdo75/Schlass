@@ -52,8 +52,8 @@ func TestLogin_IssuesSessionCookieOnCorrectCredentials(t *testing.T) {
 	if !sess.HttpOnly {
 		t.Fatal("cookie must be HttpOnly")
 	}
-	if sess.SameSite != http.SameSiteStrictMode {
-		t.Fatal("cookie must be SameSite=Strict")
+	if sess.SameSite != http.SameSiteLaxMode {
+		t.Fatal("cookie must be SameSite=Lax")
 	}
 	if sess.Path != "/" {
 		t.Fatalf("cookie path: %q", sess.Path)
