@@ -303,3 +303,180 @@ func (h *ClientsHandler) PostCreate(w http.ResponseWriter, r *http.Request) {
 		Client:       toClientDTO(c),
 	})
 }
+
+// --- write handlers (T5.5) --------------------------------------------------
+
+type patchClientReq struct {
+	Name              *string   `json:"name,omitempty"`
+	RedirectURIs      *[]string `json:"redirect_uris,omitempty"`
+	AllowedScopes     *[]string `json:"allowed_scopes,omitempty"`
+	AllowedGrantTypes *[]string `json:"allowed_grant_types,omitempty"`
+}
+
+// PatchOne serves PATCH /api/clients/:id. Partial merge. Uses SELECT ... FOR
+// UPDATE inside the tx to serialize concurrent PATCHes. Emits one audit row
+// per changed field, in canonical order: name → redirect_uris → scopes →
+// grants. No-op PATCH commits with zero audit rows.
+//
+// Immutable fields: client_type, token_endpoint_auth_method, status,
+// secret_hash, secret_hash_previous. DisallowUnknownFields + 64KB body cap
+// reject attempts to patch these (plus typos like "redirect_urls").
+func (h *ClientsHandler) PatchOne(w http.ResponseWriter, r *http.Request) {
+	current, ok := middleware.CurrentUser(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "INVALID_SESSION", "Not authenticated.")
+		return
+	}
+	id, ok := parseClientID(w, r)
+	if !ok {
+		return
+	}
+
+	var req patchClientReq
+	if !strictJSON(w, r, &req) {
+		return
+	}
+
+	// Validate non-nil fields up front.
+	if req.Name != nil {
+		v, err := model.ValidateClientName(*req.Name)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "clients.validation_error", err.Error())
+			return
+		}
+		req.Name = &v
+	}
+	if req.RedirectURIs != nil {
+		if len(*req.RedirectURIs) == 0 || len(*req.RedirectURIs) > 10 {
+			writeError(w, http.StatusBadRequest, "clients.validation_error", "redirect_uris must have 1-10 entries.")
+			return
+		}
+		for _, u := range *req.RedirectURIs {
+			if err := ValidateRedirectURIInput(u); err != nil {
+				writeError(w, http.StatusBadRequest, "clients.redirect_uri_invalid", err.Error())
+				return
+			}
+		}
+	}
+	if req.AllowedScopes != nil {
+		if err := model.ValidateScopes(*req.AllowedScopes); err != nil {
+			writeError(w, http.StatusBadRequest, "clients.scope_invalid", err.Error())
+			return
+		}
+	}
+	if req.AllowedGrantTypes != nil {
+		if err := model.ValidateGrantTypes(*req.AllowedGrantTypes); err != nil {
+			writeError(w, http.StatusBadRequest, "clients.grant_invalid", err.Error())
+			return
+		}
+	}
+
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	defer func() { _ = tx.Rollback(r.Context()) }()
+
+	old, err := h.clientStore.GetByIDForUpdate(r.Context(), tx, id)
+	if errors.Is(err, store.ErrClientNotFound) {
+		writeError(w, http.StatusNotFound, "clients.not_found", "Client not found.")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	updated, err := h.clientStore.UpdateFields(r.Context(), tx, id, store.UpdateClientPatch{
+		Name:              req.Name,
+		RedirectURIs:      req.RedirectURIs,
+		AllowedScopes:     req.AllowedScopes,
+		AllowedGrantTypes: req.AllowedGrantTypes,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	// Per-field audit in canonical order: name, redirect_uris, scopes, grants.
+	if old.Name != updated.Name {
+		if err := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+			EventType:  "client.name_updated",
+			ActorID:    &current.ID,
+			ActorEmail: current.Email,
+			TargetType: "client",
+			TargetID:   id,
+			IPAddress:  extractClientIP(r),
+			Outcome:    "success",
+			Metadata:   map[string]any{"from": old.Name, "to": updated.Name},
+		}); err != nil {
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+			return
+		}
+	}
+	if !slicesEqual(old.RedirectURIs, updated.RedirectURIs) {
+		if err := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+			EventType:  "client.redirect_uris_updated",
+			ActorID:    &current.ID,
+			ActorEmail: current.Email,
+			TargetType: "client",
+			TargetID:   id,
+			IPAddress:  extractClientIP(r),
+			Outcome:    "success",
+			Metadata:   map[string]any{"from": old.RedirectURIs, "to": updated.RedirectURIs},
+		}); err != nil {
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+			return
+		}
+	}
+	if !slicesEqual(old.AllowedScopes, updated.AllowedScopes) {
+		if err := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+			EventType:  "client.scopes_updated",
+			ActorID:    &current.ID,
+			ActorEmail: current.Email,
+			TargetType: "client",
+			TargetID:   id,
+			IPAddress:  extractClientIP(r),
+			Outcome:    "success",
+			Metadata:   map[string]any{"from": old.AllowedScopes, "to": updated.AllowedScopes},
+		}); err != nil {
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+			return
+		}
+	}
+	if !slicesEqual(old.AllowedGrantTypes, updated.AllowedGrantTypes) {
+		if err := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+			EventType:  "client.grants_updated",
+			ActorID:    &current.ID,
+			ActorEmail: current.Email,
+			TargetType: "client",
+			TargetID:   id,
+			IPAddress:  extractClientIP(r),
+			Outcome:    "success",
+			Metadata:   map[string]any{"from": old.AllowedGrantTypes, "to": updated.AllowedGrantTypes},
+		}); err != nil {
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+			return
+		}
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"client": toClientDTO(updated)})
+}
+
+func slicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
