@@ -194,6 +194,8 @@ Migrations auto-run on startup via `database.RunMigrations()`. Located in `inter
 
 This is a compliance claim — never weaken it.
 
+**GDPR Art. 17 pseudonymization path.** `audit_logs` is append-only to `schlass_app` — UPDATE and DELETE are revoked. The single exception is `audit_log_pseudonymize_user(uuid)`, a `SECURITY DEFINER` SQL function owned by `schlass_migrations` (introduced in migration 000018) that replaces `actor_email` with `'deleted:<uuid>'` on rows where `actor_id = <uuid>`. `schlass_app` has EXECUTE on this function only; it cannot UPDATE the table directly. Called inside `DELETE /api/users/:id` as the GDPR Art. 17(3)(b) bridge — the function and its call site are the *only* sanctioned mutation path on `audit_logs`. Scope is deliberately narrow (actor_email column only, not JSONB metadata fields such as `old_email`) — re-evaluate if a DPA request requires deeper scrubbing. Never grant UPDATE on `audit_logs` directly, and never add additional `SECURITY DEFINER` functions against this table without the same compliance-trade-off review.
+
 ## Security Defaults
 
 - MFA required by default (`mfa_required = true`)

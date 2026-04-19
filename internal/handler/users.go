@@ -918,6 +918,33 @@ func (h *UsersHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// GDPR Art. 17 bridge: scrub actor_email on every audit row where the
+	// deleted user was the actor. Runs inside the same tx as the user delete
+	// so it's atomic with the erasure. The user.deleted row is still
+	// attributable to the admin (actor_id != target id), so its actor_email
+	// is untouched — ordering this block BEFORE the user.deleted Log() keeps
+	// that intent clear even though the SQL predicate already excludes it.
+	rowsScrubbed, err := h.auditStore.PseudonymizeUser(r.Context(), tx, id)
+	if err != nil {
+		slog.Error("users.Delete: pseudonymize audit rows", "error", err, "user_id", id) //nolint:gosec // G706: slog structured logging is not susceptible to log injection
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if auditErr := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+		EventType:  "user.audit_pseudonymized",
+		ActorID:    &current.ID,
+		ActorEmail: current.Email,
+		TargetType: "user",
+		TargetID:   id.String(),
+		IPAddress:  ip,
+		Outcome:    "success",
+		Metadata:   map[string]any{"rows_updated": rowsScrubbed},
+	}); auditErr != nil {
+		slog.Error("audit user.audit_pseudonymized", "error", auditErr)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
 	if auditErr := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
 		EventType:  "user.deleted",
 		ActorID:    &current.ID,

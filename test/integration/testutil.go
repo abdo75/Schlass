@@ -266,6 +266,12 @@ func (f *failingAuditStore) Log(_ context.Context, _ database.Querier, _ store.A
 	return f.fn()
 }
 
+// PseudonymizeUser satisfies handler.AuditLogger. Fake returns 0 rows with
+// no error — tests that drive the pseudonymize path use the real store.
+func (f *failingAuditStore) PseudonymizeUser(_ context.Context, _ database.Querier, _ uuid.UUID) (int, error) {
+	return 0, nil
+}
+
 // Compile-time proof that failingAuditStore satisfies handler.AuditLogger.
 var _ handler.AuditLogger = (*failingAuditStore)(nil)
 
