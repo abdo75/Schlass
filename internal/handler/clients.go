@@ -3,6 +3,9 @@
 package handler
 
 import (
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/url"
@@ -12,6 +15,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
+	"github.com/abdo75/Schlass/internal/crypto"
+	"github.com/abdo75/Schlass/internal/middleware"
+	"github.com/abdo75/Schlass/internal/model"
 	"github.com/abdo75/Schlass/internal/store"
 )
 
@@ -88,6 +94,47 @@ func parseClientID(w http.ResponseWriter, r *http.Request) (string, bool) {
 	return raw, true
 }
 
+// --- deferred helpers (T5.4) ------------------------------------------------
+
+const (
+	// clientRequestMaxBytes caps create/update bodies to defend against
+	// memory-exhaustion via giant JSON.
+	clientRequestMaxBytes = 64 * 1024
+)
+
+// strictJSON decodes a JSON request body with DisallowUnknownFields and a
+// MaxBytesReader cap. On failure writes 400 and returns false.
+func strictJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, clientRequestMaxBytes)
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(dst); err != nil {
+		var mbe *http.MaxBytesError
+		if errors.As(err, &mbe) {
+			writeError(w, http.StatusRequestEntityTooLarge, "VALIDATION_ERROR", "Request body too large.")
+		} else {
+			writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body.")
+		}
+		return false
+	}
+	if dec.More() {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Request body contains extra content.")
+		return false
+	}
+	return true
+}
+
+// generateClientSecret mints a 32-byte random secret, base64url-encoded.
+func generateClientSecret() (string, error) {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(buf), nil
+}
+
+// --- read handlers (T5.3) ---------------------------------------------------
+
 // GetList serves GET /api/clients?status=active|disabled|all. Default filter
 // is "active".
 func (h *ClientsHandler) GetList(w http.ResponseWriter, r *http.Request) {
@@ -129,3 +176,130 @@ func (h *ClientsHandler) GetOne(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"client": toClientDTO(c)})
 }
 
+// --- write handlers (T5.4) --------------------------------------------------
+
+type createClientReq struct {
+	Name              string   `json:"name"`
+	ClientType        string   `json:"client_type"`
+	RedirectURIs      []string `json:"redirect_uris"`
+	AllowedGrantTypes []string `json:"allowed_grant_types"`
+	AllowedScopes     []string `json:"allowed_scopes"`
+}
+
+type createClientResp struct {
+	ClientID     string    `json:"client_id"`
+	ClientSecret string    `json:"client_secret"`
+	Client       clientDTO `json:"client"`
+}
+
+// PostCreate serves POST /api/clients. Mints a 32-byte secret, Argon2id-hashes
+// it, and returns the plaintext ONCE in the response body. Audit-in-tx.
+func (h *ClientsHandler) PostCreate(w http.ResponseWriter, r *http.Request) {
+	current, ok := middleware.CurrentUser(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "INVALID_SESSION", "Not authenticated.")
+		return
+	}
+
+	var req createClientReq
+	if !strictJSON(w, r, &req) {
+		return
+	}
+
+	// Validate fields.
+	name, err := model.ValidateClientName(req.Name)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "clients.validation_error", err.Error())
+		return
+	}
+	if req.ClientType != "confidential" {
+		writeError(w, http.StatusBadRequest, "clients.validation_error", "Only confidential clients are supported.")
+		return
+	}
+	if len(req.RedirectURIs) == 0 {
+		writeError(w, http.StatusBadRequest, "clients.validation_error", "At least one redirect_uri is required.")
+		return
+	}
+	if len(req.RedirectURIs) > 10 {
+		writeError(w, http.StatusBadRequest, "clients.validation_error", "Maximum 10 redirect URIs.")
+		return
+	}
+	for _, u := range req.RedirectURIs {
+		if err := ValidateRedirectURIInput(u); err != nil {
+			writeError(w, http.StatusBadRequest, "clients.redirect_uri_invalid", err.Error())
+			return
+		}
+	}
+	if err := model.ValidateScopes(req.AllowedScopes); err != nil {
+		writeError(w, http.StatusBadRequest, "clients.scope_invalid", err.Error())
+		return
+	}
+	if err := model.ValidateGrantTypes(req.AllowedGrantTypes); err != nil {
+		writeError(w, http.StatusBadRequest, "clients.grant_invalid", err.Error())
+		return
+	}
+
+	rawSecret, err := generateClientSecret()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	secretHash, err := crypto.HashPassword(rawSecret)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	defer func() { _ = tx.Rollback(r.Context()) }()
+
+	c, err := h.clientStore.Create(r.Context(), tx, store.CreateClientParams{
+		Name:                    name,
+		ClientType:              req.ClientType,
+		SecretHash:              secretHash,
+		RedirectURIs:            req.RedirectURIs,
+		AllowedGrantTypes:       req.AllowedGrantTypes,
+		AllowedScopes:           req.AllowedScopes,
+		TokenEndpointAuthMethod: "client_secret_post",
+		CreatedByUserID:         &current.ID,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	if err := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+		EventType:  "client.created",
+		ActorID:    &current.ID,
+		ActorEmail: current.Email,
+		TargetType: "client",
+		TargetID:   c.ID.String(),
+		IPAddress:  extractClientIP(r),
+		Outcome:    "success",
+		Metadata: map[string]any{
+			"name":                c.Name,
+			"client_type":         c.ClientType,
+			"redirect_uris_count": len(c.RedirectURIs),
+			"scopes":              c.AllowedScopes,
+			"grants":              c.AllowedGrantTypes,
+		},
+	}); err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, createClientResp{
+		ClientID:     c.ID.String(),
+		ClientSecret: rawSecret,
+		Client:       toClientDTO(c),
+	})
+}
