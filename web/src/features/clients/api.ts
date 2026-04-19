@@ -91,26 +91,18 @@ export function rotateSigningKey() {
   });
 }
 
-// JWK as published in /.well-known/jwks.json. Schlass only emits RS256 signing
-// keys today so alg is always "RS256"; keep the type loose for forward
-// compatibility.
-export interface JWK {
+// SigningKey mirrors the admin /api/admin/signing-keys list payload.
+// Unlike JWKS (which is public and omits status/timestamps), this admin
+// endpoint carries the metadata the UI needs to label keys active vs
+// retiring and to compute the retirement countdown.
+export interface SigningKey {
   kid: string;
-  kty: string;
-  alg: string;
-  use: string;
-  n: string;
-  e: string;
+  algorithm: string;
+  status: "active" | "retiring";
+  created_at: string;
+  rotated_at: string | null;
 }
 
-// getJWKS reads the public JWKS endpoint. No auth — this endpoint is public
-// by design (relying parties fetch it unauthenticated to validate tokens).
-// The server's ListPublishable orders keys active-first, then retiring by
-// created_at; callers can rely on index 0 being the currently-active key.
-export async function getJWKS(): Promise<{ keys: JWK[] }> {
-  const res = await fetch("/.well-known/jwks.json");
-  if (!res.ok) {
-    throw new Error(`JWKS fetch failed: ${res.status}`);
-  }
-  return (await res.json()) as { keys: JWK[] };
+export function listSigningKeys() {
+  return apiFetch<{ keys: SigningKey[] }>("/api/admin/signing-keys");
 }
