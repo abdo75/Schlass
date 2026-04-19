@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { LockKeyhole, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { CopyButton } from "@/components/ui/CopyButton";
 import { cn } from "@/lib/utils";
 
 interface TempPasswordModalProps {
@@ -16,9 +17,6 @@ export function TempPasswordModal({
   onClose,
 }: TempPasswordModalProps) {
   const { t } = useTranslation();
-  const [copied, setCopied] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const clipboardRef = useRef(navigator.clipboard);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -32,27 +30,6 @@ export function TempPasswordModal({
       window.removeEventListener("keydown", handler, true);
     };
   }, []);
-
-  useEffect(() => {
-    return () => {
-      if (timerRef.current !== null) {
-        clearTimeout(timerRef.current);
-      }
-    };
-  }, []);
-
-  function handleCopy() {
-    void clipboardRef.current.writeText(password).then(() => {
-      setCopied(true);
-      if (timerRef.current !== null) {
-        clearTimeout(timerRef.current);
-      }
-      timerRef.current = setTimeout(() => {
-        setCopied(false);
-        timerRef.current = null;
-      }, 1200);
-    });
-  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -83,16 +60,7 @@ export function TempPasswordModal({
             <code className="flex-1 break-all font-mono text-[15px] leading-snug">
               {password}
             </code>
-            <Button
-              variant="default"
-              size="sm"
-              className="shrink-0"
-              onClick={handleCopy}
-            >
-              {copied
-                ? t("users.create.temp_password_modal.copied")
-                : t("users.create.temp_password_modal.copy")}
-            </Button>
+            <CopyButton value={password} label="temporary password" size="md" />
           </div>
         </div>
 

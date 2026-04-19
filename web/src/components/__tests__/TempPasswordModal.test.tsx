@@ -19,8 +19,10 @@ describe("TempPasswordModal", () => {
   });
 
   it("copies the password to clipboard on Copy click", async () => {
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.assign(navigator, { clipboard: { writeText } });
+    const user = userEvent.setup();
+    const writeTextSpy = vi
+      .spyOn(navigator.clipboard, "writeText")
+      .mockResolvedValue(undefined);
 
     render(
       <TempPasswordModal
@@ -29,9 +31,8 @@ describe("TempPasswordModal", () => {
         onClose={() => {}}
       />,
     );
-    const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: /copy/i }));
-    expect(writeText).toHaveBeenCalledWith("K7mR3pL9vX2qT8wN");
+    expect(writeTextSpy).toHaveBeenCalledWith("K7mR3pL9vX2qT8wN");
   });
 
   it("does not call onClose when Escape is pressed", async () => {
