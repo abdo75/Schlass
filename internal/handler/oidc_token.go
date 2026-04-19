@@ -18,6 +18,27 @@ import (
 	"github.com/abdo75/Schlass/internal/store"
 )
 
+// intersectScopesAgainstClient returns granted ∩ allowed preserving the order
+// of granted. Returns invalid_scope error if the intersection is empty.
+// Used by both auth_code and refresh grants to re-validate scopes against
+// the client's current allowed_scopes (which an admin PATCH may have narrowed).
+func intersectScopesAgainstClient(granted, allowed []string) ([]string, error) {
+	allowedSet := make(map[string]struct{}, len(allowed))
+	for _, s := range allowed {
+		allowedSet[s] = struct{}{}
+	}
+	out := make([]string, 0, len(granted))
+	for _, s := range granted {
+		if _, ok := allowedSet[s]; ok {
+			out = append(out, s)
+		}
+	}
+	if len(out) == 0 {
+		return nil, errors.New("invalid_scope")
+	}
+	return out, nil
+}
+
 // tokenResponse is the RFC 6749 §5.1 success response body.
 type tokenResponse struct {
 	AccessToken  string `json:"access_token"`
@@ -224,6 +245,31 @@ func (h *OIDCTokenHandler) handleAuthorizationCode(w http.ResponseWriter, r *htt
 		return
 	}
 
+	// 8.5 Sprint 5: re-validate grant type — admin may have removed
+	// authorization_code from allowed_grant_types via PATCH /api/clients/:id.
+	allowsAuthCode := false
+	for _, g := range client.AllowedGrantTypes {
+		if g == "authorization_code" {
+			allowsAuthCode = true
+			break
+		}
+	}
+	if !allowsAuthCode {
+		_ = tx.Commit(r.Context())
+		writeTokenError(w, http.StatusBadRequest, "unauthorized_client", "authorization_code grant no longer allowed for this client")
+		return
+	}
+
+	// 8.6 Sprint 5: re-validate granted scopes against current client config. An
+	// admin PATCH between /authorize and /token exchange can narrow allowed_scopes;
+	// issue the AT with the intersection, or reject if empty.
+	narrowedCodeScopes, err := intersectScopesAgainstClient(row.Scopes, client.AllowedScopes)
+	if err != nil {
+		_ = tx.Commit(r.Context())
+		writeTokenError(w, http.StatusBadRequest, "invalid_scope", "requested scopes no longer allowed for this client")
+		return
+	}
+
 	// 9. Load active signing key + decrypt private key.
 	activeKey, err := h.signingKeyStore.GetActive(r.Context(), tx)
 	if err != nil {
@@ -240,7 +286,7 @@ func (h *OIDCTokenHandler) handleAuthorizationCode(w http.ResponseWriter, r *htt
 
 	// 10. Build + sign access and ID tokens.
 	now := time.Now().UTC()
-	scopes := oidc.Scopes(row.Scopes)
+	scopes := oidc.Scopes(narrowedCodeScopes)
 	jtiAccess := uuid.NewString()
 	accessClaims := oidc.BuildAccessClaims(user, client.ID.String(), h.publicURL, jtiAccess, scopes, now)
 	accessTok, err := oidc.SignAccessToken(accessClaims, activeKey.ID.String(), privPEM)
@@ -274,7 +320,7 @@ func (h *OIDCTokenHandler) handleAuthorizationCode(w http.ResponseWriter, r *htt
 		tok, err := h.refreshStore.Create(r.Context(), oidc.RefreshPayload{
 			UserID:    user.ID.String(),
 			ClientID:  client.ID.String(),
-			Scopes:    row.Scopes,
+			Scopes:    narrowedCodeScopes,
 			FamilyID:  row.FamilyID.String(),
 			CreatedAt: now.Unix(),
 			Expires:   now.Add(refreshTokenTTL).Unix(),
@@ -299,7 +345,7 @@ func (h *OIDCTokenHandler) handleAuthorizationCode(w http.ResponseWriter, r *htt
 		Outcome:    "success",
 		Metadata: map[string]any{
 			"family_id":      row.FamilyID.String(),
-			"scopes":         row.Scopes,
+			"scopes":         narrowedCodeScopes,
 			"access_jti":     jtiAccess,
 			"id_jti":         jtiID,
 			"refresh_issued": refreshTokenStr != "",
@@ -484,6 +530,30 @@ func (h *OIDCTokenHandler) handleRefreshToken(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	// Sprint 5: re-validate grant type — admin may have removed refresh_token
+	// from allowed_grant_types via PATCH /api/clients/:id.
+	allowsRefresh := false
+	for _, g := range client.AllowedGrantTypes {
+		if g == "refresh_token" {
+			allowsRefresh = true
+			break
+		}
+	}
+	if !allowsRefresh {
+		writeTokenError(w, http.StatusBadRequest, "unauthorized_client", "refresh_token grant no longer allowed for this client")
+		return
+	}
+
+	// Sprint 5: re-validate granted scopes against current client config. An
+	// admin PATCH between refresh issuance and refresh use can narrow
+	// allowed_scopes; issue the new AT with the intersection, or reject if
+	// empty.
+	narrowedScopes, err := intersectScopesAgainstClient(oldPayload.Scopes, client.AllowedScopes)
+	if err != nil {
+		writeTokenError(w, http.StatusBadRequest, "invalid_scope", "requested scopes no longer allowed for this client")
+		return
+	}
+
 	// 5. Re-fetch user + status check.
 	userUUID, err := uuid.Parse(oldPayload.UserID)
 	if err != nil {
@@ -562,7 +632,7 @@ func (h *OIDCTokenHandler) handleRefreshToken(w http.ResponseWriter, r *http.Req
 
 	// 7. Sign new access + id tokens.
 	now := time.Now().UTC()
-	scopes := oidc.Scopes(oldPayload.Scopes)
+	scopes := oidc.Scopes(narrowedScopes)
 	jtiAccess := uuid.NewString()
 	jtiID := uuid.NewString()
 	accessClaims := oidc.BuildAccessClaims(user, client.ID.String(), h.publicURL, jtiAccess, scopes, now)
@@ -590,7 +660,7 @@ func (h *OIDCTokenHandler) handleRefreshToken(w http.ResponseWriter, r *http.Req
 	newRefresh, err := h.refreshStore.Create(r.Context(), oidc.RefreshPayload{
 		UserID:    user.ID.String(),
 		ClientID:  client.ID.String(),
-		Scopes:    oldPayload.Scopes,
+		Scopes:    narrowedScopes,
 		FamilyID:  oldPayload.FamilyID,
 		CreatedAt: now.Unix(),
 		Expires:   oldPayload.Expires, // absolute, not now+24h
@@ -636,7 +706,7 @@ func (h *OIDCTokenHandler) handleRefreshToken(w http.ResponseWriter, r *http.Req
 		Outcome:    "success",
 		Metadata: map[string]any{
 			"family_id":      oldPayload.FamilyID,
-			"scopes":         oldPayload.Scopes,
+			"scopes":         narrowedScopes,
 			"new_access_jti": jtiAccess,
 			"new_id_jti":     jtiID,
 		},

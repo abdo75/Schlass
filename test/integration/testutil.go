@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -165,6 +166,10 @@ func setupIntegrationEnv(t *testing.T) *TestEnv {
 // needs to rebuild the router with a swapped dependency.
 func (e *TestEnv) BuildDeps() server.RouterDeps {
 	configStore := store.NewConfigStore()
+	auditStore := store.NewAuditStore()
+	clientStore := store.NewClientStore()
+	publicURL, _ := url.Parse(e.Cfg.SchlassPublicURL) // always valid — set from test constants
+	clientsHandler := handler.NewClientsHandler(e.Pool, e.ValkeyClient, clientStore, auditStore, publicURL)
 	return server.RouterDeps{
 		Cfg:               e.Cfg,
 		Pool:              e.Pool,
@@ -172,7 +177,7 @@ func (e *TestEnv) BuildDeps() server.RouterDeps {
 		ConfigStore:       configStore,
 		UserStore:         store.NewUserStore(),
 		RecoveryCodeStore: store.NewRecoveryCodeStore(),
-		AuditStore:        store.NewAuditStore(),
+		AuditStore:        auditStore,
 		ConfigService:     config.NewConfigService(configStore, e.Cfg.EncryptionKey),
 		// Tests drive many login attempts from the same virtual client IP
 		// (httptest uses 192.0.2.1 for every request). Raise the login
@@ -183,6 +188,7 @@ func (e *TestEnv) BuildDeps() server.RouterDeps {
 		// challenge requests from the same virtual IP without hitting the
 		// production 5/min guard.
 		MfaChallengeRateLimit: 10000,
+		ClientsHandler:        clientsHandler,
 	}
 }
 

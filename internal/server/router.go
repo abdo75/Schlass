@@ -32,6 +32,7 @@ type RouterDeps struct {
 	RecoveryCodeStore *store.RecoveryCodeStore
 	AuditStore        handler.AuditLogger
 	ConfigService     *config.ConfigService
+	ClientsHandler    *handler.ClientsHandler
 
 	// LoginRateLimit overrides the per-IP /api/login rate-limit cap. Zero (the
 	// production default path) means "use 5/min". Tests that need to drive many
@@ -125,6 +126,15 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 	mux.Handle("GET /api/users/{id}/sessions", gated("users.sessions.read", http.HandlerFunc(usersHandler.ListSessions)))
 	mux.Handle("DELETE /api/users/{id}/sessions", gated("users.sessions.terminate", http.HandlerFunc(usersHandler.TerminateAllSessions)))
 	mux.Handle("DELETE /api/users/{id}/sessions/{token}", gated("users.sessions.terminate", http.HandlerFunc(usersHandler.TerminateSession)))
+
+	mux.Handle("GET /api/clients", gated("clients.list", http.HandlerFunc(d.ClientsHandler.GetList)))
+	mux.Handle("POST /api/clients", gated("clients.create", http.HandlerFunc(d.ClientsHandler.PostCreate)))
+	mux.Handle("GET /api/clients/{id}", gated("clients.read", http.HandlerFunc(d.ClientsHandler.GetOne)))
+	mux.Handle("PATCH /api/clients/{id}", gated("clients.update", http.HandlerFunc(d.ClientsHandler.PatchOne)))
+	mux.Handle("POST /api/clients/{id}/disable", gated("clients.disable", http.HandlerFunc(d.ClientsHandler.PostDisable)))
+	mux.Handle("POST /api/clients/{id}/enable", gated("clients.enable", http.HandlerFunc(d.ClientsHandler.PostEnable)))
+	mux.Handle("POST /api/clients/{id}/rotate-secret", gated("clients.rotate_secret", http.HandlerFunc(d.ClientsHandler.PostRotateSecret)))
+	mux.Handle("DELETE /api/clients/{id}", gated("clients.delete", http.HandlerFunc(d.ClientsHandler.DeleteOne)))
 
 	mux.Handle("POST /api/admin/signing-keys/rotate",
 		gated("signing_keys.rotate", http.HandlerFunc(adminSigningKeysHandler.Rotate)))

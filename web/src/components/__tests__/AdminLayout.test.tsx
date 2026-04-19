@@ -35,10 +35,11 @@ describe("AdminLayout", () => {
     expect(screen.getByRole("link", { name: /users/i })).toBeInTheDocument();
   });
 
-  it("does not render Clients, Audit, Settings, or 'coming soon'", async () => {
+  it("renders Clients and Signing keys nav items, and does not render Audit, Settings, or 'coming soon'", async () => {
     render(wrap());
     await screen.findByText("Schlass");
-    expect(screen.queryByText(/clients/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /clients/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /signing keys/i })).toBeInTheDocument();
     expect(screen.queryByText(/audit/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/settings/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/soon/i)).not.toBeInTheDocument();

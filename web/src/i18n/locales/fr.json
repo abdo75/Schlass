@@ -301,6 +301,23 @@
     "copy": "Copier",
     "copied": "Copié"
   },
+  "clients": {
+    "title": "Clients",
+    "create_button": "Nouveau client",
+    "filter": {
+      "active": "Actifs",
+      "disabled": "Désactivés",
+      "all": "Tous"
+    },
+    "columns": {
+      "name": "Nom",
+      "status": "Statut",
+      "created": "Créé"
+    }
+  },
+  "signing_keys": {
+    "title": "Clés de signature"
+  },
   "language": {
     "en": "English",
     "fr": "Français",

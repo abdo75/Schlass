@@ -132,6 +132,21 @@ func BearerAuth(d BearerAuthDeps) func(http.Handler) http.Handler {
 				}
 			}
 
+			// Per-client revoke_before: DELETE /api/clients/:id writes this so
+			// outstanding ATs for a deleted client die immediately. Parallel
+			// to the user cutoff above. Fail-open on transport errors — matches
+			// the user-cutoff policy.
+			if d.Valkey != nil && claims.Audience != "" {
+				clientCutoff, cbErr := revokebefore.ClientGet(r.Context(), d.Valkey, claims.Audience)
+				if cbErr == nil && claims.IssuedAt < clientCutoff.Unix() {
+					writeBearerError(w, http.StatusUnauthorized, "invalid_token", "token revoked by client mutation")
+					return
+				}
+				if cbErr != nil && cbErr != revokebefore.ErrNotSet {
+					slog.Warn("bearer auth: client revoke_before Get failed (allowing)", "error", cbErr)
+				}
+			}
+
 			ctx := context.WithValue(r.Context(), userCtxKey, user)
 			ctx = context.WithValue(ctx, bearerClaimsCtxKey{}, claims)
 			next.ServeHTTP(w, r.WithContext(ctx))
