@@ -48,6 +48,12 @@ type RouterDeps struct {
 	// means "use 60/min". Integration tests that want to exercise the 429 path
 	// set this to a small value (e.g. 3).
 	TokenRateLimit int64
+	// AuthorizeRateLimit overrides the per-IP /authorize rate-limit cap.
+	// Zero means "use 60/min". Tests set large values to avoid flake.
+	AuthorizeRateLimit int64
+	// UserinfoRateLimit overrides the per-IP /userinfo rate-limit cap.
+	// Zero means "use 60/min".
+	UserinfoRateLimit int64
 }
 
 // BuildRouter assembles the full HTTP handler chain: mux with every route,
@@ -102,6 +108,16 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 		mfaLimit = d.MfaChallengeRateLimit
 	}
 	mfaChallengeRL := middleware.NewRateLimiter(d.ValkeyClient, "ratelimit:mfa", mfaLimit, time.Minute)
+	authorizeLimit := int64(60)
+	if d.AuthorizeRateLimit > 0 {
+		authorizeLimit = d.AuthorizeRateLimit
+	}
+	userinfoLimit := int64(60)
+	if d.UserinfoRateLimit > 0 {
+		userinfoLimit = d.UserinfoRateLimit
+	}
+	authorizeRL := middleware.NewRateLimiter(d.ValkeyClient, "ratelimit:authorize", authorizeLimit, time.Minute)
+	userinfoRL := middleware.NewRateLimiter(d.ValkeyClient, "ratelimit:userinfo", userinfoLimit, time.Minute)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", healthHandler.GetHealth)
@@ -161,7 +177,7 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 	// when present, unauthenticated requests redirected to /login).
 	authorizeHandler := handler.NewOIDCAuthorizeHandler(d.Pool, sessionStore, d.AuditStore, d.Cfg.SchlassPublicURL)
 	optionalAuth := middleware.OptionalAuth(sessionStore, d.UserStore, d.AuditStore, d.Pool)
-	mux.Handle("GET /authorize", optionalAuth(http.HandlerFunc(authorizeHandler.Handle)))
+	mux.Handle("GET /authorize", authorizeRL.Middleware(optionalAuth(http.HandlerFunc(authorizeHandler.Handle))))
 
 	// OIDC token endpoint — client auth happens inside the handler.
 	tokenHandler := handler.NewOIDCTokenHandler(
@@ -181,7 +197,7 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 		Valkey:    d.ValkeyClient,
 		Issuer:    d.Cfg.SchlassPublicURL,
 	})
-	mux.Handle("GET /userinfo", bearerAuth(http.HandlerFunc(userInfoHandler.Handle)))
+	mux.Handle("GET /userinfo", userinfoRL.Middleware(bearerAuth(http.HandlerFunc(userInfoHandler.Handle))))
 
 	mux.Handle("/", web.SPAHandler())
 

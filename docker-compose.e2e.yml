@@ -8,6 +8,8 @@ services:
     environment:
       SCHLASS_LOGIN_RATE_LIMIT: "1000"
       SCHLASS_MFA_CHALLENGE_RATE_LIMIT: "1000"
+      SCHLASS_AUTHORIZE_RATE_LIMIT: "10000"
+      SCHLASS_USERINFO_RATE_LIMIT: "10000"
       # Developer-mode OIDC client seeding. The E2E Playwright specs rely
       # on a known-secret dev-test-client being present at /authorize. The
       # SCHLASS_DEV_SECRET is intentionally deterministic so tests can

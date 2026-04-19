@@ -188,7 +188,13 @@ func (e *TestEnv) BuildDeps() server.RouterDeps {
 		// challenge requests from the same virtual IP without hitting the
 		// production 5/min guard.
 		MfaChallengeRateLimit: 10000,
-		ClientsHandler:        clientsHandler,
+		// Same rationale for /authorize and /userinfo: integration tests
+		// fire many requests from the same virtual IP and should not trip
+		// the new 60/min per-IP limiters unless the test explicitly lowers
+		// the cap (via env.BuildDeps + rebuild).
+		AuthorizeRateLimit: 10000,
+		UserinfoRateLimit:  10000,
+		ClientsHandler:     clientsHandler,
 	}
 }
 
