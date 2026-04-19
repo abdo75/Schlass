@@ -188,7 +188,13 @@ func (e *TestEnv) BuildDeps() server.RouterDeps {
 		// challenge requests from the same virtual IP without hitting the
 		// production 5/min guard.
 		MfaChallengeRateLimit: 10000,
-		ClientsHandler:        clientsHandler,
+		// Same rationale for /authorize and /userinfo: integration tests
+		// fire many requests from the same virtual IP and should not trip
+		// the new 60/min per-IP limiters unless the test explicitly lowers
+		// the cap (via env.BuildDeps + rebuild).
+		AuthorizeRateLimit: 10000,
+		UserinfoRateLimit:  10000,
+		ClientsHandler:     clientsHandler,
 	}
 }
 
@@ -264,6 +270,12 @@ type failingAuditStore struct {
 
 func (f *failingAuditStore) Log(_ context.Context, _ database.Querier, _ store.AuditEntry) error {
 	return f.fn()
+}
+
+// PseudonymizeUser satisfies handler.AuditLogger. Fake returns 0 rows with
+// no error — tests that drive the pseudonymize path use the real store.
+func (f *failingAuditStore) PseudonymizeUser(_ context.Context, _ database.Querier, _ uuid.UUID) (int, error) {
+	return 0, nil
 }
 
 // Compile-time proof that failingAuditStore satisfies handler.AuditLogger.

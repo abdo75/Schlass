@@ -79,3 +79,17 @@ func (s *AuditStore) Log(ctx context.Context, q database.Querier, entry AuditEnt
 	}
 	return nil
 }
+
+// PseudonymizeUser replaces actor_email with 'deleted:<uuid>' on every
+// audit_logs row where actor_id = userID. Dispatches to the SECURITY
+// DEFINER function created in migration 000018; schlass_app has no direct
+// UPDATE on audit_logs, only EXECUTE on this function. Returns rows
+// affected. Called inside the DELETE /api/users/:id tx as the GDPR
+// Art. 17(3)(b) compliance path. See CLAUDE.md Audit Log Tamper Protection.
+func (s *AuditStore) PseudonymizeUser(ctx context.Context, q database.Querier, userID uuid.UUID) (int, error) {
+	var rows int
+	if err := q.QueryRow(ctx, `SELECT audit_log_pseudonymize_user($1)`, userID).Scan(&rows); err != nil {
+		return 0, fmt.Errorf("audit pseudonymize: %w", err)
+	}
+	return rows, nil
+}

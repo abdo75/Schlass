@@ -96,6 +96,8 @@ func main() {
 		ConfigService:         configService,
 		LoginRateLimit:        cfg.LoginRateLimit,
 		MfaChallengeRateLimit: cfg.MfaChallengeRateLimit,
+		AuthorizeRateLimit:    cfg.AuthorizeRateLimit,
+		UserinfoRateLimit:     cfg.UserinfoRateLimit,
 		ClientsHandler:        clientsHandler,
 	})
 	if err != nil {

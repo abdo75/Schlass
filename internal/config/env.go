@@ -24,6 +24,14 @@ type Config struct {
 	// minute. Zero means "use the secure default" (5/min). Intended for E2E
 	// test runs that need to burst past the default.
 	MfaChallengeRateLimit int64
+	// AuthorizeRateLimit overrides the per-IP GET /authorize cap per minute.
+	// Zero means "use the secure default" (60/min). Intended for E2E test
+	// runs that need to burst past the default.
+	AuthorizeRateLimit int64
+	// UserinfoRateLimit overrides the per-IP GET /userinfo cap per minute.
+	// Zero means "use the secure default" (60/min). Intended for E2E test
+	// runs that need to burst past the default.
+	UserinfoRateLimit int64
 }
 
 func Load() (*Config, error) {
@@ -91,6 +99,22 @@ func Load() (*Config, error) {
 			return nil, fmt.Errorf("SCHLASS_MFA_CHALLENGE_RATE_LIMIT must be a non-negative integer, got %q", raw)
 		}
 		cfg.MfaChallengeRateLimit = parsed
+	}
+
+	if raw := os.Getenv("SCHLASS_AUTHORIZE_RATE_LIMIT"); raw != "" {
+		parsed, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || parsed < 0 {
+			return nil, fmt.Errorf("SCHLASS_AUTHORIZE_RATE_LIMIT must be a non-negative integer, got %q", raw)
+		}
+		cfg.AuthorizeRateLimit = parsed
+	}
+
+	if raw := os.Getenv("SCHLASS_USERINFO_RATE_LIMIT"); raw != "" {
+		parsed, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || parsed < 0 {
+			return nil, fmt.Errorf("SCHLASS_USERINFO_RATE_LIMIT must be a non-negative integer, got %q", raw)
+		}
+		cfg.UserinfoRateLimit = parsed
 	}
 
 	return cfg, nil

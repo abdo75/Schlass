@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
@@ -29,6 +30,12 @@ import (
 // already satisfies this interface.
 type AuditLogger interface {
 	Log(ctx context.Context, q database.Querier, entry store.AuditEntry) error
+	// PseudonymizeUser is the GDPR Art. 17 compliance path. Replaces
+	// actor_email with 'deleted:<uuid>' on every audit_logs row where
+	// actor_id = userID. Dispatches to the audit_log_pseudonymize_user
+	// SECURITY DEFINER SQL function (migration 000018). Returns rows
+	// affected. Called only from the admin delete-user handler.
+	PseudonymizeUser(ctx context.Context, q database.Querier, userID uuid.UUID) (int, error)
 }
 
 // AuthHandler serves POST /api/login (and, in later tasks, /api/logout and /api/me).

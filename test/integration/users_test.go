@@ -1008,8 +1008,14 @@ func TestUsers_Delete_SelfRejected(t *testing.T) {
 // historical audit rows. We seed a victim, write a login.succeeded row
 // with them as actor (mirroring the auth handler's Sprint 2 shape),
 // hard-delete them via the admin API, and verify the original audit row
-// still exists with actor_id still pointing at the now-dangling UUID and
-// actor_email still populated.
+// still exists with actor_id still pointing at the now-dangling UUID.
+//
+// Sprint 6a T3 (GDPR Art. 17) addendum: actor_email is deliberately
+// pseudonymized to 'deleted:<uuid>' by the delete handler — migration
+// 000018 + handler wiring scrub it inside the same tx. The row itself
+// (and the actor_id FK-free reference) is what survives; the email is
+// what the DPA requires us to redact. See the gdpr_erasure_test.go pair
+// for the dedicated GDPR assertions.
 func TestUsers_Delete_PreservesAuditTrail(t *testing.T) {
 	ctx := t.Context()
 	env := NewTestEnv(t)
@@ -1079,8 +1085,13 @@ func TestUsers_Delete_PreservesAuditTrail(t *testing.T) {
 	if actorID == nil || *actorID != targetID {
 		t.Fatalf("actor_id not preserved: got %v, want %s", actorID, targetID)
 	}
-	if actorEmail != "victim@example.com" {
-		t.Fatalf("actor_email: got %q want %q", actorEmail, "victim@example.com")
+	// GDPR Art. 17 — actor_email is scrubbed to 'deleted:<uuid>' by the
+	// delete handler's pseudonymize-in-tx call (Sprint 6a T3). actor_id
+	// itself is still the victim's UUID so the row stays linkable across
+	// the audit trail; only the PII is redacted.
+	wantScrubbed := "deleted:" + targetID
+	if actorEmail != wantScrubbed {
+		t.Fatalf("actor_email: got %q want %q (should be pseudonymized)", actorEmail, wantScrubbed)
 	}
 }
 
