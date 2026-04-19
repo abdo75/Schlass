@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { AdminPageHeader, AdminPageContent } from "@/components/AdminLayout";
 import { rotateSigningKey } from "./api";
+import { friendlyError } from "./errorDisplay";
 
 export function SigningKeysPage() {
   const [rotating, setRotating] = useState(false);
@@ -20,11 +21,7 @@ export function SigningKeysPage() {
       await rotateSigningKey();
       setJustRotated(true);
     } catch (err: unknown) {
-      const code =
-        err && typeof err === "object" && "code" in err
-          ? String((err as { code: unknown }).code)
-          : "INTERNAL_ERROR";
-      setError(code);
+      setError(friendlyError(err));
     } finally {
       setRotating(false);
     }

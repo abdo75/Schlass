@@ -9,6 +9,7 @@ import {
   SCOPE_DESCRIPTIONS,
   GRANT_DESCRIPTIONS,
 } from "./constants";
+import { friendlyError } from "./errorDisplay";
 
 export function ClientCreatePage() {
   const navigate = useNavigate();
@@ -47,11 +48,7 @@ export function ClientCreatePage() {
       });
       setRevealed({ clientId: res.client_id, secret: res.client_secret });
     } catch (err: unknown) {
-      const code =
-        err && typeof err === "object" && "code" in err
-          ? String((err as { code: unknown }).code)
-          : "INTERNAL_ERROR";
-      setError(code);
+      setError(friendlyError(err));
     } finally {
       setSubmitting(false);
     }
@@ -192,8 +189,15 @@ export function ClientCreatePage() {
                 )}
               </div>
               <p className="mt-2.5 text-[12px] text-muted-foreground">
-                Exact match at <code className="font-mono">/authorize</code>.
-                HTTPS required, except loopback.
+                Where Schlass sends users back after sign-in. Paste the callback
+                URL your application expects (for example{" "}
+                <code className="font-mono">
+                  https://your-app.example.com/auth/callback
+                </code>
+                ). Must match exactly — trailing slash, scheme, port, everything.
+                Use <code className="font-mono">https://</code> in production;{" "}
+                <code className="font-mono">http://localhost</code> is allowed
+                for local development only.
               </p>
             </section>
 

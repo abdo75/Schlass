@@ -5,6 +5,7 @@ import { AdminPageHeader, AdminPageContent } from "@/components/AdminLayout";
 import { buttonVariants } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { listClients, type ClientDTO } from "./api";
+import { friendlyError } from "./errorDisplay";
 
 function PlusIcon() {
   return (
@@ -85,11 +86,7 @@ export function ClientsPage() {
         });
       } catch (err: unknown) {
         if (cancelled) return;
-        const code =
-          err && typeof err === "object" && "code" in err
-            ? String((err as { code: unknown }).code)
-            : "INTERNAL_ERROR";
-        setError(code);
+        setError(friendlyError(err));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -132,7 +129,7 @@ export function ClientsPage() {
         <div className="space-y-4">
           {error && (
             <p className="text-sm text-destructive" role="alert">
-              {t(`errors.${error}`, { defaultValue: error })}
+              {error}
             </p>
           )}
 

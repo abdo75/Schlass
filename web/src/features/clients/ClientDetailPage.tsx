@@ -19,6 +19,7 @@ import {
   GRANT_DESCRIPTIONS,
   relativeTime,
 } from "./constants";
+import { friendlyError } from "./errorDisplay";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -51,7 +52,7 @@ export function ClientDetailPage() {
       const res = await getClient(id);
       setClient(res.client);
     } catch (err: unknown) {
-      setError(extractCode(err));
+      setError(friendlyError(err));
     } finally {
       setLoading(false);
     }
@@ -70,7 +71,7 @@ export function ClientDetailPage() {
       setClient(res.client);
       setEditing(null);
     } catch (err: unknown) {
-      setError(extractCode(err));
+      setError(friendlyError(err));
     }
   }
 
@@ -86,7 +87,7 @@ export function ClientDetailPage() {
       await disableClient(id);
       await load();
     } catch (err: unknown) {
-      setError(extractCode(err));
+      setError(friendlyError(err));
     }
   }
 
@@ -102,7 +103,7 @@ export function ClientDetailPage() {
       await enableClient(id);
       await load();
     } catch (err: unknown) {
-      setError(extractCode(err));
+      setError(friendlyError(err));
     }
   }
 
@@ -119,7 +120,7 @@ export function ClientDetailPage() {
       setRevealed({ clientId: res.client_id, secret: res.client_secret });
       await load();
     } catch (err: unknown) {
-      setError(extractCode(err));
+      setError(friendlyError(err));
     }
   }
 
@@ -129,7 +130,7 @@ export function ClientDetailPage() {
       await deleteClient(id);
       void navigate("/admin/clients");
     } catch (err: unknown) {
-      setError(extractCode(err));
+      setError(friendlyError(err));
       setDeleteModal(false);
     }
   }
@@ -522,8 +523,11 @@ function RedirectsSection({
             )}
           </div>
           <p className="text-[12px] text-muted-foreground">
-            Exact match at <code className="font-mono">/authorize</code>. HTTPS
-            required, except loopback.
+            Where Schlass sends users back after sign-in. Must match the URL
+            your application expects exactly — trailing slash, scheme, port,
+            everything. Use <code className="font-mono">https://</code> in
+            production; <code className="font-mono">http://localhost</code> is
+            allowed for local development only.
           </p>
           <div className="flex justify-end gap-2">
             <button
@@ -846,13 +850,4 @@ function DeleteConfirmModal({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function extractCode(err: unknown): string {
-  return err && typeof err === "object" && "code" in err
-    ? String((err as { code: unknown }).code)
-    : "INTERNAL_ERROR";
-}
 
