@@ -3,22 +3,12 @@ import { useNavigate } from "react-router-dom";
 import { AdminPageHeader, AdminPageContent } from "@/components/AdminLayout";
 import { ClientSecretModal } from "@/components/ClientSecretModal";
 import { createClient } from "./api";
-
-const ALL_SCOPES = ["openid", "profile", "email", "offline_access"] as const;
-const ALL_GRANTS = ["authorization_code", "refresh_token"] as const;
-
-const SCOPE_DESCRIPTIONS: Record<string, string> = {
-  openid: "Required for OIDC. Issues an ID token alongside the access token.",
-  profile: "User's display name, preferred username, and locale.",
-  email: "User's email address and verification status.",
-  offline_access:
-    "Required to issue refresh tokens. Enables long-lived sessions.",
-};
-
-const GRANT_DESCRIPTIONS: Record<string, string> = {
-  authorization_code: "Standard browser-based OIDC flow with PKCE.",
-  refresh_token: "Rotates on every use. Requires the offline_access scope.",
-};
+import {
+  ALL_SCOPES,
+  ALL_GRANTS,
+  SCOPE_DESCRIPTIONS,
+  GRANT_DESCRIPTIONS,
+} from "./constants";
 
 export function ClientCreatePage() {
   const navigate = useNavigate();
