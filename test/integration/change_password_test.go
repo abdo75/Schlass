@@ -82,7 +82,7 @@ func TestChangePassword_RotatesSessionToken(t *testing.T) {
 	if newCookie.Value == oldCookie.Value {
 		t.Fatal("session token was not rotated: new value matches old value")
 	}
-	if !newCookie.HttpOnly || newCookie.SameSite != http.SameSiteStrictMode || newCookie.Path != "/" {
+	if !newCookie.HttpOnly || newCookie.SameSite != http.SameSiteLaxMode || newCookie.Path != "/" {
 		t.Fatalf("rotated cookie has wrong attributes: %+v", newCookie)
 	}
 

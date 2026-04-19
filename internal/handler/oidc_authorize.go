@@ -395,7 +395,7 @@ func clearAuthorizeSessionCookie(w http.ResponseWriter, secure bool) {
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
-		SameSite: http.SameSiteStrictMode,
+		SameSite: http.SameSiteLaxMode,
 		Secure:   secure,
 		MaxAge:   -1,
 	})
