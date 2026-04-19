@@ -172,15 +172,20 @@ func TestBearerAuth_TamperedSignature_401(t *testing.T) {
 	h := newBearerProbe(t, env)
 
 	token := mintAccessToken(t, env.Cfg.SchlassPublicURL, userID.String(), uuid.NewString(), kid, priv, nil)
-	// Flip the last signature char.
-	last := token[len(token)-1]
+	// Flip the FIRST char of the signature segment. Base64url's last char
+	// encodes only 2 data bits + 4 padding bits, so flipping A↔B at the
+	// tail may change only padding — leaving the decoded signature bytes
+	// identical and RSA verify succeeding. The first signature char always
+	// maps to 6 data bits, so any flip there changes real signature bytes.
+	sigStart := strings.LastIndex(token, ".") + 1
+	first := token[sigStart]
 	var flipped byte
-	if last == 'A' {
+	if first == 'A' {
 		flipped = 'B'
 	} else {
 		flipped = 'A'
 	}
-	tampered := token[:len(token)-1] + string(flipped)
+	tampered := token[:sigStart] + string(flipped) + token[sigStart+1:]
 
 	req := httptest.NewRequestWithContext(t.Context(), "GET", "/userinfo", nil)
 	req.Header.Set("Authorization", "Bearer "+tampered)
