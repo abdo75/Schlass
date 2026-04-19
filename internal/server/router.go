@@ -136,6 +136,8 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 	mux.Handle("POST /api/clients/{id}/rotate-secret", gated("clients.rotate_secret", http.HandlerFunc(d.ClientsHandler.PostRotateSecret)))
 	mux.Handle("DELETE /api/clients/{id}", gated("clients.delete", http.HandlerFunc(d.ClientsHandler.DeleteOne)))
 
+	mux.Handle("GET /api/admin/signing-keys",
+		gated("signing_keys.list", http.HandlerFunc(adminSigningKeysHandler.GetList)))
 	mux.Handle("POST /api/admin/signing-keys/rotate",
 		gated("signing_keys.rotate", http.HandlerFunc(adminSigningKeysHandler.Rotate)))
 

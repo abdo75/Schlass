@@ -12,6 +12,18 @@ import (
 	"github.com/abdo75/Schlass/internal/store"
 )
 
+// signingKeyDTO shapes the public /api/admin/signing-keys list response.
+// Mirrors store.SigningKey minus secret material (private_key_encrypted
+// never leaves the backend). RotatedAt is the moment the key was marked
+// retiring; used by the SPA to compute the 24h+15m retirement countdown.
+type signingKeyDTO struct {
+	KID       string     `json:"kid"`
+	Algorithm string     `json:"algorithm"`
+	Status    string     `json:"status"`
+	CreatedAt time.Time  `json:"created_at"`
+	RotatedAt *time.Time `json:"rotated_at,omitempty"`
+}
+
 // AdminSigningKeysHandler serves POST /api/admin/signing-keys/rotate.
 type AdminSigningKeysHandler struct {
 	pool          *pgxpool.Pool
@@ -97,4 +109,30 @@ func (h *AdminSigningKeysHandler) Rotate(w http.ResponseWriter, r *http.Request)
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// GetList serves GET /api/admin/signing-keys — returns the publishable set
+// (active + retiring) with metadata (created_at, rotated_at) that the
+// public JWKS feed doesn't carry. Gated by signing_keys.list permission.
+// Ordered active-first, then retiring by created_at ASC (same ordering
+// the JWKS publisher uses — callers can rely on index 0 being the
+// currently-active key).
+func (h *AdminSigningKeysHandler) GetList(w http.ResponseWriter, r *http.Request) {
+	keys, err := store.NewSigningKeyStore().ListPublishable(r.Context(), h.pool)
+	if err != nil {
+		slog.Error("signing_keys list", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	out := make([]signingKeyDTO, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, signingKeyDTO{
+			KID:       k.ID.String(),
+			Algorithm: k.Algorithm,
+			Status:    k.Status,
+			CreatedAt: k.CreatedAt,
+			RotatedAt: k.RotatedAt,
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"keys": out})
 }

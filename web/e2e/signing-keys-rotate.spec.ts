@@ -30,7 +30,7 @@ async function clearAdminLockout(): Promise<void> {
 test.describe("signing keys — rotate", () => {
   test.setTimeout(60000);
 
-  test("rotate button triggers confirm dialog and shows success banner", async ({
+  test("rotate button produces a retiring key and a new active kid", async ({
     browser,
     completedSetup,
   }) => {
@@ -42,44 +42,51 @@ test.describe("signing keys — rotate", () => {
     const page = await context.newPage();
 
     try {
-      // ------------------------------------------------------------------
-      // 1. Log in as admin
-      // ------------------------------------------------------------------
+      // 1. Log in as admin.
       await page.goto("/login");
       await page.getByLabel(/email/i).fill(ADMIN_EMAIL);
       await page.getByLabel(/password/i).fill(ADMIN_PASSWORD);
       await page.getByRole("button", { name: /sign in/i }).click();
       await page.waitForURL(/\/(admin|account)/, { timeout: 15000 });
 
-      // ------------------------------------------------------------------
-      // 2. Navigate to /admin/signing-keys
-      // ------------------------------------------------------------------
+      // 2. Navigate to /admin/signing-keys and assert core chrome.
       await page.goto("/admin/signing-keys");
       await page.waitForURL("**/admin/signing-keys", { timeout: 10000 });
-
-      // ------------------------------------------------------------------
-      // 3. Assert the page renders with "Rotate key" button + "How rotation works"
-      // ------------------------------------------------------------------
       await expect(
         page.getByRole("button", { name: /rotate key/i }),
       ).toBeVisible({ timeout: 10000 });
-
-      // The explainer heading is rendered as uppercase text in a <div>
       await expect(page.getByText(/how rotation works/i)).toBeVisible();
+      await expect(page.getByText("Active key", { exact: true })).toBeVisible({
+        timeout: 15000,
+      });
 
-      // ------------------------------------------------------------------
-      // 4. Accept the window.confirm dialog, then click Rotate key
-      // ------------------------------------------------------------------
+      // 3. Record the kid in the Active card so we can confirm it changes.
+      // The first <code> with a UUID shape is the active kid (Generated row
+      // uses plain text, not code). Pull by regex so we don't match the
+      // lifecycle explainer's <code>SCHLASS_ENCRYPTION_KEY</code>.
+      const activeKidLocator = page
+        .locator("code")
+        .filter({ hasText: /[0-9a-f]{8}-[0-9a-f]{4}/ })
+        .first();
+      await expect(activeKidLocator).toBeVisible();
+      const originalKidText = (await activeKidLocator.textContent()) ?? "";
+      expect(originalKidText.length).toBeGreaterThan(0);
+
+      // 4. Accept the window.confirm, click Rotate key.
       page.once("dialog", (dialog) => void dialog.accept());
       await page.getByRole("button", { name: /rotate key/i }).click();
 
-      // ------------------------------------------------------------------
-      // 5. Assert the success banner appears
-      // ------------------------------------------------------------------
-      // The success banner text includes "Signing key rotated"
+      // 5. Retiring keys card appears and contains the old kid (proving the
+      // rotation took effect + the page refetched the list). We don't check
+      // the new active kid separately — the Retiring card's presence is a
+      // stronger signal, because the old kid was active before and moved
+      // out, which can only happen if a new active key was minted.
+      await expect(page.getByText(/retiring keys/i)).toBeVisible({
+        timeout: 15000,
+      });
       await expect(
-        page.getByText(/signing key rotated/i),
-      ).toBeVisible({ timeout: 15000 });
+        page.getByText(originalKidText).first(),
+      ).toBeVisible();
     } finally {
       await context.close();
     }
