@@ -2,7 +2,12 @@ import { useCallback, useEffect, useState } from "react";
 import { AdminPageHeader, AdminPageContent } from "@/components/AdminLayout";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { CopyButton } from "@/components/ui/CopyButton";
-import { listSigningKeys, rotateSigningKey, type SigningKey } from "./api";
+import {
+  listSigningKeys,
+  rotateSigningKey,
+  emergencyRetireSigningKey,
+  type SigningKey,
+} from "./api";
 import { friendlyError } from "./errorDisplay";
 
 // Retirement window matches backend RetireSweep cutoff: the grace period is
@@ -46,6 +51,8 @@ export function SigningKeysPage() {
   const [rotating, setRotating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [rotateOpen, setRotateOpen] = useState(false);
+  const [retireTargetKid, setRetireTargetKid] = useState<string | null>(null);
+  const [retiringNow, setRetiringNow] = useState(false);
 
   const load = useCallback(async () => {
     setError(null);
@@ -71,6 +78,20 @@ export function SigningKeysPage() {
       setError(friendlyError(err));
     } finally {
       setRotating(false);
+    }
+  }
+
+  async function handleEmergencyRetire(kid: string) {
+    setRetiringNow(true);
+    setError(null);
+    try {
+      await emergencyRetireSigningKey(kid);
+      await load();
+    } catch (err: unknown) {
+      setError(friendlyError(err));
+    } finally {
+      setRetiringNow(false);
+      setRetireTargetKid(null);
     }
   }
 
@@ -183,9 +204,19 @@ export function SigningKeysPage() {
                           {k.kid}
                         </code>
                       </div>
-                      <span className="shrink-0 text-[12px] text-muted-foreground">
-                        {retirementCountdown(k.rotated_at)}
-                      </span>
+                      <div className="flex shrink-0 items-center gap-3">
+                        <span className="text-[12px] text-muted-foreground">
+                          {retirementCountdown(k.rotated_at)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setRetireTargetKid(k.kid)}
+                          disabled={retiringNow}
+                          className="inline-flex h-7 items-center rounded-md border border-destructive/40 bg-transparent px-2.5 text-[12px] font-medium text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Retire now
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -228,6 +259,20 @@ export function SigningKeysPage() {
         body="A fresh RS256 keypair is generated and marked active. The current key becomes retiring and keeps validating outstanding tokens for 24 hours + 15 minutes before the retire sweep drops it from JWKS."
         confirmLabel="Rotate key"
         onConfirm={() => void handleRotate()}
+      />
+
+      <ConfirmDialog
+        open={retireTargetKid !== null}
+        onOpenChange={(open) => {
+          if (!open) setRetireTargetKid(null);
+        }}
+        variant="destructive"
+        title="Retire this key immediately?"
+        body="Removes this key from JWKS immediately. Outstanding access and ID tokens signed by it will fail validation on their next use. Use only for suspected key compromise."
+        confirmLabel="Retire now"
+        onConfirm={() => {
+          if (retireTargetKid) void handleEmergencyRetire(retireTargetKid);
+        }}
       />
     </>
   );

@@ -135,4 +135,63 @@ describe("SigningKeysPage", () => {
       expect(rotateCalls).toHaveLength(0);
     });
   });
+
+  it("shows Retire now button only on retiring rows, not on active", async () => {
+    const rotatedAt = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    setKeys([
+      { kid: "kid-new-active", status: "active" },
+      { kid: "kid-retiring", status: "retiring", rotated_at: rotatedAt },
+    ]);
+    render(wrap());
+    await waitFor(() =>
+      expect(screen.getByText("kid-retiring")).toBeInTheDocument(),
+    );
+    // Exactly one per-row "Retire now" trigger (the dialog confirm button
+    // only mounts when the dialog opens).
+    const retireButtons = screen.getAllByRole("button", { name: /retire now/i });
+    expect(retireButtons).toHaveLength(1);
+  });
+
+  it("calls the retire-now API after the confirm dialog's Retire now action", async () => {
+    const rotatedAt = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    setKeys([
+      { kid: "kid-new-active", status: "active" },
+      { kid: "kid-retiring", status: "retiring", rotated_at: rotatedAt },
+    ]);
+    render(wrap());
+    await waitFor(() =>
+      expect(screen.getByText("kid-retiring")).toBeInTheDocument(),
+    );
+    // First click opens the styled ConfirmDialog.
+    fireEvent.click(screen.getByRole("button", { name: /retire now/i }));
+    // The dialog's primary button shares the label — click the last match.
+    const buttons = screen.getAllByRole("button", { name: /retire now/i });
+    fireEvent.click(buttons[buttons.length - 1]);
+    await waitFor(() =>
+      expect(apiFetch).toHaveBeenCalledWith(
+        "/api/admin/signing-keys/kid-retiring/retire-now",
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+  });
+
+  it("does not call the retire-now API when the dialog is cancelled", async () => {
+    const rotatedAt = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    setKeys([
+      { kid: "kid-new-active", status: "active" },
+      { kid: "kid-retiring", status: "retiring", rotated_at: rotatedAt },
+    ]);
+    render(wrap());
+    await waitFor(() =>
+      expect(screen.getByText("kid-retiring")).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /retire now/i }));
+    fireEvent.click(screen.getByRole("button", { name: /cancel/i }));
+    await waitFor(() => {
+      const retireCalls = (apiFetch as ReturnType<typeof vi.fn>).mock.calls.filter(
+        (c) => typeof c[0] === "string" && c[0].endsWith("/retire-now"),
+      );
+      expect(retireCalls).toHaveLength(0);
+    });
+  });
 });

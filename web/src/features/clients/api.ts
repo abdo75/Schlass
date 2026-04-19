@@ -106,3 +106,12 @@ export interface SigningKey {
 export function listSigningKeys() {
   return apiFetch<{ keys: SigningKey[] }>("/api/admin/signing-keys");
 }
+
+// emergencyRetireSigningKey transitions a retiring key to retired
+// immediately, removing it from JWKS. Break-glass for suspected key
+// compromise — prefer the normal rotation path for routine lifecycle.
+export function emergencyRetireSigningKey(kid: string) {
+  return apiFetch<void>(`/api/admin/signing-keys/${encodeURIComponent(kid)}/retire-now`, {
+    method: "POST",
+  });
+}
