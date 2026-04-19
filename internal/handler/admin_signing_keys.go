@@ -1,10 +1,13 @@
 package handler
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/abdo75/Schlass/internal/middleware"
@@ -135,4 +138,96 @@ func (h *AdminSigningKeysHandler) GetList(w http.ResponseWriter, r *http.Request
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"keys": out})
+}
+
+// EmergencyRetire serves POST /api/admin/signing-keys/{kid}/retire-now.
+// Break-glass action for suspected private-key compromise: transitions a
+// retiring key to retired immediately, removing it from JWKS. Active keys
+// cannot be retired directly — the operator rotates first, then retires
+// the demoted key. Returns 409 CANNOT_RETIRE_ACTIVE_KEY for active keys
+// and 409 ALREADY_RETIRED for already-retired keys.
+//
+// Permission: signing_keys.retire (distinct from signing_keys.rotate so
+// v2 RBAC can separate routine from break-glass).
+func (h *AdminSigningKeysHandler) EmergencyRetire(w http.ResponseWriter, r *http.Request) {
+	actor, ok := middleware.CurrentUser(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "INVALID_SESSION", "Not authenticated.")
+		return
+	}
+
+	kidStr := pathParam(r, "kid")
+	kid, err := uuid.Parse(kidStr)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid kid.")
+		return
+	}
+
+	s := store.NewSigningKeyStore()
+
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		slog.Error("emergency-retire: begin tx", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	defer func() { _ = tx.Rollback(r.Context()) }()
+
+	// Lock the row FOR UPDATE to prevent a concurrent rotate from flipping
+	// status between our load and our update.
+	var status string
+	err = tx.QueryRow(r.Context(), `SELECT status FROM signing_keys WHERE id = $1 FOR UPDATE`, kid).Scan(&status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, http.StatusNotFound, "SIGNING_KEY_NOT_FOUND", "Signing key not found.")
+		return
+	}
+	if err != nil {
+		slog.Error("emergency-retire: select for update", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	switch status {
+	case "active":
+		writeError(w, http.StatusConflict, "CANNOT_RETIRE_ACTIVE_KEY", "Cannot retire the active signing key. Rotate first, then retire the demoted key.")
+		return
+	case "retired":
+		writeError(w, http.StatusConflict, "ALREADY_RETIRED", "Signing key is already retired.")
+		return
+	case "retiring":
+		// fall through
+	default:
+		slog.Error("emergency-retire: unknown status", "status", status, "kid", kid) //nolint:gosec // G706: slog structured logging is not susceptible to log injection
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	if err := s.MarkRetired(r.Context(), tx, kid); err != nil {
+		slog.Error("emergency-retire: MarkRetired", "error", err, "kid", kid) //nolint:gosec // G706: slog structured logging is not susceptible to log injection
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	if err := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+		EventType:  "oidc.signing_key.retired",
+		ActorID:    &actor.ID,
+		ActorEmail: actor.Email,
+		TargetType: "signing_key",
+		TargetID:   kid.String(),
+		IPAddress:  extractClientIP(r),
+		Outcome:    "success",
+		Metadata:   map[string]any{"reason": "emergency"},
+	}); err != nil {
+		slog.Error("emergency-retire: audit", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		slog.Error("emergency-retire: commit", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }

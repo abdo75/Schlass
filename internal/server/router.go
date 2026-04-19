@@ -140,6 +140,8 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 		gated("signing_keys.list", http.HandlerFunc(adminSigningKeysHandler.GetList)))
 	mux.Handle("POST /api/admin/signing-keys/rotate",
 		gated("signing_keys.rotate", http.HandlerFunc(adminSigningKeysHandler.Rotate)))
+	mux.Handle("POST /api/admin/signing-keys/{kid}/retire-now",
+		gated("signing_keys.retire", http.HandlerFunc(adminSigningKeysHandler.EmergencyRetire)))
 
 	discoveryHandler := handler.NewOIDCDiscoveryHandler(d.Cfg.SchlassPublicURL, d.Pool)
 	mux.HandleFunc("GET /.well-known/openid-configuration", discoveryHandler.GetConfiguration)
