@@ -245,6 +245,31 @@ func (h *OIDCTokenHandler) handleAuthorizationCode(w http.ResponseWriter, r *htt
 		return
 	}
 
+	// 8.5 Sprint 5: re-validate grant type — admin may have removed
+	// authorization_code from allowed_grant_types via PATCH /api/clients/:id.
+	allowsAuthCode := false
+	for _, g := range client.AllowedGrantTypes {
+		if g == "authorization_code" {
+			allowsAuthCode = true
+			break
+		}
+	}
+	if !allowsAuthCode {
+		_ = tx.Commit(r.Context())
+		writeTokenError(w, http.StatusBadRequest, "unauthorized_client", "authorization_code grant no longer allowed for this client")
+		return
+	}
+
+	// 8.6 Sprint 5: re-validate granted scopes against current client config. An
+	// admin PATCH between /authorize and /token exchange can narrow allowed_scopes;
+	// issue the AT with the intersection, or reject if empty.
+	narrowedCodeScopes, err := intersectScopesAgainstClient(row.Scopes, client.AllowedScopes)
+	if err != nil {
+		_ = tx.Commit(r.Context())
+		writeTokenError(w, http.StatusBadRequest, "invalid_scope", "requested scopes no longer allowed for this client")
+		return
+	}
+
 	// 9. Load active signing key + decrypt private key.
 	activeKey, err := h.signingKeyStore.GetActive(r.Context(), tx)
 	if err != nil {
@@ -261,7 +286,7 @@ func (h *OIDCTokenHandler) handleAuthorizationCode(w http.ResponseWriter, r *htt
 
 	// 10. Build + sign access and ID tokens.
 	now := time.Now().UTC()
-	scopes := oidc.Scopes(row.Scopes)
+	scopes := oidc.Scopes(narrowedCodeScopes)
 	jtiAccess := uuid.NewString()
 	accessClaims := oidc.BuildAccessClaims(user, client.ID.String(), h.publicURL, jtiAccess, scopes, now)
 	accessTok, err := oidc.SignAccessToken(accessClaims, activeKey.ID.String(), privPEM)
@@ -295,7 +320,7 @@ func (h *OIDCTokenHandler) handleAuthorizationCode(w http.ResponseWriter, r *htt
 		tok, err := h.refreshStore.Create(r.Context(), oidc.RefreshPayload{
 			UserID:    user.ID.String(),
 			ClientID:  client.ID.String(),
-			Scopes:    row.Scopes,
+			Scopes:    narrowedCodeScopes,
 			FamilyID:  row.FamilyID.String(),
 			CreatedAt: now.Unix(),
 			Expires:   now.Add(refreshTokenTTL).Unix(),
@@ -320,7 +345,7 @@ func (h *OIDCTokenHandler) handleAuthorizationCode(w http.ResponseWriter, r *htt
 		Outcome:    "success",
 		Metadata: map[string]any{
 			"family_id":      row.FamilyID.String(),
-			"scopes":         row.Scopes,
+			"scopes":         narrowedCodeScopes,
 			"access_jti":     jtiAccess,
 			"id_jti":         jtiID,
 			"refresh_issued": refreshTokenStr != "",

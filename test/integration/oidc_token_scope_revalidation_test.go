@@ -129,3 +129,93 @@ func TestRefreshGrant_RefreshTokenGrantRemovedRejectsUnauthorizedClient(t *testi
 	rec := doRefreshRequest(t, env, clientID, "s", refreshTok)
 	assertTokenError(t, rec, http.StatusBadRequest, "unauthorized_client")
 }
+
+// ---- Auth_code grant scope + grant re-validation (T4.3) ----
+
+// TestAuthCodeGrant_ScopeNarrowedBetweenAuthorizeAndTokenExchange confirms that
+// if allowed_scopes is narrowed between /authorize (code issuance) and /token
+// (code exchange), the AT is issued with the narrowed scope.
+func TestAuthCodeGrant_ScopeNarrowedBetweenAuthorizeAndTokenExchange(t *testing.T) {
+	env := NewTestEnv(t)
+	bootstrapKey(t, env)
+	env.SeedAdmin(t, "admin@example.com", "CorrectHorse42!")
+	cookie := env.LoginAsAdmin(t, "admin@example.com", "CorrectHorse42!")
+
+	const redirect = "https://rp.example.com/cb"
+	clientID := seedTokenClient(t, env, redirect, []string{"openid", "profile", "email"})
+	verifier, challenge := pkceParams()
+	code := runAuthorizeAndGetCode(t, env, cookie, clientID, redirect, "openid profile", verifier, challenge)
+
+	// Admin narrows allowed_scopes between /authorize and /token — remove profile.
+	if _, err := env.Pool.Exec(context.Background(),
+		`UPDATE clients SET allowed_scopes = ARRAY['openid','email'] WHERE id = $1`, clientID,
+	); err != nil {
+		t.Fatalf("narrow allowed_scopes: %v", err)
+	}
+
+	params := buildTokenParams(clientID, code, redirect, verifier)
+	rec := doTokenRequest(t, env, params)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("token exchange after scope narrow: got %d body=%s", rec.Code, rec.Body.String())
+	}
+	// profile should be removed from the response scope.
+	scope := decodeScope(t, rec)
+	if containsScope(scope, "profile") {
+		t.Fatalf("expected profile removed from narrowed auth_code response, got scope=%q", scope)
+	}
+	if !containsScope(scope, "openid") {
+		t.Fatalf("expected openid in narrowed auth_code response, got scope=%q", scope)
+	}
+}
+
+// TestAuthCodeGrant_AllScopesRemovedRejectsInvalidScope confirms that if all
+// granted scopes are removed from allowed_scopes, the auth_code exchange returns
+// invalid_scope.
+func TestAuthCodeGrant_AllScopesRemovedRejectsInvalidScope(t *testing.T) {
+	env := NewTestEnv(t)
+	bootstrapKey(t, env)
+	env.SeedAdmin(t, "admin@example.com", "CorrectHorse42!")
+	cookie := env.LoginAsAdmin(t, "admin@example.com", "CorrectHorse42!")
+
+	const redirect = "https://rp.example.com/cb"
+	clientID := seedTokenClient(t, env, redirect, []string{"openid", "profile"})
+	verifier, challenge := pkceParams()
+	code := runAuthorizeAndGetCode(t, env, cookie, clientID, redirect, "openid profile", verifier, challenge)
+
+	// Admin removes all relevant scopes.
+	if _, err := env.Pool.Exec(context.Background(),
+		`UPDATE clients SET allowed_scopes = ARRAY['email'] WHERE id = $1`, clientID,
+	); err != nil {
+		t.Fatalf("remove allowed_scopes: %v", err)
+	}
+
+	params := buildTokenParams(clientID, code, redirect, verifier)
+	rec := doTokenRequest(t, env, params)
+	assertTokenError(t, rec, http.StatusBadRequest, "invalid_scope")
+}
+
+// TestAuthCodeGrant_AuthCodeGrantRemovedRejectsUnauthorizedClient confirms that
+// removing authorization_code from allowed_grant_types causes /token to reject
+// with unauthorized_client.
+func TestAuthCodeGrant_AuthCodeGrantRemovedRejectsUnauthorizedClient(t *testing.T) {
+	env := NewTestEnv(t)
+	bootstrapKey(t, env)
+	env.SeedAdmin(t, "admin@example.com", "CorrectHorse42!")
+	cookie := env.LoginAsAdmin(t, "admin@example.com", "CorrectHorse42!")
+
+	const redirect = "https://rp.example.com/cb"
+	clientID := seedTokenClient(t, env, redirect, []string{"openid", "profile"})
+	verifier, challenge := pkceParams()
+	code := runAuthorizeAndGetCode(t, env, cookie, clientID, redirect, "openid profile", verifier, challenge)
+
+	// Remove authorization_code from allowed grant types.
+	if _, err := env.Pool.Exec(context.Background(),
+		`UPDATE clients SET allowed_grant_types = ARRAY['refresh_token'] WHERE id = $1`, clientID,
+	); err != nil {
+		t.Fatalf("remove authorization_code grant: %v", err)
+	}
+
+	params := buildTokenParams(clientID, code, redirect, verifier)
+	rec := doTokenRequest(t, env, params)
+	assertTokenError(t, rec, http.StatusBadRequest, "unauthorized_client")
+}
