@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { AdminPageHeader, AdminPageContent } from "@/components/AdminLayout";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { CopyButton } from "@/components/ui/CopyButton";
 import { ClientSecretModal } from "@/components/ClientSecretModal";
 import {
   getClient,
@@ -352,14 +353,6 @@ function IdentitySection({
   // this component when toggling between view/edit mode, so the draft is always
   // fresh from props when entering edit mode.
   const [draft, setDraft] = useState(client.name);
-  const [copied, setCopied] = useState(false);
-
-  function copyClientId() {
-    void navigator.clipboard.writeText(client.id).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    });
-  }
 
   return (
     <section className="px-7 py-6">
@@ -429,13 +422,7 @@ function IdentitySection({
           <dt className="text-[13px] text-muted-foreground">Client ID</dt>
           <dd className="flex items-center gap-2 min-w-0">
             <code className="truncate font-mono text-[13px]">{client.id}</code>
-            <button
-              type="button"
-              onClick={copyClientId}
-              className="shrink-0 rounded-md border border-input bg-background px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:bg-muted/50"
-            >
-              {copied ? "Copied" : "Copy"}
-            </button>
+            <CopyButton value={client.id} label="client ID" />
           </dd>
         </dl>
       )}

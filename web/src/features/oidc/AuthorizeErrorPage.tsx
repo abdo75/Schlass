@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { AuthLayout } from "@/components/AuthLayout";
@@ -9,23 +8,12 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { CopyButton } from "@/components/ui/CopyButton";
 
 export function AuthorizeErrorPage() {
   const [params] = useSearchParams();
   const { t } = useTranslation();
-  const [copied, setCopied] = useState(false);
   const ref = params.get("ref") ?? "err_unknown";
-
-  const copyRef = async () => {
-    try {
-      await navigator.clipboard.writeText(ref);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // Clipboard may be unavailable (e.g. older browsers, embedded webviews).
-      // Copy is a convenience, not essential — the ref is still displayed.
-    }
-  };
 
   return (
     <AuthLayout>
@@ -56,13 +44,8 @@ export function AuthorizeErrorPage() {
               >
                 {ref}
               </code>
-              <button
-                type="button"
-                onClick={() => void copyRef()}
-                className="rounded border border-border px-2.5 py-1.5 text-[11px] hover:bg-muted"
-              >
-                {copied ? t("oidc.copied") : t("oidc.copy")}
-              </button>
+              <CopyButton value={ref} label="error reference" />
+              <span className="sr-only">{t("oidc.copy")}</span>
             </div>
             <div className="mt-2.5 text-[11px] leading-relaxed text-muted-foreground">
               {t("oidc.errorRefHint")}
