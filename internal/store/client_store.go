@@ -146,6 +146,38 @@ func (s *ClientStore) VerifySecret(ctx context.Context, q database.Querier, id, 
 	return false, nil
 }
 
+// List returns clients filtered by status. status must be one of
+// "active", "disabled", "all". Ordered by created_at DESC.
+func (s *ClientStore) List(ctx context.Context, q database.Querier, status string) ([]*Client, error) {
+	var rows pgx.Rows
+	var err error
+	base := `SELECT ` + clientSelectColumns + ` FROM clients `
+	switch status {
+	case "active":
+		rows, err = q.Query(ctx, base+`WHERE status = 'active' ORDER BY created_at DESC`)
+	case "disabled":
+		rows, err = q.Query(ctx, base+`WHERE status = 'disabled' ORDER BY created_at DESC`)
+	case "all":
+		rows, err = q.Query(ctx, base+`ORDER BY created_at DESC`)
+	default:
+		return nil, fmt.Errorf("client list: invalid status filter %q", status)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("client list: %w", err)
+	}
+	defer rows.Close()
+
+	var out []*Client
+	for rows.Next() {
+		c, err := scanClient(rows)
+		if err != nil {
+			return nil, fmt.Errorf("client list scan: %w", err)
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
 // ValidateRedirectURI — exact-string match, case-sensitive, scheme-sensitive,
 // no wildcards.
 func (s *ClientStore) ValidateRedirectURI(c *Client, presented string) bool {
