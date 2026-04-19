@@ -18,6 +18,27 @@ import (
 	"github.com/abdo75/Schlass/internal/store"
 )
 
+// intersectScopesAgainstClient returns granted ∩ allowed preserving the order
+// of granted. Returns invalid_scope error if the intersection is empty.
+// Used by both auth_code and refresh grants to re-validate scopes against
+// the client's current allowed_scopes (which an admin PATCH may have narrowed).
+func intersectScopesAgainstClient(granted, allowed []string) ([]string, error) {
+	allowedSet := make(map[string]struct{}, len(allowed))
+	for _, s := range allowed {
+		allowedSet[s] = struct{}{}
+	}
+	out := make([]string, 0, len(granted))
+	for _, s := range granted {
+		if _, ok := allowedSet[s]; ok {
+			out = append(out, s)
+		}
+	}
+	if len(out) == 0 {
+		return nil, errors.New("invalid_scope")
+	}
+	return out, nil
+}
+
 // tokenResponse is the RFC 6749 §5.1 success response body.
 type tokenResponse struct {
 	AccessToken  string `json:"access_token"`
