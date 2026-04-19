@@ -3,10 +3,12 @@
 package handler
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"time"
@@ -18,6 +20,7 @@ import (
 	"github.com/abdo75/Schlass/internal/crypto"
 	"github.com/abdo75/Schlass/internal/middleware"
 	"github.com/abdo75/Schlass/internal/model"
+	"github.com/abdo75/Schlass/internal/revokebefore"
 	"github.com/abdo75/Schlass/internal/store"
 )
 
@@ -97,6 +100,10 @@ func parseClientID(w http.ResponseWriter, r *http.Request) (string, bool) {
 // --- deferred helpers (T5.4) ------------------------------------------------
 
 const (
+	// clientSecretOverlapTTL is the 2026-standard grace period during which
+	// a rotated client's previous secret is still accepted at /token.
+	clientSecretOverlapTTL = 24 * time.Hour
+
 	// clientRequestMaxBytes caps create/update bodies to defend against
 	// memory-exhaustion via giant JSON.
 	clientRequestMaxBytes = 64 * 1024
@@ -479,4 +486,270 @@ func slicesEqual(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// --- write handlers (T5.6) --------------------------------------------------
+
+// PostDisable serves POST /api/clients/:id/disable. Soft disable — reversible
+// via PostEnable. Outstanding access tokens expire naturally within 15min.
+// /token refresh grant already rejects disabled clients via existing GetByID.
+func (h *ClientsHandler) PostDisable(w http.ResponseWriter, r *http.Request) {
+	current, ok := middleware.CurrentUser(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "INVALID_SESSION", "Not authenticated.")
+		return
+	}
+	id, ok := parseClientID(w, r)
+	if !ok {
+		return
+	}
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	defer func() { _ = tx.Rollback(r.Context()) }()
+
+	if err := h.clientStore.Disable(r.Context(), tx, id); err != nil {
+		if errors.Is(err, store.ErrClientNotFound) {
+			writeError(w, http.StatusNotFound, "clients.not_found", "Client not found or already disabled.")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if err := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+		EventType:  "client.disabled",
+		ActorID:    &current.ID,
+		ActorEmail: current.Email,
+		TargetType: "client",
+		TargetID:   id,
+		IPAddress:  extractClientIP(r),
+		Outcome:    "success",
+		Metadata:   map[string]any{},
+	}); err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// PostEnable serves POST /api/clients/:id/enable. Restores the client with
+// its existing secret. Returns 404 if not disabled.
+func (h *ClientsHandler) PostEnable(w http.ResponseWriter, r *http.Request) {
+	current, ok := middleware.CurrentUser(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "INVALID_SESSION", "Not authenticated.")
+		return
+	}
+	id, ok := parseClientID(w, r)
+	if !ok {
+		return
+	}
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	defer func() { _ = tx.Rollback(r.Context()) }()
+
+	old, err := h.clientStore.GetByIDAny(r.Context(), tx, id)
+	if errors.Is(err, store.ErrClientNotFound) {
+		writeError(w, http.StatusNotFound, "clients.not_found", "Client not found.")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if err := h.clientStore.Enable(r.Context(), tx, id); err != nil {
+		if errors.Is(err, store.ErrClientNotFound) {
+			writeError(w, http.StatusConflict, "clients.validation_error", "Client is not disabled.")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	meta := map[string]any{}
+	if old.DisabledAt != nil {
+		meta["previously_disabled_at"] = old.DisabledAt
+	}
+	if err := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+		EventType:  "client.enabled",
+		ActorID:    &current.ID,
+		ActorEmail: current.Email,
+		TargetType: "client",
+		TargetID:   id,
+		IPAddress:  extractClientIP(r),
+		Outcome:    "success",
+		Metadata:   meta,
+	}); err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+type rotateSecretResp struct {
+	ClientID                string    `json:"client_id"`
+	ClientSecret            string    `json:"client_secret"`
+	PreviousSecretExpiresAt time.Time `json:"previous_secret_expires_at"`
+}
+
+// PostRotateSecret serves POST /api/clients/:id/rotate-secret. Moves existing
+// secret → previous with 24h TTL, mints a new 32-byte secret, returns plaintext
+// ONCE. Second rotate discards any pre-existing previous.
+func (h *ClientsHandler) PostRotateSecret(w http.ResponseWriter, r *http.Request) {
+	current, ok := middleware.CurrentUser(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "INVALID_SESSION", "Not authenticated.")
+		return
+	}
+	id, ok := parseClientID(w, r)
+	if !ok {
+		return
+	}
+
+	rawSecret, err := generateClientSecret()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	secretHash, err := crypto.HashPassword(rawSecret)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	defer func() { _ = tx.Rollback(r.Context()) }()
+
+	existing, err := h.clientStore.GetByIDAny(r.Context(), tx, id)
+	if errors.Is(err, store.ErrClientNotFound) {
+		writeError(w, http.StatusNotFound, "clients.not_found", "Client not found.")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if existing.ClientType != "confidential" {
+		writeError(w, http.StatusBadRequest, "clients.client_type_locked", "Only confidential clients have secrets to rotate.")
+		return
+	}
+
+	rotated, err := h.clientStore.RotateSecret(r.Context(), tx, id, secretHash, clientSecretOverlapTTL)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	meta := map[string]any{}
+	if rotated.SecretPreviousExpiresAt != nil {
+		meta["previous_expires_at"] = rotated.SecretPreviousExpiresAt
+	}
+	if err := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+		EventType:  "client.secret_rotated",
+		ActorID:    &current.ID,
+		ActorEmail: current.Email,
+		TargetType: "client",
+		TargetID:   id,
+		IPAddress:  extractClientIP(r),
+		Outcome:    "success",
+		Metadata:   meta,
+	}); err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	resp := rotateSecretResp{
+		ClientID:     id,
+		ClientSecret: rawSecret,
+	}
+	if rotated.SecretPreviousExpiresAt != nil {
+		resp.PreviousSecretExpiresAt = *rotated.SecretPreviousExpiresAt
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// DeleteOne serves DELETE /api/clients/:id. Hard delete — cascades pending
+// auth codes via FK. Post-commit, writes client:revoke_before to kill
+// outstanding ATs immediately. Audit row carries {name, previously_disabled_at}.
+func (h *ClientsHandler) DeleteOne(w http.ResponseWriter, r *http.Request) {
+	current, ok := middleware.CurrentUser(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "INVALID_SESSION", "Not authenticated.")
+		return
+	}
+	id, ok := parseClientID(w, r)
+	if !ok {
+		return
+	}
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	defer func() { _ = tx.Rollback(r.Context()) }()
+
+	old, err := h.clientStore.GetByIDAny(r.Context(), tx, id)
+	if errors.Is(err, store.ErrClientNotFound) {
+		writeError(w, http.StatusNotFound, "clients.not_found", "Client not found.")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if err := h.clientStore.Delete(r.Context(), tx, id); err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	meta := map[string]any{"name": old.Name}
+	if old.DisabledAt != nil {
+		meta["previously_disabled_at"] = old.DisabledAt
+	}
+	if err := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+		EventType:  "client.deleted",
+		ActorID:    &current.ID,
+		ActorEmail: current.Email,
+		TargetType: "client",
+		TargetID:   id,
+		IPAddress:  extractClientIP(r),
+		Outcome:    "success",
+		Metadata:   meta,
+	}); err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	// Post-commit: revoke outstanding ATs for this client. Best-effort —
+	// matches the middleware session revocation precedent documented in
+	// CLAUDE.md (PG-committed mutation is the load-bearing compliance event;
+	// Valkey write is a fast-path optimization).
+	if err := revokebefore.ClientSetNow(context.Background(), h.valkey, id); err != nil {
+		slog.Error("delete client: revoke_before set failed", "err", err, "client_id", id) //nolint:gosec // G706: slog structured logging is not susceptible to log injection
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
