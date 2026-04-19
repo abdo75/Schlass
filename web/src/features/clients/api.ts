@@ -90,3 +90,27 @@ export function rotateSigningKey() {
     method: "POST",
   });
 }
+
+// JWK as published in /.well-known/jwks.json. Schlass only emits RS256 signing
+// keys today so alg is always "RS256"; keep the type loose for forward
+// compatibility.
+export interface JWK {
+  kid: string;
+  kty: string;
+  alg: string;
+  use: string;
+  n: string;
+  e: string;
+}
+
+// getJWKS reads the public JWKS endpoint. No auth — this endpoint is public
+// by design (relying parties fetch it unauthenticated to validate tokens).
+// The server's ListPublishable orders keys active-first, then retiring by
+// created_at; callers can rely on index 0 being the currently-active key.
+export async function getJWKS(): Promise<{ keys: JWK[] }> {
+  const res = await fetch("/.well-known/jwks.json");
+  if (!res.ok) {
+    throw new Error(`JWKS fetch failed: ${res.status}`);
+  }
+  return (await res.json()) as { keys: JWK[] };
+}
