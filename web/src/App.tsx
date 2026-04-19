@@ -14,7 +14,6 @@ import { UserCreatePage } from "@/features/users/UserCreatePage";
 import { UserDetailPage } from "@/features/users/UserDetailPage";
 import { UserAccountPage } from "@/features/account/UserAccountPage";
 import { AuthorizeErrorPage } from "@/features/oidc/AuthorizeErrorPage";
-import { DevCallbackPage } from "@/features/oidc/DevCallbackPage";
 import { ClientsPage } from "@/features/clients/ClientsPage";
 import { ClientCreatePage } from "@/features/clients/ClientCreatePage";
 import { ClientDetailPage } from "@/features/clients/ClientDetailPage";
@@ -115,16 +114,6 @@ export default function App() {
           <Route
             path="/oidc/error"
             element={<AuthorizeErrorPage />}
-          />
-          {/* /oidc/dev-callback — the redirect URI registered by the dev-seed
-              OIDC client. Production RPs own their own callback servers; this
-              route exists so a human running through the authorize flow
-              locally can see the returned code + state and optionally trigger
-              a /token exchange from the browser. Unauthenticated — the page
-              is a display-only helper. */}
-          <Route
-            path="/oidc/dev-callback"
-            element={<DevCallbackPage />}
           />
           <Route
             path="/account"
