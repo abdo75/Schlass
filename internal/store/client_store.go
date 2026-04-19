@@ -188,3 +188,164 @@ func (s *ClientStore) ValidateRedirectURI(c *Client, presented string) bool {
 	}
 	return false
 }
+
+// CreateClientParams is the insert payload. SecretHash must be an Argon2id
+// hash; the caller is responsible for hashing before calling.
+type CreateClientParams struct {
+	Name                    string
+	ClientType              string
+	SecretHash              string
+	RedirectURIs            []string
+	AllowedGrantTypes       []string
+	AllowedScopes           []string
+	TokenEndpointAuthMethod string
+	CreatedByUserID         *uuid.UUID
+}
+
+// Create inserts a new client row and returns the full record.
+func (s *ClientStore) Create(ctx context.Context, q database.Querier, p CreateClientParams) (*Client, error) {
+	row := q.QueryRow(ctx, `
+		INSERT INTO clients (
+			name, client_type, secret_hash, redirect_uris,
+			allowed_grant_types, allowed_scopes, token_endpoint_auth_method,
+			created_by_user_id
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		RETURNING `+clientSelectColumns,
+		p.Name, p.ClientType, p.SecretHash, p.RedirectURIs,
+		p.AllowedGrantTypes, p.AllowedScopes, p.TokenEndpointAuthMethod,
+		p.CreatedByUserID,
+	)
+	c, err := scanClient(row)
+	if err != nil {
+		return nil, fmt.Errorf("client create: %w", err)
+	}
+	return c, nil
+}
+
+// UpdateClientPatch is a partial patch. Nil fields are not updated.
+type UpdateClientPatch struct {
+	Name              *string
+	RedirectURIs      *[]string
+	AllowedScopes     *[]string
+	AllowedGrantTypes *[]string
+}
+
+// UpdateFields applies the patch and returns the updated client. Only non-nil
+// fields in the patch are written. updated_at is bumped on every call.
+func (s *ClientStore) UpdateFields(ctx context.Context, q database.Querier, id string, p UpdateClientPatch) (*Client, error) {
+	uid, err := uuid.Parse(id)
+	if err != nil {
+		return nil, ErrClientNotFound
+	}
+	// COALESCE keeps the SQL flat — nil args mean "no change".
+	row := q.QueryRow(ctx, `
+		UPDATE clients SET
+			name                = COALESCE($2, name),
+			redirect_uris       = COALESCE($3, redirect_uris),
+			allowed_scopes      = COALESCE($4, allowed_scopes),
+			allowed_grant_types = COALESCE($5, allowed_grant_types),
+			updated_at          = now()
+		WHERE id = $1
+		RETURNING `+clientSelectColumns,
+		uid, p.Name, p.RedirectURIs, p.AllowedScopes, p.AllowedGrantTypes,
+	)
+	c, err := scanClient(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrClientNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("client update: %w", err)
+	}
+	return c, nil
+}
+
+// RotateSecret moves the current secret_hash into the previous slot with a
+// TTL, and writes newHash as the current secret. Any existing previous secret
+// is discarded.
+func (s *ClientStore) RotateSecret(ctx context.Context, q database.Querier, id, newHash string, overlapTTL time.Duration) (*Client, error) {
+	uid, err := uuid.Parse(id)
+	if err != nil {
+		return nil, ErrClientNotFound
+	}
+	expiresAt := time.Now().UTC().Add(overlapTTL)
+	row := q.QueryRow(ctx, `
+		UPDATE clients SET
+			secret_hash_previous        = secret_hash,
+			secret_previous_expires_at  = $3,
+			secret_hash                 = $2,
+			updated_at                  = now()
+		WHERE id = $1
+		RETURNING `+clientSelectColumns,
+		uid, newHash, expiresAt,
+	)
+	c, err := scanClient(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrClientNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("client rotate: %w", err)
+	}
+	return c, nil
+}
+
+// Disable sets the client status to 'disabled' and stamps disabled_at.
+// Returns ErrClientNotFound if the client does not exist or is already disabled.
+func (s *ClientStore) Disable(ctx context.Context, q database.Querier, id string) error {
+	uid, err := uuid.Parse(id)
+	if err != nil {
+		return ErrClientNotFound
+	}
+	ct, err := q.Exec(ctx, `
+		UPDATE clients
+		SET status = 'disabled', disabled_at = now(), updated_at = now()
+		WHERE id = $1 AND status = 'active'
+	`, uid)
+	if err != nil {
+		return fmt.Errorf("client disable: %w", err)
+	}
+	if ct.RowsAffected() == 0 {
+		return ErrClientNotFound
+	}
+	return nil
+}
+
+// Enable clears the disabled state and restores the client to 'active'.
+// Returns ErrClientNotFound if the client does not exist or is already active.
+func (s *ClientStore) Enable(ctx context.Context, q database.Querier, id string) error {
+	uid, err := uuid.Parse(id)
+	if err != nil {
+		return ErrClientNotFound
+	}
+	ct, err := q.Exec(ctx, `
+		UPDATE clients
+		SET status = 'active', disabled_at = NULL, updated_at = now()
+		WHERE id = $1 AND status = 'disabled'
+	`, uid)
+	if err != nil {
+		return fmt.Errorf("client enable: %w", err)
+	}
+	if ct.RowsAffected() == 0 {
+		return ErrClientNotFound
+	}
+	return nil
+}
+
+// Delete hard-removes the client row. Authorization codes for this client
+// are cascaded via the FK in migration 000017. Valkey refresh tokens for
+// this client should be revoked post-commit by the caller via
+// revokebefore.ClientSetNow.
+func (s *ClientStore) Delete(ctx context.Context, q database.Querier, id string) error {
+	uid, err := uuid.Parse(id)
+	if err != nil {
+		return ErrClientNotFound
+	}
+	ct, err := q.Exec(ctx, `DELETE FROM clients WHERE id = $1`, uid)
+	if err != nil {
+		return fmt.Errorf("client delete: %w", err)
+	}
+	if ct.RowsAffected() == 0 {
+		return ErrClientNotFound
+	}
+	return nil
+}
