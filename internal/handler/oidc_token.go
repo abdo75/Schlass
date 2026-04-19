@@ -505,6 +505,30 @@ func (h *OIDCTokenHandler) handleRefreshToken(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	// Sprint 5: re-validate grant type — admin may have removed refresh_token
+	// from allowed_grant_types via PATCH /api/clients/:id.
+	allowsRefresh := false
+	for _, g := range client.AllowedGrantTypes {
+		if g == "refresh_token" {
+			allowsRefresh = true
+			break
+		}
+	}
+	if !allowsRefresh {
+		writeTokenError(w, http.StatusBadRequest, "unauthorized_client", "refresh_token grant no longer allowed for this client")
+		return
+	}
+
+	// Sprint 5: re-validate granted scopes against current client config. An
+	// admin PATCH between refresh issuance and refresh use can narrow
+	// allowed_scopes; issue the new AT with the intersection, or reject if
+	// empty.
+	narrowedScopes, err := intersectScopesAgainstClient(oldPayload.Scopes, client.AllowedScopes)
+	if err != nil {
+		writeTokenError(w, http.StatusBadRequest, "invalid_scope", "requested scopes no longer allowed for this client")
+		return
+	}
+
 	// 5. Re-fetch user + status check.
 	userUUID, err := uuid.Parse(oldPayload.UserID)
 	if err != nil {
@@ -583,7 +607,7 @@ func (h *OIDCTokenHandler) handleRefreshToken(w http.ResponseWriter, r *http.Req
 
 	// 7. Sign new access + id tokens.
 	now := time.Now().UTC()
-	scopes := oidc.Scopes(oldPayload.Scopes)
+	scopes := oidc.Scopes(narrowedScopes)
 	jtiAccess := uuid.NewString()
 	jtiID := uuid.NewString()
 	accessClaims := oidc.BuildAccessClaims(user, client.ID.String(), h.publicURL, jtiAccess, scopes, now)
@@ -611,7 +635,7 @@ func (h *OIDCTokenHandler) handleRefreshToken(w http.ResponseWriter, r *http.Req
 	newRefresh, err := h.refreshStore.Create(r.Context(), oidc.RefreshPayload{
 		UserID:    user.ID.String(),
 		ClientID:  client.ID.String(),
-		Scopes:    oldPayload.Scopes,
+		Scopes:    narrowedScopes,
 		FamilyID:  oldPayload.FamilyID,
 		CreatedAt: now.Unix(),
 		Expires:   oldPayload.Expires, // absolute, not now+24h
@@ -657,7 +681,7 @@ func (h *OIDCTokenHandler) handleRefreshToken(w http.ResponseWriter, r *http.Req
 		Outcome:    "success",
 		Metadata: map[string]any{
 			"family_id":      oldPayload.FamilyID,
-			"scopes":         oldPayload.Scopes,
+			"scopes":         narrowedScopes,
 			"new_access_jti": jtiAccess,
 			"new_id_jti":     jtiID,
 		},
