@@ -107,10 +107,14 @@ describe("SigningKeysPage", () => {
     expect(screen.getByText("SCHLASS_ENCRYPTION_KEY")).toBeInTheDocument();
   });
 
-  it("calls the rotate API then reloads the list", async () => {
+  it("calls the rotate API after the confirm dialog's Rotate key action", async () => {
     render(wrap());
     await waitFor(() => expect(screen.getByText("kid-active")).toBeInTheDocument());
+    // First click opens the styled ConfirmDialog.
     fireEvent.click(screen.getByRole("button", { name: "Rotate key" }));
+    // The dialog's primary button shares the label — click the last match.
+    const buttons = screen.getAllByRole("button", { name: "Rotate key" });
+    fireEvent.click(buttons[buttons.length - 1]);
     await waitFor(() =>
       expect(apiFetch).toHaveBeenCalledWith(
         "/api/admin/signing-keys/rotate",
@@ -119,11 +123,11 @@ describe("SigningKeysPage", () => {
     );
   });
 
-  it("does not call the rotate API when confirm is cancelled", async () => {
-    vi.stubGlobal("confirm", vi.fn().mockReturnValue(false));
+  it("does not call the rotate API when the dialog is cancelled", async () => {
     render(wrap());
     await waitFor(() => expect(screen.getByText("kid-active")).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Rotate key" }));
+    fireEvent.click(screen.getByRole("button", { name: /cancel/i }));
     await waitFor(() => {
       const rotateCalls = (apiFetch as ReturnType<typeof vi.fn>).mock.calls.filter(
         (c) => c[0] === "/api/admin/signing-keys/rotate",

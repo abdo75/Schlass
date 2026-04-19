@@ -53,22 +53,48 @@ export function ConfirmDialog({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start gap-4 px-6 pt-6 pb-5">
-          <div className="flex size-10 shrink-0 items-center justify-center rounded-[10px] bg-destructive/10 text-destructive">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="size-5"
-              aria-hidden="true"
-            >
-              <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" />
-              <path d="M12 9v4" />
-              <path d="M12 17h.01" />
-            </svg>
+          <div
+            className={cn(
+              "flex size-10 shrink-0 items-center justify-center rounded-[10px]",
+              variant === "destructive"
+                ? "bg-destructive/10 text-destructive"
+                : "bg-primary/10 text-primary",
+            )}
+          >
+            {variant === "destructive" ? (
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="size-5"
+                aria-hidden="true"
+              >
+                <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" />
+                <path d="M12 9v4" />
+                <path d="M12 17h.01" />
+              </svg>
+            ) : (
+              // "question-mark" glyph for non-destructive confirms
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="size-5"
+                aria-hidden="true"
+              >
+                <circle cx="12" cy="12" r="10" />
+                <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+                <path d="M12 17h.01" />
+              </svg>
+            )}
           </div>
           <div>
             <p id="confirm-title" className="text-base font-semibold">

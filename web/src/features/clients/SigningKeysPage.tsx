@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { AdminPageHeader, AdminPageContent } from "@/components/AdminLayout";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { CopyButton } from "@/components/ui/CopyButton";
 import { listSigningKeys, rotateSigningKey, type SigningKey } from "./api";
 import { friendlyError } from "./errorDisplay";
@@ -44,6 +45,7 @@ export function SigningKeysPage() {
   const [keys, setKeys] = useState<SigningKey[] | null>(null);
   const [rotating, setRotating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [rotateOpen, setRotateOpen] = useState(false);
 
   const load = useCallback(async () => {
     setError(null);
@@ -60,12 +62,6 @@ export function SigningKeysPage() {
   }, [load]);
 
   async function handleRotate() {
-    if (
-      !window.confirm(
-        "Rotate the signing key now? The current key will remain valid for outstanding tokens for 24 hours.",
-      )
-    )
-      return;
     setRotating(true);
     setError(null);
     try {
@@ -89,7 +85,7 @@ export function SigningKeysPage() {
         primaryAction={
           <button
             type="button"
-            onClick={() => void handleRotate()}
+            onClick={() => setRotateOpen(true)}
             disabled={rotating || keys === null}
             className="inline-flex h-8 items-center rounded-lg bg-primary px-3.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
           >
@@ -207,6 +203,16 @@ export function SigningKeysPage() {
           </div>
         )}
       </AdminPageContent>
+
+      <ConfirmDialog
+        open={rotateOpen}
+        onOpenChange={setRotateOpen}
+        variant="primary"
+        title="Rotate the signing key?"
+        body="A fresh RS256 keypair is generated and marked active. The current key becomes retiring and keeps validating outstanding tokens for 24 hours + 15 minutes before the retire sweep drops it from JWKS."
+        confirmLabel="Rotate key"
+        onConfirm={() => void handleRotate()}
+      />
     </>
   );
 }
