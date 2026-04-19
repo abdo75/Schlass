@@ -72,9 +72,13 @@ test.describe("signing keys — rotate", () => {
       const originalKidText = (await activeKidLocator.textContent()) ?? "";
       expect(originalKidText.length).toBeGreaterThan(0);
 
-      // 4. Accept the window.confirm, click Rotate key.
-      page.once("dialog", (dialog) => void dialog.accept());
+      // 4. Click Rotate key — opens styled ConfirmDialog. Then click
+      // the dialog's own "Rotate key" button to trigger the POST.
       await page.getByRole("button", { name: /rotate key/i }).click();
+      await page
+        .getByRole("button", { name: /rotate key/i })
+        .last()
+        .click();
 
       // 5. Retiring keys card appears and contains the old kid (proving the
       // rotation took effect + the page refetched the list). We don't check

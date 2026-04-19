@@ -130,10 +130,15 @@ test.describe("OIDC clients CRUD — full admin journey", () => {
       await expect(page.getByRole("heading", { name: "e2e-renamed" })).toBeVisible({ timeout: 10000 });
 
       // ------------------------------------------------------------------
-      // 8. Click Rotate secret → confirm dialog → secret modal opens
+      // 8. Click Rotate secret → styled ConfirmDialog → confirm → secret modal opens
       // ------------------------------------------------------------------
-      page.once("dialog", (dialog) => void dialog.accept());
       await page.getByRole("button", { name: /rotate secret/i }).click();
+      // Dialog's own "Rotate secret" button (second match; button in danger
+      // zone is first, dialog primary is last).
+      await page
+        .getByRole("button", { name: /rotate secret/i })
+        .last()
+        .click();
 
       // ClientSecretModal should appear again
       const rotateModal = page.locator(".fixed").filter({
@@ -146,22 +151,17 @@ test.describe("OIDC clients CRUD — full admin journey", () => {
       await expect(rotateModal).not.toBeVisible({ timeout: 5000 });
 
       // ------------------------------------------------------------------
-      // 9. Click Disable → confirm → assert Disabled badge
+      // 9. Click Disable → styled dialog → Disable client → assert Disabled badge
       // ------------------------------------------------------------------
-      page.once("dialog", (dialog) => void dialog.accept());
-      // The danger zone has a "Disable" button (not "Disable client" — that's
-      // the section heading text, the button label is just "Disable")
       await page.getByRole("button", { name: /^disable$/i }).click();
-
-      // Wait for the page to re-load and show the Disabled badge
+      await page.getByRole("button", { name: /^disable client$/i }).click();
       await expect(page.getByText(/^Disabled$/i).first()).toBeVisible({ timeout: 10000 });
 
       // ------------------------------------------------------------------
-      // 10. Click Enable → confirm → assert Active badge returns
+      // 10. Click Enable → styled dialog → Enable client → assert Active badge
       // ------------------------------------------------------------------
-      page.once("dialog", (dialog) => void dialog.accept());
       await page.getByRole("button", { name: /^enable$/i }).click();
-
+      await page.getByRole("button", { name: /^enable client$/i }).click();
       await expect(page.getByText(/^Active$/i).first()).toBeVisible({ timeout: 10000 });
 
       // ------------------------------------------------------------------

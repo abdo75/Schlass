@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { AdminPageHeader, AdminPageContent } from "@/components/AdminLayout";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { CopyButton } from "@/components/ui/CopyButton";
 import { ClientSecretModal } from "@/components/ClientSecretModal";
@@ -45,6 +46,9 @@ export function ClientDetailPage() {
     secret: string;
   } | null>(null);
   const [deleteModal, setDeleteModal] = useState(false);
+  const [disableOpen, setDisableOpen] = useState(false);
+  const [enableOpen, setEnableOpen] = useState(false);
+  const [rotateSecretOpen, setRotateSecretOpen] = useState(false);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -78,12 +82,6 @@ export function ClientDetailPage() {
 
   async function handleDisable() {
     if (!id || !client) return;
-    if (
-      !window.confirm(
-        "Disable this client? New authorizations and refresh-token exchanges will be blocked. Outstanding access tokens remain valid for up to 15 minutes. Reversible.",
-      )
-    )
-      return;
     try {
       await disableClient(id);
       await load();
@@ -94,12 +92,6 @@ export function ClientDetailPage() {
 
   async function handleEnable() {
     if (!id) return;
-    if (
-      !window.confirm(
-        "Re-enable this client? It will be restored with its existing secret. If the disable was due to a suspected compromise, rotate the secret after re-enabling.",
-      )
-    )
-      return;
     try {
       await enableClient(id);
       await load();
@@ -110,12 +102,6 @@ export function ClientDetailPage() {
 
   async function handleRotate() {
     if (!id) return;
-    if (
-      !window.confirm(
-        "Rotate the client secret? The current secret will keep working for 24 hours, then expire. A new secret will be shown once.",
-      )
-    )
-      return;
     try {
       const res = await rotateClientSecret(id);
       setRevealed({ clientId: res.client_id, secret: res.client_secret });
@@ -246,7 +232,7 @@ export function ClientDetailPage() {
                   </div>
                   <button
                     type="button"
-                    onClick={() => void handleRotate()}
+                    onClick={() => setRotateSecretOpen(true)}
                     className="inline-flex h-8 items-center rounded-lg border border-input bg-background px-3.5 text-[13px] font-medium text-foreground hover:bg-muted/50"
                   >
                     Rotate secret
@@ -276,8 +262,8 @@ export function ClientDetailPage() {
                     type="button"
                     onClick={
                       client.status === "active"
-                        ? () => void handleDisable()
-                        : () => void handleEnable()
+                        ? () => setDisableOpen(true)
+                        : () => setEnableOpen(true)
                     }
                     className="inline-flex h-8 items-center rounded-lg border border-destructive bg-background px-3.5 text-[13px] font-medium text-destructive hover:bg-destructive/5"
                   >
@@ -328,6 +314,35 @@ export function ClientDetailPage() {
           onConfirm={() => void handleDelete()}
         />
       )}
+
+      <ConfirmDialog
+        open={disableOpen}
+        onOpenChange={setDisableOpen}
+        title="Disable this client?"
+        body="Blocks new authorizations and refresh-token exchanges. Outstanding access tokens stay valid for up to 15 minutes until they expire. Reversible."
+        confirmLabel="Disable client"
+        onConfirm={() => void handleDisable()}
+      />
+
+      <ConfirmDialog
+        open={enableOpen}
+        onOpenChange={setEnableOpen}
+        variant="primary"
+        title="Re-enable this client?"
+        body="Restores the client with its existing secret. If the disable was due to a suspected compromise, rotate the secret right after re-enabling."
+        confirmLabel="Enable client"
+        onConfirm={() => void handleEnable()}
+      />
+
+      <ConfirmDialog
+        open={rotateSecretOpen}
+        onOpenChange={setRotateSecretOpen}
+        variant="primary"
+        title="Rotate the client secret?"
+        body="A new 32-byte secret is generated and shown once. The current secret keeps working for a 24-hour overlap window before it expires — your application can stay online while you roll the new credential."
+        confirmLabel="Rotate secret"
+        onConfirm={() => void handleRotate()}
+      />
     </>
   );
 }
