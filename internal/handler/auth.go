@@ -577,7 +577,7 @@ func (h *AuthHandler) PostLogout(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   -1,
 		HttpOnly: true,
 		Secure:   h.cookieSecure,
-		SameSite: http.SameSiteStrictMode,
+		SameSite: http.SameSiteLaxMode,
 	})
 
 	w.WriteHeader(http.StatusNoContent)
@@ -745,7 +745,9 @@ func (h *AuthHandler) PostChangePassword(w http.ResponseWriter, r *http.Request)
 		MaxAge:   86400,
 		HttpOnly: true,
 		Secure:   h.cookieSecure,
-		SameSite: http.SameSiteStrictMode,
+		// See setSessionCookie in response.go for the Lax rationale (OIDC
+		// /authorize is an entry point for cross-site top-level redirects).
+		SameSite: http.SameSiteLaxMode,
 	})
 
 	// The old session (and its PendingReturnTo) was already destroyed above,
@@ -886,7 +888,7 @@ func (h *AuthHandler) PostDisableMfa(w http.ResponseWriter, r *http.Request) {
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
-		SameSite: http.SameSiteStrictMode,
+		SameSite: http.SameSiteLaxMode,
 		Secure:   h.cookieSecure,
 		MaxAge:   -1,
 	})

@@ -31,8 +31,16 @@ func isSecureURL(publicURL string) bool {
 // setSessionCookie writes the schlass_session cookie to w. Used by both
 // AuthHandler (PostLogin, PostChangePassword) and MfaHandler
 // (PostEnrollmentComplete) so the production cookie attributes stay in one
-// place: HttpOnly, SameSite=Strict, Path=/, 24h Max-Age, and the Secure flag
+// place: HttpOnly, SameSite=Lax, Path=/, 24h Max-Age, and the Secure flag
 // toggled by the public URL scheme.
+//
+// SameSite=Lax (not Strict) is required because /authorize is an entry
+// point for cross-site top-level navigations from relying parties
+// (Grafana, oauth2-proxy, …). Strict would block the session cookie on
+// that navigation, forcing the user to re-authenticate on every OIDC
+// round-trip and leaking a duplicate session. Lax still rejects the
+// cookie on cross-site sub-resource requests and on cross-site POSTs,
+// which is the CSRF threat model the flag protects against.
 func setSessionCookie(w http.ResponseWriter, token string, secure bool) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     "schlass_session",
@@ -41,6 +49,6 @@ func setSessionCookie(w http.ResponseWriter, token string, secure bool) {
 		MaxAge:   86400,
 		HttpOnly: true,
 		Secure:   secure,
-		SameSite: http.SameSiteStrictMode,
+		SameSite: http.SameSiteLaxMode,
 	})
 }
