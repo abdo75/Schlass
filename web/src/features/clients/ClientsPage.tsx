@@ -67,32 +67,35 @@ export function ClientsPage() {
 
   // Fetch the view data + the subtitle counts in parallel.
   useEffect(() => {
-    let cancel = false;
-    setLoading(true);
-    setError(null);
-
-    const viewPromise = listClients(filter);
-    const allPromise = filter === "all" ? null : listClients("all");
-
-    Promise.all([viewPromise, allPromise])
-      .then(([view, all]) => {
-        if (cancel) return;
+    let cancelled = false;
+    void (async () => {
+      if (cancelled) return;
+      setLoading(true);
+      setError(null);
+      try {
+        const viewPromise = listClients(filter);
+        const allPromise = filter === "all" ? null : listClients("all");
+        const [view, all] = await Promise.all([viewPromise, allPromise]);
+        if (cancelled) return;
         setClients(view.clients);
         const source = all ? all.clients : view.clients;
         setCounts({
           active: source.filter((c) => c.status === "active").length,
           disabled: source.filter((c) => c.status === "disabled").length,
         });
-      })
-      .catch((err: { code?: string }) => {
-        if (cancel) return;
-        setError(err.code ?? "INTERNAL_ERROR");
-      })
-      .finally(() => {
-        if (!cancel) setLoading(false);
-      });
+      } catch (err: unknown) {
+        if (cancelled) return;
+        const code =
+          err && typeof err === "object" && "code" in err
+            ? String((err as { code: unknown }).code)
+            : "INTERNAL_ERROR";
+        setError(code);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
     return () => {
-      cancel = true;
+      cancelled = true;
     };
   }, [filter]);
 
