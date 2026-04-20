@@ -339,8 +339,8 @@ func (h *PasswordResetHandler) PostConfirm(w http.ResponseWriter, r *http.Reques
 // check consumed by ResetPasswordPage on mount: returns 200 {} iff the
 // token resolves to an unused, unexpired row. 400 INVALID_TOKEN
 // otherwise — not-found / expired / used collapse to the same code for
-// uniformity with PostConfirm (no state mutation, no audit row, no
-// rate limit).
+// uniformity with PostConfirm (no state mutation, no audit row; rate-limited
+// via the shared passwordResetRL bucket at the router).
 //
 // Deliberately read-only: the token is 32-byte crypto/rand, so brute-
 // force is infeasible within the 30-minute TTL and a per-IP limit
