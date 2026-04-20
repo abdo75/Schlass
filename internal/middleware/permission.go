@@ -32,6 +32,8 @@ var rolePermissions = map[string][]string{
 		"signing_keys.list",
 		"signing_keys.rotate",
 		"signing_keys.retire",
+		"settings.read",
+		"settings.write",
 		"clients.list",
 		"clients.read",
 		"clients.create",
