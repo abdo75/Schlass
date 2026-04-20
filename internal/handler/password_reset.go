@@ -114,6 +114,14 @@ func (h *PasswordResetHandler) PostRequest(w http.ResponseWriter, r *http.Reques
 	ipAddr := parseClientIPAddr(ipStr)
 
 	user, err := h.userStore.GetByEmail(r.Context(), h.pool, email)
+	if err != nil && !errors.Is(err, store.ErrUserNotFound) {
+		// Real pool error (not just "no such user") — log it distinctly
+		// so operators can diagnose PG outages, then still return 200
+		// to preserve the enumeration-safety contract.
+		slog.Error("password_reset.request: lookup", "error", err)
+		writeJSON(w, http.StatusOK, map[string]any{})
+		return
+	}
 	// H5: disabled / non-active users fall through to the unmatched path.
 	// The login flow already blocks them; a reset email would waste SMTP
 	// and arguably leak account-status signal.
