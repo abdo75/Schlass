@@ -52,7 +52,8 @@ type AuthHandler struct {
 	publicURL    string // for Origin check
 	cookieSecure bool   // derived from publicURL at construction time
 
-	dummyHash string // timing-defense Argon2id hash computed once at construction
+	dummyHash   string             // timing-defense Argon2id hash computed once at construction
+	hibpChecker *crypto.HIBPChecker // nil means HIBP check is disabled
 }
 
 // NewAuthHandler constructs the handler and pre-computes the dummy hash used
@@ -68,6 +69,7 @@ func NewAuthHandler(
 	configStore *store.ConfigStore,
 	configService *config.ConfigService,
 	publicURL string,
+	hibpChecker *crypto.HIBPChecker,
 ) (*AuthHandler, error) {
 	dummy, err := crypto.HashPassword("timing-defense-placeholder")
 	if err != nil {
@@ -85,6 +87,7 @@ func NewAuthHandler(
 		publicURL:         publicURL,
 		cookieSecure:      isSecureURL(publicURL),
 		dummyHash:         dummy,
+		hibpChecker:       hibpChecker,
 	}, nil
 }
 
@@ -654,6 +657,16 @@ func (h *AuthHandler) PostChangePassword(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return
+	}
+
+	// 2a. HIBP breach-corpus check (NIST SP 800-63B-4 §3.1.1.2). Fail-open
+	//    on network error — HIBP outages must not block password changes.
+	if pwned, hibpErr := h.hibpChecker.IsPwned(r.Context(), req.NewPassword); hibpErr != nil {
+		slog.Warn("password_breach_check: hibp unavailable", "error", hibpErr)
+	} else if pwned {
+		writeError(w, http.StatusBadRequest, "PASSWORD_BREACHED",
+			"This password has appeared in a known data breach. Choose a different one.")
 		return
 	}
 

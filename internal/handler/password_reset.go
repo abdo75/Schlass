@@ -43,6 +43,7 @@ type PasswordResetHandler struct {
 	configService     *config.ConfigService
 	publicURL         string
 	dummyPasswordHash string
+	hibpChecker       *crypto.HIBPChecker // nil means HIBP check is disabled
 }
 
 func NewPasswordResetHandler(
@@ -54,6 +55,7 @@ func NewPasswordResetHandler(
 	sessionStore session.Store,
 	configService *config.ConfigService,
 	publicURL string,
+	hibpChecker *crypto.HIBPChecker,
 ) (*PasswordResetHandler, error) {
 	// Pre-compute a dummy Argon2id hash so the unknown-email response
 	// path's timing matches the real-user path (mirrors login enumeration
@@ -76,6 +78,7 @@ func NewPasswordResetHandler(
 		configService:     configService,
 		publicURL:         publicURL,
 		dummyPasswordHash: dummy,
+		hibpChecker:       hibpChecker,
 	}, nil
 }
 
@@ -279,6 +282,16 @@ func (h *PasswordResetHandler) PostConfirm(w http.ResponseWriter, r *http.Reques
 		uid := token.UserID
 		h.auditConfirmFailed(r.Context(), "policy_violation", ip, &uid)
 		writeError(w, http.StatusBadRequest, "PASSWORD_POLICY_VIOLATION", err.Error())
+		return
+	}
+
+	// HIBP breach-corpus check (NIST SP 800-63B-4 §3.1.1.2). Fail-open
+	// on network error — HIBP outages must not block password changes.
+	if pwned, hibpErr := h.hibpChecker.IsPwned(r.Context(), req.Password); hibpErr != nil {
+		slog.Warn("password_breach_check: hibp unavailable", "error", hibpErr)
+	} else if pwned {
+		writeError(w, http.StatusBadRequest, "PASSWORD_BREACHED",
+			"This password has appeared in a known data breach. Choose a different one.")
 		return
 	}
 

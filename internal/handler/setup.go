@@ -22,6 +22,7 @@ type SetupHandler struct {
 	configStore   *store.ConfigStore
 	userStore     *store.UserStore
 	auditStore    AuditLogger
+	hibpChecker   *crypto.HIBPChecker
 }
 
 func NewSetupHandler(
@@ -30,6 +31,7 @@ func NewSetupHandler(
 	configStore *store.ConfigStore,
 	userStore *store.UserStore,
 	auditStore AuditLogger,
+	hibpChecker *crypto.HIBPChecker,
 ) *SetupHandler {
 	return &SetupHandler{
 		pool:          pool,
@@ -37,6 +39,7 @@ func NewSetupHandler(
 		configStore:   configStore,
 		userStore:     userStore,
 		auditStore:    auditStore,
+		hibpChecker:   hibpChecker,
 	}
 }
 
@@ -88,6 +91,16 @@ func (h *SetupHandler) PostSetup(w http.ResponseWriter, r *http.Request) {
 			code = "PASSWORD_POLICY_VIOLATION"
 		}
 		writeError(w, http.StatusBadRequest, code, err.Error())
+		return
+	}
+
+	// HIBP breach-corpus check (NIST SP 800-63B-4 §3.1.1.2). Fail-open
+	// on network error — HIBP outages must not block password changes.
+	if pwned, hibpErr := h.hibpChecker.IsPwned(r.Context(), req.Password); hibpErr != nil {
+		slog.Warn("password_breach_check: hibp unavailable", "error", hibpErr)
+	} else if pwned {
+		writeError(w, http.StatusBadRequest, "PASSWORD_BREACHED",
+			"This password has appeared in a known data breach. Choose a different one.")
 		return
 	}
 
