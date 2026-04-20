@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
@@ -253,6 +254,7 @@ func (h *PasswordResetHandler) PostConfirm(w http.ResponseWriter, r *http.Reques
 	token, err := h.tokenStore.GetByTokenForUpdate(r.Context(), tx, req.Token)
 	if err != nil {
 		if errors.Is(err, store.ErrResetTokenNotFound) {
+			h.auditConfirmFailed(r.Context(), "token_not_found", ip, nil)
 			writeError(w, http.StatusBadRequest, "INVALID_TOKEN", "Reset link is no longer valid.")
 			return
 		}
@@ -261,6 +263,8 @@ func (h *PasswordResetHandler) PostConfirm(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if token.UsedAt != nil || time.Now().After(token.ExpiresAt) {
+		uid := token.UserID
+		h.auditConfirmFailed(r.Context(), "token_invalid", ip, &uid)
 		writeError(w, http.StatusBadRequest, "INVALID_TOKEN", "Reset link is no longer valid.")
 		return
 	}
@@ -272,6 +276,8 @@ func (h *PasswordResetHandler) PostConfirm(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if err := model.ValidatePassword(req.Password, policy); err != nil {
+		uid := token.UserID
+		h.auditConfirmFailed(r.Context(), "policy_violation", ip, &uid)
 		writeError(w, http.StatusBadRequest, "PASSWORD_POLICY_VIOLATION", err.Error())
 		return
 	}
@@ -397,6 +403,27 @@ func (h *PasswordResetHandler) PostValidate(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{})
+}
+
+// auditConfirmFailed writes a best-effort password_reset.confirm_failed
+// audit row against the pool (NOT the confirm tx — on the failure paths
+// the tx is about to be rolled back, so tx-scoped audit would roll back
+// with it). Called on every 400 error path in PostConfirm.
+func (h *PasswordResetHandler) auditConfirmFailed(ctx context.Context, reason, ip string, userID *uuid.UUID) {
+	entry := store.AuditEntry{
+		EventType:  "password_reset.confirm_failed",
+		TargetType: "user",
+		IPAddress:  ip,
+		Outcome:    "failure",
+		Metadata:   map[string]any{"reason": reason},
+	}
+	if userID != nil {
+		entry.ActorID = userID
+		entry.TargetID = userID.String()
+	}
+	if err := h.auditStore.Log(ctx, h.pool, entry); err != nil {
+		slog.Error("password_reset.confirm_failed: audit", "error", err, "reason", reason)
+	}
 }
 
 // sendResetEmail runs in a goroutine post-commit. Loads SMTP config +

@@ -134,6 +134,51 @@ func TestPasswordResetConfirm_ClearsLockout(t *testing.T) {
 	}
 }
 
+// TestPasswordResetConfirm_FailureAudits asserts H7: invalid-token and
+// policy-violation paths emit password_reset.confirm_failed audit rows
+// with a descriptive reason.
+func TestPasswordResetConfirm_FailureAudits(t *testing.T) {
+	env := NewTestEnv(t)
+	defer env.Close()
+	uid := env.DirectCreateUser(t, "audit@example.com", "user")
+
+	// unknown token → reason=token_not_found
+	body, _ := json.Marshal(map[string]any{"token": "nope-not-real", "password": "NewStrongPass1!"})
+	publicPost(t, env, "/api/password-reset/confirm", body)
+
+	// expired token → reason=token_invalid
+	expired := env.InsertResetToken(t, uid, -1*time.Minute)
+	body, _ = json.Marshal(map[string]any{"token": expired, "password": "NewStrongPass1!"})
+	publicPost(t, env, "/api/password-reset/confirm", body)
+
+	// policy-violation
+	fresh := env.InsertResetToken(t, uid, 30*time.Minute)
+	body, _ = json.Marshal(map[string]any{"token": fresh, "password": "short"})
+	publicPost(t, env, "/api/password-reset/confirm", body)
+
+	rows, err := env.Pool.Query(t.Context(),
+		`SELECT metadata->>'reason' FROM audit_logs WHERE event_type = 'password_reset.confirm_failed' ORDER BY created_at`)
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	defer rows.Close()
+	var reasons []string
+	for rows.Next() {
+		var r string
+		_ = rows.Scan(&r)
+		reasons = append(reasons, r)
+	}
+	want := []string{"token_not_found", "token_invalid", "policy_violation"}
+	if len(reasons) != len(want) {
+		t.Fatalf("got %d audit rows (%v), want %d (%v)", len(reasons), reasons, len(want), want)
+	}
+	for i, r := range reasons {
+		if r != want[i] {
+			t.Fatalf("audit[%d]=%q, want %q", i, r, want[i])
+		}
+	}
+}
+
 // TestPasswordResetRequest_EnumerationTimingParity (C1) — crude p50
 // sanity check; catches the regression where one path skips Argon2id
 // entirely. Not a statistical oracle.
