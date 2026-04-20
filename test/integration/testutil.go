@@ -202,6 +202,12 @@ func (e *TestEnv) BuildDeps() server.RouterDeps {
 		AuthorizeRateLimit: 10000,
 		UserinfoRateLimit:  10000,
 		ClientsHandler:     clientsHandler,
+		// HIBPChecker is intentionally nil for integration tests — avoids
+		// live HIBP network calls which would make tests flaky and slow.
+		// The nil checker is safe: HIBPChecker.IsPwned returns (false, nil)
+		// when the receiver is nil, so all password-set paths succeed
+		// exactly as if HIBP is disabled.
+		HIBPChecker: nil,
 	}
 }
 
