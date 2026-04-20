@@ -233,6 +233,10 @@ Never mock the database. Use testcontainers for anything that touches PG or Valk
 - `make dev-frontend` — Vite HMR (proxies `/api` to Go on `:3000`)
 - `make build-docker` — Docker image
 
+### Local email testing (Mailpit)
+
+`docker-compose.yml` ships a Mailpit service (`axllent/mailpit`) alongside Postgres + Valkey for local SMTP testing. Mailpit exposes SMTP on `:1025` and a web UI on `http://localhost:8025`. Schlass is NOT wired to it by default — configure it via `/admin/settings > Email` (Host: `mailpit`, Port: `1025`, no auth, From: `no-reply@schlass.local`) then use the Test connection button or trigger the forgot-password flow. Every received message is viewable at `localhost:8025` with rendered HTML + source + attachments. Mailpit is a sink (accepts but does not deliver) — for real-world deliverability testing use a transactional provider (Brevo, Mailgun, SES) with SPF/DKIM on the instance domain.
+
 ## Frontend
 
 - Feature-based structure: `web/src/features/<feature>/`
