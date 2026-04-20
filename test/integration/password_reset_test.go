@@ -223,8 +223,8 @@ func TestPasswordResetConfirm_WeakPassword_400(t *testing.T) {
 	}
 	var out map[string]any
 	_ = json.NewDecoder(resp.Body).Decode(&out)
-	if out["error"] != "PASSWORD_POLICY_FAILED" {
-		t.Fatalf("error = %q, want PASSWORD_POLICY_FAILED", out["error"])
+	if out["error"] != "PASSWORD_POLICY_VIOLATION" {
+		t.Fatalf("error = %q, want PASSWORD_POLICY_VIOLATION", out["error"])
 	}
 }
 

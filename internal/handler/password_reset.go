@@ -254,7 +254,7 @@ func (h *PasswordResetHandler) PostConfirm(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if err := model.ValidatePassword(req.Password, policy); err != nil {
-		writeError(w, http.StatusBadRequest, "PASSWORD_POLICY_FAILED", err.Error())
+		writeError(w, http.StatusBadRequest, "PASSWORD_POLICY_VIOLATION", err.Error())
 		return
 	}
 
