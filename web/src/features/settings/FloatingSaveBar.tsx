@@ -5,15 +5,19 @@ interface FloatingSaveBarProps {
   saving: boolean;
 }
 
-// FloatingSaveBar sits absolutely-positioned at the bottom of the Settings
-// page main column. Appears only when dirtyCount > 0. Consumes the
-// --page-max-w and --page-gutter CSS vars declared on the parent so its
-// width tracks the card column exactly (no magic numbers).
+// FloatingSaveBar is viewport-fixed at the bottom. Appears only when
+// dirtyCount > 0, scrolls with the viewport (always visible). Rail offsets
+// by the admin sidebar width (220px, unconditional — see AdminLayout.tsx
+// line 108) so the bar spans the main column, not under the sidebar.
+// Content scroll clearance is guaranteed by `pb-28` on the SettingsPage
+// card column — last card always clears the bar height.
+// Consumes --page-max-w and --page-gutter CSS vars declared on the parent
+// so the bar width tracks the card column exactly.
 export function FloatingSaveBar({ dirtyCount, onSave, onDiscard, saving }: FloatingSaveBarProps) {
   if (dirtyCount === 0) return null;
   return (
     <div
-      className="pointer-events-none absolute left-0 right-0 bottom-5"
+      className="pointer-events-none fixed left-[220px] right-0 bottom-5 z-30"
       style={{ padding: "0 var(--page-gutter)" }}
       role="status"
       aria-live="polite"
