@@ -76,6 +76,7 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 
 	usersHandler := handler.NewUsersHandler(d.Pool, d.ValkeyClient, d.UserStore, d.AuditStore, sessionStore, d.ConfigService, d.RecoveryCodeStore)
 	adminSigningKeysHandler := handler.NewAdminSigningKeysHandler(d.Pool, d.AuditStore, d.Cfg.EncryptionKey)
+	settingsHandler := handler.NewSettingsHandler(d.Pool, d.ConfigService, d.AuditStore, d.Cfg.EncryptionKey)
 
 	mfaHandler := handler.NewMfaHandler(
 		d.Pool, d.ValkeyClient, d.UserStore, d.RecoveryCodeStore,
@@ -158,6 +159,11 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 		gated("signing_keys.rotate", http.HandlerFunc(adminSigningKeysHandler.Rotate)))
 	mux.Handle("POST /api/admin/signing-keys/{kid}/retire-now",
 		gated("signing_keys.retire", http.HandlerFunc(adminSigningKeysHandler.EmergencyRetire)))
+
+	mux.Handle("GET /api/settings",
+		gated("settings.read", http.HandlerFunc(settingsHandler.GetAll)))
+	mux.Handle("PATCH /api/settings/general",
+		gated("settings.write", http.HandlerFunc(settingsHandler.PatchGeneral)))
 
 	discoveryHandler := handler.NewOIDCDiscoveryHandler(d.Cfg.SchlassPublicURL, d.Pool)
 	mux.HandleFunc("GET /.well-known/openid-configuration", discoveryHandler.GetConfiguration)
