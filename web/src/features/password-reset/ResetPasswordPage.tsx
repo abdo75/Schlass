@@ -1,5 +1,6 @@
 import { useState, useEffect, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,6 +11,7 @@ import { confirmPasswordReset, validateResetToken } from "./api";
 type State = "loading" | "form" | "invalid" | "success";
 
 export function ResetPasswordPage() {
+  const { t } = useTranslation();
   const { token = "" } = useParams();
   const navigate = useNavigate();
   const [state, setState] = useState<State>("loading");
@@ -20,7 +22,7 @@ export function ResetPasswordPage() {
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    void (async () => {
       if (!token) {
         if (!cancelled) setState("invalid");
         return;
@@ -84,9 +86,9 @@ export function ResetPasswordPage() {
               <path d="M21 12a9 9 0 1 1-6.219-8.56" />
             </svg>
           </div>
-          <h4 className="text-[16px] font-semibold mb-2">Checking reset link…</h4>
+          <h4 className="text-[16px] font-semibold mb-2">{t("password_reset.reset.loading_title")}</h4>
           <p className="text-[13px] text-muted-foreground leading-[1.55]">
-            One moment while we verify this link is still valid.
+            {t("password_reset.reset.loading_body")}
           </p>
         </div>
       </AuthLayout>
@@ -114,12 +116,12 @@ export function ResetPasswordPage() {
               <line x1="12" y1="16" x2="12.01" y2="16" />
             </svg>
           </div>
-          <h4 className="text-[16px] font-semibold mb-2">This reset link is no longer valid</h4>
+          <h4 className="text-[16px] font-semibold mb-2">{t("password_reset.reset.invalid_title")}</h4>
           <p className="text-[13px] text-muted-foreground mb-5 leading-[1.55]">
-            Reset links expire after 30 minutes and can only be used once. Request a new link to continue.
+            {t("password_reset.reset.invalid_body")}
           </p>
           <Button onClick={() => { void navigate("/forgot-password"); }} className="h-9 max-w-[240px] mx-auto block">
-            Request a new link
+            {t("password_reset.reset.invalid_cta")}
           </Button>
         </div>
       </AuthLayout>
@@ -132,7 +134,7 @@ export function ResetPasswordPage() {
         <Card className="w-full overflow-hidden border-border">
           <CardHeader className="px-8 pt-8 pb-5 text-center">
             <CardTitle className="text-2xl font-semibold tracking-tight leading-tight">
-              Password reset
+              {t("password_reset.reset.success_title")}
             </CardTitle>
           </CardHeader>
           <CardContent className="px-8 pb-6 text-center">
@@ -146,10 +148,10 @@ export function ResetPasswordPage() {
               </svg>
             </div>
             <p className="text-[13.5px] text-muted-foreground leading-[1.55] mb-5">
-              Your password has been updated. Any sessions or tokens issued before this moment have been signed out.
+              {t("password_reset.reset.success_body")}
             </p>
             <Button onClick={() => { void navigate("/login"); }} className="h-9 max-w-[240px] mx-auto block">
-              Sign in
+              {t("password_reset.reset.success_cta")}
             </Button>
           </CardContent>
         </Card>
@@ -162,21 +164,27 @@ export function ResetPasswordPage() {
     <AuthLayout>
       <Card className="w-full overflow-hidden border-border">
         <CardHeader className="px-8 pt-8 pb-5">
-          <CardTitle className="text-2xl font-semibold tracking-tight leading-tight">Set a new password</CardTitle>
+          <CardTitle className="text-2xl font-semibold tracking-tight leading-tight">
+            {t("password_reset.reset.form_title")}
+          </CardTitle>
           <CardDescription className="mt-2 text-[13px] leading-relaxed">
-            At least 12 characters, with an uppercase letter and a digit.
+            {t("password_reset.reset.form_description")}
           </CardDescription>
         </CardHeader>
         <CardContent className="px-8 pb-6">
           <form onSubmit={(e) => { void handleSubmit(e); }} className="flex flex-col gap-[18px]">
             <div className="flex flex-col gap-2">
-              <Label htmlFor="new-pw" className="text-[13px] font-medium">New password</Label>
+              <Label htmlFor="new-pw" className="text-[13px] font-medium">
+                {t("password_reset.reset.new_password_label")}
+              </Label>
               <Input id="new-pw" type="password" required
                 autoComplete="new-password"
                 value={password} onChange={(e) => setPassword(e.target.value)} />
             </div>
             <div className="flex flex-col gap-2">
-              <Label htmlFor="confirm-pw" className="text-[13px] font-medium">Confirm new password</Label>
+              <Label htmlFor="confirm-pw" className="text-[13px] font-medium">
+                {t("password_reset.reset.confirm_password_label")}
+              </Label>
               <Input id="confirm-pw" type="password" required
                 autoComplete="new-password"
                 value={confirm} onChange={(e) => setConfirm(e.target.value)} />
@@ -184,14 +192,14 @@ export function ResetPasswordPage() {
             {errorCode && (
               <p className="text-sm text-destructive" role="alert">
                 {errorCode === "PASSWORD_MISMATCH"
-                  ? "Passwords don't match."
+                  ? t("password_reset.reset.err.mismatch")
                   : errorCode === "PASSWORD_POLICY_VIOLATION"
-                  ? "Password does not meet the policy (at least 12 characters, with an uppercase letter and a digit)."
-                  : "Unable to reset password."}
+                  ? t("password_reset.reset.err.policy")
+                  : t("password_reset.reset.err.generic")}
               </p>
             )}
             <Button type="submit" className="h-9 w-full" disabled={submitting}>
-              {submitting ? "Resetting…" : "Reset password"}
+              {submitting ? t("password_reset.reset.submitting") : t("password_reset.reset.submit")}
             </Button>
           </form>
         </CardContent>

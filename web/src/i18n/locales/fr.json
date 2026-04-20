@@ -322,6 +322,40 @@
   "settings": {
     "title": "Paramètres"
   },
+  "password_reset": {
+    "forgot": {
+      "title": "Réinitialiser votre mot de passe",
+      "description": "Saisissez l'adresse e-mail associée à votre compte et nous vous enverrons un lien pour réinitialiser votre mot de passe.",
+      "email_label": "E-mail",
+      "email_placeholder": "vous@exemple.com",
+      "submit": "Envoyer le lien",
+      "submitting": "Envoi en cours…",
+      "back_to_login": "← Retour à la connexion",
+      "sent_title": "Consultez votre e-mail",
+      "sent_body": "Si un compte existe pour <1>{{email}}</1>, un lien de réinitialisation a été envoyé. Le lien expire dans 30 minutes."
+    },
+    "reset": {
+      "loading_title": "Vérification du lien…",
+      "loading_body": "Un instant, nous vérifions que ce lien est toujours valide.",
+      "invalid_title": "Ce lien de réinitialisation n'est plus valide",
+      "invalid_body": "Les liens de réinitialisation expirent après 30 minutes et ne peuvent être utilisés qu'une seule fois. Demandez un nouveau lien pour continuer.",
+      "invalid_cta": "Demander un nouveau lien",
+      "form_title": "Définir un nouveau mot de passe",
+      "form_description": "Au moins 12 caractères, avec une lettre majuscule et un chiffre.",
+      "new_password_label": "Nouveau mot de passe",
+      "confirm_password_label": "Confirmer le nouveau mot de passe",
+      "submit": "Réinitialiser le mot de passe",
+      "submitting": "Réinitialisation…",
+      "success_title": "Mot de passe réinitialisé",
+      "success_body": "Votre mot de passe a été mis à jour. Toutes les sessions ou tokens émis avant ce moment ont été déconnectés.",
+      "success_cta": "Se connecter",
+      "err": {
+        "mismatch": "Les mots de passe ne correspondent pas.",
+        "policy": "Le mot de passe ne respecte pas la politique (au moins 12 caractères, avec une lettre majuscule et un chiffre).",
+        "generic": "Impossible de réinitialiser le mot de passe."
+      }
+    }
+  },
   "language": {
     "en": "English",
     "fr": "Français",
