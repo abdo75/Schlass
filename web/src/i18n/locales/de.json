@@ -207,6 +207,7 @@
     "SETUP_ALREADY_COMPLETE": "Die Einrichtung wurde bereits abgeschlossen.",
     "VALIDATION_ERROR": "Ungültige Eingabe.",
     "PASSWORD_POLICY_VIOLATION": "Das Passwort erfüllt nicht die Sicherheitsanforderungen.",
+    "PASSWORD_BREACHED": "Dieses Passwort ist in einem bekannten Datenleck aufgetaucht. Bitte wählen Sie ein anderes.",
     "RATE_LIMITED": "Zu viele Anfragen. Bitte langsamer.",
     "INTERNAL_ERROR": "Ein unerwarteter Fehler ist aufgetreten.",
     "INVALID_CREDENTIALS": "Ungültige E-Mail-Adresse oder Passwort.",

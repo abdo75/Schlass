@@ -12,6 +12,7 @@ import (
 
 	"github.com/abdo75/Schlass/internal/bootstrap"
 	"github.com/abdo75/Schlass/internal/config"
+	"github.com/abdo75/Schlass/internal/crypto"
 	"github.com/abdo75/Schlass/internal/database"
 	"github.com/abdo75/Schlass/internal/handler"
 	"github.com/abdo75/Schlass/internal/oidc"
@@ -85,6 +86,20 @@ func main() {
 	clientStore := store.NewClientStore()
 	clientsHandler := handler.NewClientsHandler(pool, valkeyClient, clientStore, auditStore, publicURL)
 
+	// Construct the HIBP breach-corpus checker when the feature is enabled.
+	// nil is the safe default — every handler treats nil as "check disabled".
+	var hibpChecker *crypto.HIBPChecker
+	if cfg.HIBPEnabled {
+		hibpTimeout := time.Duration(cfg.HIBPTimeoutMS) * time.Millisecond
+		if hibpTimeout == 0 {
+			hibpTimeout = 1500 * time.Millisecond
+		}
+		hibpChecker = &crypto.HIBPChecker{
+			Endpoint:   cfg.HIBPEndpoint,
+			HTTPClient: &http.Client{Timeout: hibpTimeout},
+		}
+	}
+
 	h, err := server.BuildRouter(server.RouterDeps{
 		Cfg:                   cfg,
 		Pool:                  pool,
@@ -100,6 +115,7 @@ func main() {
 		AuthorizeRateLimit:     cfg.AuthorizeRateLimit,
 		UserinfoRateLimit:      cfg.UserinfoRateLimit,
 		ClientsHandler:         clientsHandler,
+		HIBPChecker:            hibpChecker,
 	})
 	if err != nil {
 		slog.Error("failed to build router", "error", err)

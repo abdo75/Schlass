@@ -23,7 +23,7 @@ func setupRouter(env *TestEnv) http.Handler {
 	encKey := []byte("test-encryption-key-32-bytes!!!!")
 	configService := config.NewConfigService(configStore, encKey)
 
-	setupHandler := handler.NewSetupHandler(env.Pool, configService, configStore, userStore, auditStore)
+	setupHandler := handler.NewSetupHandler(env.Pool, configService, configStore, userStore, auditStore, nil)
 	healthHandler := handler.NewHealthHandler(env.Pool, env.ValkeyClient)
 	setupRL := middleware.NewRateLimiter(env.ValkeyClient, "ratelimit:test:setup", 5, time.Minute)
 
@@ -249,7 +249,7 @@ func TestSetupRateLimiting(t *testing.T) {
 	auditStore := store.NewAuditStore()
 	encKey := []byte("test-encryption-key-32-bytes!!!!")
 	configService := config.NewConfigService(configStore, encKey)
-	setupHandler := handler.NewSetupHandler(env.Pool, configService, configStore, userStore, auditStore)
+	setupHandler := handler.NewSetupHandler(env.Pool, configService, configStore, userStore, auditStore, nil)
 
 	rl := middleware.NewRateLimiter(env.ValkeyClient, "ratelimit:test:rl", 3, time.Minute)
 	h := rl.Middleware(http.HandlerFunc(setupHandler.GetSetup))

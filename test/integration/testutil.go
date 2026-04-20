@@ -202,6 +202,12 @@ func (e *TestEnv) BuildDeps() server.RouterDeps {
 		AuthorizeRateLimit: 10000,
 		UserinfoRateLimit:  10000,
 		ClientsHandler:     clientsHandler,
+		// HIBPChecker is intentionally nil for integration tests — avoids
+		// live HIBP network calls which would make tests flaky and slow.
+		// The nil checker is safe: HIBPChecker.IsPwned returns (false, nil)
+		// when the receiver is nil, so all password-set paths succeed
+		// exactly as if HIBP is disabled.
+		HIBPChecker: nil,
 	}
 }
 
@@ -299,6 +305,25 @@ func (e *TestEnv) WithFakeAuditStore(t *testing.T, fn func() error) {
 	newRouter, err := server.BuildRouter(deps)
 	if err != nil {
 		t.Fatalf("rebuild router with fake audit store: %v", err)
+	}
+	e.Router = newRouter
+	t.Cleanup(func() { e.Router = original })
+}
+
+// WithHIBPChecker rebuilds the router with a live HIBPChecker pointed at
+// the provided URL (expected to be an httptest.Server base URL). Restores
+// the original router via t.Cleanup so the swap is scoped to the current test.
+func (e *TestEnv) WithHIBPChecker(t *testing.T, endpoint string) {
+	t.Helper()
+	original := e.Router
+	deps := e.BuildDeps()
+	deps.HIBPChecker = &crypto.HIBPChecker{
+		Endpoint:   endpoint,
+		HTTPClient: &http.Client{Timeout: 2 * time.Second},
+	}
+	newRouter, err := server.BuildRouter(deps)
+	if err != nil {
+		t.Fatalf("rebuild router with hibp: %v", err)
 	}
 	e.Router = newRouter
 	t.Cleanup(func() { e.Router = original })

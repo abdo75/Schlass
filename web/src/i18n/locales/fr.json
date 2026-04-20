@@ -207,6 +207,7 @@
     "SETUP_ALREADY_COMPLETE": "La configuration a déjà été effectuée.",
     "VALIDATION_ERROR": "Saisie invalide.",
     "PASSWORD_POLICY_VIOLATION": "Le mot de passe ne respecte pas les exigences de sécurité.",
+    "PASSWORD_BREACHED": "Ce mot de passe figure dans une fuite de données connue. Choisissez-en un autre.",
     "RATE_LIMITED": "Trop de requêtes. Veuillez ralentir.",
     "INTERNAL_ERROR": "Une erreur inattendue s'est produite.",
     "INVALID_CREDENTIALS": "Adresse e-mail ou mot de passe invalide.",

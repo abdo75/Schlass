@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -36,6 +37,19 @@ type Config struct {
 	// Zero means "use the secure default" (60/min). Intended for E2E test
 	// runs that need to burst past the default.
 	UserinfoRateLimit int64
+	// HIBPEnabled toggles the Have I Been Pwned breach-corpus check on
+	// user-supplied passwords (setup, change-password, self-reset). Zero
+	// / unset = true (on by default). Set SCHLASS_HIBP_ENABLED=false to
+	// disable — intended for offline dev + integration tests.
+	HIBPEnabled bool
+	// HIBPEndpoint overrides the range-API base URL. Empty = production
+	// https://api.pwnedpasswords.com/range. Tests set this to a httptest
+	// server URL so they don't touch the real HIBP service.
+	HIBPEndpoint string
+	// HIBPTimeoutMS bounds the per-request HIBP HTTP call. Zero = 1500ms
+	// (crypto.HIBPChecker default). Integration tests may lower it to
+	// keep the suite fast when the stub is explicitly slow.
+	HIBPTimeoutMS int
 }
 
 func Load() (*Config, error) {
@@ -137,6 +151,28 @@ func Load() (*Config, error) {
 			return nil, fmt.Errorf("SCHLASS_USERINFO_RATE_LIMIT must be a non-negative integer, got %q", raw)
 		}
 		cfg.UserinfoRateLimit = parsed
+	}
+
+	cfg.HIBPEnabled = true
+	if raw := os.Getenv("SCHLASS_HIBP_ENABLED"); raw != "" {
+		switch strings.ToLower(strings.TrimSpace(raw)) {
+		case "false", "0", "off", "no":
+			cfg.HIBPEnabled = false
+		case "true", "1", "on", "yes":
+			cfg.HIBPEnabled = true
+		default:
+			return nil, fmt.Errorf("SCHLASS_HIBP_ENABLED must be boolean-like (true/false), got %q", raw)
+		}
+	}
+	if ep := os.Getenv("SCHLASS_HIBP_ENDPOINT"); ep != "" {
+		cfg.HIBPEndpoint = ep
+	}
+	if raw := os.Getenv("SCHLASS_HIBP_TIMEOUT_MS"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 0 {
+			return nil, fmt.Errorf("SCHLASS_HIBP_TIMEOUT_MS must be a non-negative integer, got %q", raw)
+		}
+		cfg.HIBPTimeoutMS = parsed
 	}
 
 	return cfg, nil

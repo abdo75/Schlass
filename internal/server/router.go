@@ -11,6 +11,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/abdo75/Schlass/internal/config"
+	"github.com/abdo75/Schlass/internal/crypto"
 	"github.com/abdo75/Schlass/internal/handler"
 	"github.com/abdo75/Schlass/internal/middleware"
 	"github.com/abdo75/Schlass/internal/session"
@@ -58,6 +59,11 @@ type RouterDeps struct {
 	// UserinfoRateLimit overrides the per-IP /userinfo rate-limit cap.
 	// Zero means "use 60/min".
 	UserinfoRateLimit int64
+
+	// HIBPChecker is the Have I Been Pwned k-anonymity client. nil disables
+	// the breach-corpus check on all user-supplied password-set handlers.
+	// Integration tests set this to nil to avoid live network calls.
+	HIBPChecker *crypto.HIBPChecker
 }
 
 // BuildRouter assembles the full HTTP handler chain: mux with every route,
@@ -68,9 +74,9 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 	sessionStore := session.NewValkeyStore(d.ValkeyClient, 24*time.Hour)
 
 	healthHandler := handler.NewHealthHandler(d.Pool, d.ValkeyClient)
-	setupHandler := handler.NewSetupHandler(d.Pool, d.ConfigService, d.ConfigStore, d.UserStore, d.AuditStore)
+	setupHandler := handler.NewSetupHandler(d.Pool, d.ConfigService, d.ConfigStore, d.UserStore, d.AuditStore, d.HIBPChecker)
 	authHandler, err := handler.NewAuthHandler(
-		d.Pool, d.ValkeyClient, sessionStore, d.UserStore, d.RecoveryCodeStore, d.AuditStore, d.ConfigStore, d.ConfigService, d.Cfg.SchlassPublicURL,
+		d.Pool, d.ValkeyClient, sessionStore, d.UserStore, d.RecoveryCodeStore, d.AuditStore, d.ConfigStore, d.ConfigService, d.Cfg.SchlassPublicURL, d.HIBPChecker,
 	)
 	if err != nil {
 		return nil, err
@@ -206,6 +212,7 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 		store.NewPasswordResetTokenStore(),
 		d.AuditStore, sessionStore, d.ConfigService,
 		d.Cfg.SchlassPublicURL,
+		d.HIBPChecker,
 	)
 	if err != nil {
 		return nil, err
