@@ -79,3 +79,21 @@ describe("ResetPasswordPage", () => {
     expect(await screen.findByText(/does not meet the policy/i)).toBeInTheDocument();
   });
 });
+
+describe("ResetPasswordPage — password autocomplete", () => {
+  it("marks new-password fields with autocomplete='new-password'", async () => {
+    vi.mocked(authApi.getMe).mockRejectedValue(new Error("unauthorized"));
+    render(
+      <MemoryRouter initialEntries={["/reset-password/some-token"]}>
+        <AuthProvider>
+          <Routes>
+            <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
+          </Routes>
+        </AuthProvider>
+      </MemoryRouter>,
+    );
+    const inputs = await screen.findAllByLabelText(/new password|confirm new password/i);
+    expect(inputs).toHaveLength(2);
+    inputs.forEach((el) => expect(el).toHaveAttribute("autocomplete", "new-password"));
+  });
+});

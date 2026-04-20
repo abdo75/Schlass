@@ -122,11 +122,15 @@ export function ResetPasswordPage() {
           <form onSubmit={(e) => { void handleSubmit(e); }} className="flex flex-col gap-[18px]">
             <div className="flex flex-col gap-2">
               <Label htmlFor="new-pw" className="text-[13px] font-medium">New password</Label>
-              <Input id="new-pw" type="password" required value={password} onChange={(e) => setPassword(e.target.value)} />
+              <Input id="new-pw" type="password" required
+                autoComplete="new-password"
+                value={password} onChange={(e) => setPassword(e.target.value)} />
             </div>
             <div className="flex flex-col gap-2">
               <Label htmlFor="confirm-pw" className="text-[13px] font-medium">Confirm new password</Label>
-              <Input id="confirm-pw" type="password" required value={confirm} onChange={(e) => setConfirm(e.target.value)} />
+              <Input id="confirm-pw" type="password" required
+                autoComplete="new-password"
+                value={confirm} onChange={(e) => setConfirm(e.target.value)} />
             </div>
             {errorCode && (
               <p className="text-sm text-destructive" role="alert">
