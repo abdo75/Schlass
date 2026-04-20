@@ -3,6 +3,7 @@ package middleware
 import (
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -35,10 +36,24 @@ func RequestLogging(next http.Handler) http.Handler {
 		slog.Info("request", //nolint:gosec // G706: slog structured logging is not susceptible to log injection
 			"correlation_id", id,
 			"method", r.Method,
-			"path", r.URL.Path,
+			"path", redactLogPath(r.URL.Path),
 			"status", rw.status,
 			"duration_ms", time.Since(start).Milliseconds(),
 			"ip", r.RemoteAddr,
 		)
 	})
+}
+
+// redactLogPath replaces token-bearing URL segments with a "[redacted]"
+// placeholder so aggregated logs cannot be used to mint a working
+// reset link. The SPA /reset-password/:token is the only URL that
+// carries a plaintext token in the path today; the backend
+// /api/password-reset/* endpoints carry the token in the POST body,
+// where MaxBytesReader already bounds exposure.
+func redactLogPath(path string) string {
+	const prefix = "/reset-password/"
+	if strings.HasPrefix(path, prefix) {
+		return prefix + "[redacted]"
+	}
+	return path
 }
