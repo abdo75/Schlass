@@ -250,6 +250,102 @@ func (h *SettingsHandler) PatchSecurity(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, snap.Security)
 }
 
+// PatchTokens serves PATCH /api/settings/tokens. Two numeric keys
+// (access_token_ttl_secs + refresh_token_ttl_secs); per-field audit-in-tx
+// mirroring PatchSecurity.
+func (h *SettingsHandler) PatchTokens(w http.ResponseWriter, r *http.Request) {
+	actor, ok := middleware.CurrentUser(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "INVALID_SESSION", "Not authenticated.")
+		return
+	}
+	ip := extractClientIP(r)
+
+	r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	var in model.TokenSettings
+	if err := dec.Decode(&in); err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body.")
+		return
+	}
+	if err := model.ValidateTokenSettings(&in); err != nil {
+		writeValidationError(w, err)
+		return
+	}
+
+	pre, err := h.configService.GetSettingsSnapshot(r.Context(), h.pool)
+	if err != nil {
+		slog.Error("settings.PatchTokens: snapshot", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	type change struct {
+		key   string
+		oldV  any
+		newV  any
+		write func(ctx context.Context, tx pgx.Tx) error
+	}
+	var changes []change
+	if in.AccessTokenTTLSecs != nil && *in.AccessTokenTTLSecs != pre.Tokens.AccessTokenTTLSecs {
+		v := *in.AccessTokenTTLSecs
+		changes = append(changes, change{"access_token_ttl_secs", pre.Tokens.AccessTokenTTLSecs, v, func(ctx context.Context, tx pgx.Tx) error {
+			return h.configService.SetInt(ctx, tx, "access_token_ttl_secs", v)
+		}})
+	}
+	if in.RefreshTokenTTLSecs != nil && *in.RefreshTokenTTLSecs != pre.Tokens.RefreshTokenTTLSecs {
+		v := *in.RefreshTokenTTLSecs
+		changes = append(changes, change{"refresh_token_ttl_secs", pre.Tokens.RefreshTokenTTLSecs, v, func(ctx context.Context, tx pgx.Tx) error {
+			return h.configService.SetInt(ctx, tx, "refresh_token_ttl_secs", v)
+		}})
+	}
+
+	if len(changes) == 0 {
+		writeJSON(w, http.StatusOK, pre.Tokens)
+		return
+	}
+
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		slog.Error("settings.PatchTokens: begin tx", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	defer func() { _ = tx.Rollback(r.Context()) }()
+
+	for _, c := range changes {
+		if err := c.write(r.Context(), tx); err != nil {
+			slog.Error("settings.PatchTokens: write", "error", err, "key", c.key)
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+			return
+		}
+		if err := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+			EventType:  "config." + c.key + ".changed",
+			ActorID:    &actor.ID,
+			ActorEmail: actor.Email,
+			TargetType: "instance_config",
+			TargetID:   c.key,
+			IPAddress:  ip,
+			Outcome:    "success",
+			Metadata:   map[string]any{"old_value": c.oldV, "new_value": c.newV},
+		}); err != nil {
+			slog.Error("settings.PatchTokens: audit", "error", err, "key", c.key)
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+			return
+		}
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		slog.Error("settings.PatchTokens: commit", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	snap, _ := h.configService.GetSettingsSnapshot(r.Context(), h.pool)
+	writeJSON(w, http.StatusOK, snap.Tokens)
+}
+
 // writeValidationError maps a *model.ValidationError to a 400 response.
 // Validator Code is SCREAMING_SNAKE_CASE by convention (matches existing
 // codes across the codebase: INVALID_SESSION, USER_NOT_FOUND, etc.); passes

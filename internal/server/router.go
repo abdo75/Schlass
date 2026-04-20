@@ -166,6 +166,8 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 		gated("settings.write", http.HandlerFunc(settingsHandler.PatchGeneral)))
 	mux.Handle("PATCH /api/settings/security",
 		gated("settings.write", http.HandlerFunc(settingsHandler.PatchSecurity)))
+	mux.Handle("PATCH /api/settings/tokens",
+		gated("settings.write", http.HandlerFunc(settingsHandler.PatchTokens)))
 
 	discoveryHandler := handler.NewOIDCDiscoveryHandler(d.Cfg.SchlassPublicURL, d.Pool)
 	mux.HandleFunc("GET /.well-known/openid-configuration", discoveryHandler.GetConfiguration)

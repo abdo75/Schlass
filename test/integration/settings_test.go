@@ -269,3 +269,53 @@ func TestPatchSecurity_UnknownField_Rejected(t *testing.T) {
 		t.Fatalf("got %d, want 400 (DisallowUnknownFields): %s", rec.Code, rec.Body.String())
 	}
 }
+
+// TestPatchTokens_TwoFields covers the happy path for the tokens domain:
+// a single PATCH that touches both token TTL keys emits exactly two
+// config.<key>.changed audit rows — one per dirty field — inside a
+// single PG tx.
+func TestPatchTokens_TwoFields(t *testing.T) {
+	env := NewTestEnv(t)
+	defer env.Close()
+
+	env.SeedAdmin(t, "admin@example.com", "CorrectHorse1Battery")
+	adminCookie := env.LoginAsAdmin(t, "admin@example.com", "CorrectHorse1Battery")
+
+	body, _ := json.Marshal(map[string]any{
+		"access_token_ttl_secs":  1800,
+		"refresh_token_ttl_secs": 172800,
+	})
+	rec := adminPatch(t, env, adminCookie, "/api/settings/tokens", body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("got %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	var count int
+	if err := env.Pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM audit_logs
+		WHERE event_type IN ('config.access_token_ttl_secs.changed', 'config.refresh_token_ttl_secs.changed')
+	`).Scan(&count); err != nil {
+		t.Fatalf("audit query: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("want 2 audit rows, got %d", count)
+	}
+}
+
+// TestPatchTokens_Validation_OutOfRange verifies the validator rejects
+// an access_token_ttl_secs below the 300s floor.
+func TestPatchTokens_Validation_OutOfRange(t *testing.T) {
+	env := NewTestEnv(t)
+	defer env.Close()
+
+	env.SeedAdmin(t, "admin@example.com", "CorrectHorse1Battery")
+	adminCookie := env.LoginAsAdmin(t, "admin@example.com", "CorrectHorse1Battery")
+
+	body, _ := json.Marshal(map[string]any{"access_token_ttl_secs": 60})
+	rec := adminPatch(t, env, adminCookie, "/api/settings/tokens", body)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("got %d, want 400: %s", rec.Code, rec.Body.String())
+	}
+}
