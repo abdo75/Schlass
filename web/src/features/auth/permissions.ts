@@ -18,6 +18,8 @@ export const PERMISSIONS = {
   USERS_RESET_MFA: "users.reset_mfa",
   SIGNING_KEYS_ROTATE: "signing_keys.rotate",
   SIGNING_KEYS_RETIRE: "signing_keys.retire",
+  SETTINGS_READ: "settings.read",
+  SETTINGS_WRITE: "settings.write",
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

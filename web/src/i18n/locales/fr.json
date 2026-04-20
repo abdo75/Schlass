@@ -318,6 +318,9 @@
   "signing_keys": {
     "title": "Clés de signature"
   },
+  "settings": {
+    "title": "Paramètres"
+  },
   "language": {
     "en": "English",
     "fr": "Français",

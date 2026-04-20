@@ -2,10 +2,10 @@ import { describe, it, expect } from "vitest";
 import { PERMISSIONS, permissionsForRole } from "./permissions";
 
 describe("permissions catalog", () => {
-  it("defines 13 permission strings", () => {
+  it("defines 15 permission strings", () => {
     const values = Object.values(PERMISSIONS);
-    expect(values.length).toBe(13);
-    expect(new Set(values).size).toBe(13); // all unique
+    expect(values.length).toBe(15);
+    expect(new Set(values).size).toBe(15); // all unique
   });
 
   it("includes signing_keys.rotate", () => {
@@ -16,6 +16,14 @@ describe("permissions catalog", () => {
     expect(Object.values(PERMISSIONS)).toContain("signing_keys.retire");
   });
 
+  it("includes settings.read", () => {
+    expect(Object.values(PERMISSIONS)).toContain("settings.read");
+  });
+
+  it("includes settings.write", () => {
+    expect(Object.values(PERMISSIONS)).toContain("settings.write");
+  });
+
   it("uses dot-delimited names", () => {
     for (const value of Object.values(PERMISSIONS)) {
       expect(value).toMatch(/^[a-z_]+(\.[a-z_]+)+$/);
@@ -24,10 +32,12 @@ describe("permissions catalog", () => {
 });
 
 describe("permissionsForRole", () => {
-  it("super_admin holds all 13 permissions", () => {
-    expect(permissionsForRole("super_admin").length).toBe(13);
+  it("super_admin holds all 15 permissions", () => {
+    expect(permissionsForRole("super_admin").length).toBe(15);
     expect(permissionsForRole("super_admin")).toContain("signing_keys.rotate");
     expect(permissionsForRole("super_admin")).toContain("signing_keys.retire");
+    expect(permissionsForRole("super_admin")).toContain("settings.read");
+    expect(permissionsForRole("super_admin")).toContain("settings.write");
   });
 
   it("user holds no permissions", () => {
