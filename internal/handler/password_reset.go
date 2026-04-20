@@ -29,9 +29,9 @@ import (
 // PasswordResetHandler serves the public password-reset request endpoint.
 // It is enumeration-safe by construction: every response path returns 200
 // with an empty body regardless of whether the email matched a user, and
-// the unknown-email path runs a dummy Argon2id verify so response timing
-// does not distinguish the two states (mirrors the login enumeration
-// defense described in CLAUDE.md).
+// both the matched and unmatched paths run a dummy Argon2id verify before
+// branching so response timing does not distinguish the two states
+// (mirrors the login enumeration defense described in CLAUDE.md).
 type PasswordResetHandler struct {
 	pool              *pgxpool.Pool
 	valkey            *redis.Client
@@ -80,10 +80,12 @@ func NewPasswordResetHandler(
 
 // PostRequest serves POST /api/password-reset/request. Always returns
 // 200 with empty body regardless of whether the email matches a user —
-// this is the enumeration guard. If the email matches, mint a token +
-// insert + audit + async email send. Otherwise run a constant-time
-// Argon2id verify against the dummy hash so response timing does not
-// distinguish the two paths.
+// this is the enumeration guard. Both the matched and unmatched paths
+// run the dummy Argon2id verify before branching so response timing does
+// not distinguish the two states (mirrors the login enumeration defense
+// described in CLAUDE.md). Disabled/non-active users are treated as
+// unmatched (H5). Any prior unused tokens for the user are invalidated
+// before a fresh token is minted (H1, OWASP-mandated).
 func (h *PasswordResetHandler) PostRequest(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
 	var req struct {
@@ -101,22 +103,28 @@ func (h *PasswordResetHandler) PostRequest(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// C1 — enumeration defense: run the Argon2id cost FIRST, before any
+	// branch that depends on whether the email matched. Every response
+	// path pays the same hash cost (~50ms reference hardware) so an
+	// attacker measuring response time cannot distinguish matched from
+	// unknown. Mirrors login PostLogin's dummy-verify approach.
+	_, _ = crypto.VerifyPassword("dummy-attempt", h.dummyPasswordHash)
+
 	ipStr := extractClientIP(r)
 	ipAddr := parseClientIPAddr(ipStr)
 
 	user, err := h.userStore.GetByEmail(r.Context(), h.pool, email)
-	matched := err == nil && user != nil
+	// H5: disabled / non-active users fall through to the unmatched path.
+	// The login flow already blocks them; a reset email would waste SMTP
+	// and arguably leak account-status signal.
+	matched := err == nil && user != nil && user.Status == "active"
 
 	if !matched {
-		// Constant-time dummy verify so hash cost appears in response timing.
-		// Note: VerifyPassword(password, hash) — password first, hash second.
-		_, _ = crypto.VerifyPassword("dummy-attempt", h.dummyPasswordHash)
-
-		// Best-effort audit in a short-lived tx against the pool. Not
-		// transactional with any state change because there is no state
-		// change — the audit row is the only signal that someone probed
-		// for this email. Failure logs ERROR but does not alter the
-		// response; the 200 contract is absolute.
+		// Best-effort audit against the pool. Not transactional with any
+		// state change because there is no state change — the audit row is
+		// the only signal that someone probed for this email. Failure logs
+		// ERROR but does not alter the response; the 200 contract is
+		// absolute.
 		if auditErr := h.auditStore.Log(r.Context(), h.pool, store.AuditEntry{
 			EventType:  "password_reset.requested",
 			TargetType: "user",
@@ -157,6 +165,15 @@ func (h *PasswordResetHandler) PostRequest(w http.ResponseWriter, r *http.Reques
 	}
 	defer func() { _ = tx.Rollback(r.Context()) }()
 
+	// H1: burn any prior unused tokens for this user before minting a
+	// fresh one, so clicking an older emailed link always fails after a
+	// new /request.
+	if _, err := h.tokenStore.InvalidateOutstandingForUser(r.Context(), tx, user.ID); err != nil {
+		slog.Error("password_reset.request: invalidate prior", "error", err, "user_id", user.ID)
+		writeJSON(w, http.StatusOK, map[string]any{})
+		return
+	}
+
 	tokenID, err := h.tokenStore.Insert(r.Context(), tx, user.ID, plaintextToken, 30*time.Minute, ipAddr)
 	if err != nil {
 		slog.Error("password_reset.request: insert token", "error", err, "user_id", user.ID)
@@ -189,7 +206,7 @@ func (h *PasswordResetHandler) PostRequest(w http.ResponseWriter, r *http.Reques
 	// HTTP response isn't blocked on SMTP, and so the send survives the
 	// client closing the connection before SMTP finishes. Any failure
 	// logs ERROR; no retry in v1 (user can re-request).
-	//nolint:gosec // G118 — deliberate: see comment above (request ctx would be cancelled the moment we return 200).
+	//nolint:gosec // G118 — deliberate: see package doc; request ctx would be cancelled the moment we return.
 	go h.sendResetEmail(user.Email, plaintextToken)
 
 	writeJSON(w, http.StatusOK, map[string]any{})
