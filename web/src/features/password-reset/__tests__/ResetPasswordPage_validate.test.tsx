@@ -32,7 +32,7 @@ function renderAt(path: string) {
 }
 
 describe("ResetPasswordPage — mount-time validation", () => {
-  it("shows loading state until /validate resolves", async () => {
+  it("shows loading state until /validate resolves", () => {
     fetchMock.mockImplementation(() => new Promise(() => {}));
     renderAt("/reset-password/tok");
     expect(screen.getByRole("status")).toHaveTextContent(/checking/i);
@@ -72,7 +72,8 @@ describe("ResetPasswordPage — mount-time validation", () => {
       String(u).endsWith("/api/password-reset/validate"),
     );
     expect(validateCalls).toHaveLength(1);
-    const body = JSON.parse(String(validateCalls[0][1].body));
+    const options = validateCalls[0][1] as RequestInit;
+    const body = JSON.parse(options.body as string) as { token: string };
     expect(body.token).toBe("url-token");
   });
 });
