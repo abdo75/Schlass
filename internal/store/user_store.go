@@ -176,6 +176,28 @@ func (s *UserStore) ResetFailedLogins(ctx context.Context, q database.Querier, u
 	return nil
 }
 
+// ClearLockoutForPasswordChange unconditionally clears
+// failed_login_attempts and locked_until. Called inside the password-
+// mutation tx of both PostConfirm (self-reset) and users.ResetPassword
+// (admin-reset). Unlike ResetFailedLogins (which refuses to clear an
+// active lock to preserve lockout-duration against concurrent races),
+// this method assumes the caller has just successfully changed the
+// password, which is a stronger-than-login signal that the user is
+// legitimate and the lock should end.
+func (s *UserStore) ClearLockoutForPasswordChange(ctx context.Context, q database.Querier, userID uuid.UUID) error {
+	_, err := q.Exec(ctx, `
+		UPDATE users
+		SET failed_login_attempts = 0,
+		    locked_until = NULL,
+		    updated_at = now()
+		WHERE id = $1
+	`, userID)
+	if err != nil {
+		return fmt.Errorf("clear lockout for password change: %w", err)
+	}
+	return nil
+}
+
 // ListUsersParams controls the List query.
 type ListUsersParams struct {
 	Limit       int
@@ -366,4 +388,19 @@ func (s *UserStore) SetLastLoginAt(ctx context.Context, q database.Querier, id u
 		return ErrUserNotFound
 	}
 	return nil
+}
+
+// GetEmail returns the lowercase email for the given user id, or
+// ErrUserNotFound if the row is absent. Lighter than GetByID when only
+// the email address is needed (e.g. post-commit notification path).
+func (s *UserStore) GetEmail(ctx context.Context, q database.Querier, id uuid.UUID) (string, error) {
+	var email string
+	err := q.QueryRow(ctx, `SELECT email FROM users WHERE id = $1`, id).Scan(&email)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", ErrUserNotFound
+		}
+		return "", fmt.Errorf("get email: %w", err)
+	}
+	return email, nil
 }

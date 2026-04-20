@@ -322,6 +322,40 @@
   "settings": {
     "title": "Einstellungen"
   },
+  "password_reset": {
+    "forgot": {
+      "title": "Passwort zurücksetzen",
+      "description": "Geben Sie die E-Mail-Adresse Ihres Kontos ein, und wir senden Ihnen einen Link zum Zurücksetzen Ihres Passworts.",
+      "email_label": "E-Mail",
+      "email_placeholder": "sie@beispiel.de",
+      "submit": "Link senden",
+      "submitting": "Senden…",
+      "back_to_login": "← Zurück zur Anmeldung",
+      "sent_title": "Prüfen Sie Ihre E-Mails",
+      "sent_body": "Falls ein Konto für <1>{{email}}</1> existiert, wurde ein Link zum Zurücksetzen versendet. Der Link läuft in 30 Minuten ab."
+    },
+    "reset": {
+      "loading_title": "Link wird geprüft…",
+      "loading_body": "Einen Moment, wir prüfen, ob der Link noch gültig ist.",
+      "invalid_title": "Dieser Link ist nicht mehr gültig",
+      "invalid_body": "Zurücksetz-Links laufen nach 30 Minuten ab und können nur einmal verwendet werden. Fordern Sie einen neuen Link an, um fortzufahren.",
+      "invalid_cta": "Neuen Link anfordern",
+      "form_title": "Neues Passwort festlegen",
+      "form_description": "Mindestens 12 Zeichen, mit einem Großbuchstaben und einer Ziffer.",
+      "new_password_label": "Neues Passwort",
+      "confirm_password_label": "Neues Passwort bestätigen",
+      "submit": "Passwort zurücksetzen",
+      "submitting": "Wird zurückgesetzt…",
+      "success_title": "Passwort zurückgesetzt",
+      "success_body": "Ihr Passwort wurde aktualisiert. Alle Sitzungen oder Token, die vor diesem Moment ausgestellt wurden, wurden abgemeldet.",
+      "success_cta": "Anmelden",
+      "err": {
+        "mismatch": "Passwörter stimmen nicht überein.",
+        "policy": "Das Passwort erfüllt die Richtlinie nicht (mindestens 12 Zeichen, mit Großbuchstaben und Ziffer).",
+        "generic": "Passwort konnte nicht zurückgesetzt werden."
+      }
+    }
+  },
   "language": {
     "en": "English",
     "fr": "Français",

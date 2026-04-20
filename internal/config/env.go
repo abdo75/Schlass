@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/base64"
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 
@@ -85,6 +86,16 @@ func Load() (*Config, error) {
 	}
 
 	if publicURL := os.Getenv("SCHLASS_PUBLIC_URL"); publicURL != "" {
+		u, err := url.Parse(publicURL)
+		if err != nil {
+			return nil, fmt.Errorf("SCHLASS_PUBLIC_URL: parse: %w", err)
+		}
+		if u.Scheme != "http" && u.Scheme != "https" {
+			return nil, fmt.Errorf("SCHLASS_PUBLIC_URL must use http or https scheme, got %q", publicURL)
+		}
+		if u.Host == "" {
+			return nil, fmt.Errorf("SCHLASS_PUBLIC_URL must include a host, got %q", publicURL)
+		}
 		cfg.SchlassPublicURL = publicURL
 	}
 

@@ -44,6 +44,9 @@ func ValidateGeneralSettings(s *GeneralSettings) error {
 	if len(name) > 64 {
 		return &ValidationError{Field: "instance_name", Code: "INSTANCE_NAME_TOO_LONG"}
 	}
+	if strings.ContainsAny(name, "\r\n\x00") {
+		return &ValidationError{Field: "instance_name", Code: "INSTANCE_NAME_INVALID"}
+	}
 	return nil
 }
 
@@ -109,7 +112,14 @@ func ValidateEmailSettings(s *EmailSettings) error {
 		if addr == "" {
 			return &ValidationError{Field: "smtp_from", Code: "SMTP_FROM_REQUIRED"}
 		}
-		if _, err := mail.ParseAddress(addr); err != nil {
+		if strings.ContainsAny(addr, "\r\n\x00") {
+			return &ValidationError{Field: "smtp_from", Code: "SMTP_FROM_INVALID"}
+		}
+		parsed, err := mail.ParseAddress(addr)
+		if err != nil {
+			return &ValidationError{Field: "smtp_from", Code: "SMTP_FROM_INVALID"}
+		}
+		if strings.ContainsAny(parsed.Name, "\r\n\x00") {
 			return &ValidationError{Field: "smtp_from", Code: "SMTP_FROM_INVALID"}
 		}
 	}

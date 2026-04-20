@@ -322,6 +322,40 @@
   "settings": {
     "title": "Settings"
   },
+  "password_reset": {
+    "forgot": {
+      "title": "Reset your password",
+      "description": "Enter the email for your account and we'll send you a link to reset your password.",
+      "email_label": "Email",
+      "email_placeholder": "you@example.com",
+      "submit": "Send reset link",
+      "submitting": "Sending…",
+      "back_to_login": "← Back to sign in",
+      "sent_title": "Check your email",
+      "sent_body": "If an account exists for <1>{{email}}</1>, a password reset link has been sent. The link expires in 30 minutes."
+    },
+    "reset": {
+      "loading_title": "Checking reset link…",
+      "loading_body": "One moment while we verify this link is still valid.",
+      "invalid_title": "This reset link is no longer valid",
+      "invalid_body": "Reset links expire after 30 minutes and can only be used once. Request a new link to continue.",
+      "invalid_cta": "Request a new link",
+      "form_title": "Set a new password",
+      "form_description": "At least 12 characters, with an uppercase letter and a digit.",
+      "new_password_label": "New password",
+      "confirm_password_label": "Confirm new password",
+      "submit": "Reset password",
+      "submitting": "Resetting…",
+      "success_title": "Password reset",
+      "success_body": "Your password has been updated. Any sessions or tokens issued before this moment have been signed out.",
+      "success_cta": "Sign in",
+      "err": {
+        "mismatch": "Passwords don't match.",
+        "policy": "Password does not meet the policy (at least 12 characters, with an uppercase letter and a digit).",
+        "generic": "Unable to reset password."
+      }
+    }
+  },
   "language": {
     "en": "English",
     "fr": "Français",

@@ -493,13 +493,34 @@ func (h *SettingsHandler) PatchEmail(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, snap.Email)
 }
 
+// categorizeSMTPError maps a mail-package error to a stable client-facing
+// code + safe human message. The raw err.Error() can embed internal DNS
+// names, IPs, and STARTTLS certificate chain details — admin-only, but
+// still undesirable on any UI surface that an XSS or admin-session theft
+// could scrape.
+func categorizeSMTPError(err error) (code, msg string) {
+	s := err.Error()
+	switch {
+	case strings.Contains(s, "dial smtp"):
+		return "SMTP_DIAL_FAILED", "Could not reach the SMTP server. Check host and port."
+	case strings.Contains(s, "starttls"):
+		return "SMTP_TLS_FAILED", "TLS handshake failed. Check the server certificate and port."
+	case strings.Contains(s, "auth"):
+		return "SMTP_AUTH_FAILED", "SMTP authentication failed. Check username and password."
+	case strings.Contains(s, "mail from"), strings.Contains(s, "rcpt"):
+		return "SMTP_ADDRESS_REJECTED", "The server rejected the sender or recipient address."
+	default:
+		return "SMTP_DELIVERY_FAILED", "SMTP delivery failed. Check server logs for details."
+	}
+}
+
 // TestEmail serves POST /api/settings/email/test. Sends a one-off message
 // to the currently-authenticated admin's own email using the saved SMTP
 // config. Returns 400 SMTP_CONFIG_INCOMPLETE if required fields are unset,
-// 502 SMTP_DELIVERY_FAILED on transport / auth error.
+// 502 on transport / auth error with a stable code that does not leak
+// internal addresses or TLS details.
 //
-// Admin-only (gated by settings.write) — no per-IP rate limit in v1; the
-// error-detail field returns the raw SMTP error string so admins can debug.
+// Admin-only (gated by settings.write) — no per-IP rate limit in v1.
 // last_tested_at surfacing is deferred to M6+ (Email tab status line reads
 // the `delivered_at` in the response body for the initial UX).
 func (h *SettingsHandler) TestEmail(w http.ResponseWriter, r *http.Request) {
@@ -526,7 +547,8 @@ func (h *SettingsHandler) TestEmail(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := sender.TestConnection(r.Context(), actor.Email, instanceName); err != nil {
 		slog.Error("settings.TestEmail: send", "error", err, "actor", actor.Email)
-		writeError(w, http.StatusBadGateway, "SMTP_DELIVERY_FAILED", err.Error())
+		code, msg := categorizeSMTPError(err)
+		writeError(w, http.StatusBadGateway, code, msg)
 		return
 	}
 

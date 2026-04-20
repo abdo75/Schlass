@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
@@ -29,9 +30,9 @@ import (
 // PasswordResetHandler serves the public password-reset request endpoint.
 // It is enumeration-safe by construction: every response path returns 200
 // with an empty body regardless of whether the email matched a user, and
-// the unknown-email path runs a dummy Argon2id verify so response timing
-// does not distinguish the two states (mirrors the login enumeration
-// defense described in CLAUDE.md).
+// both the matched and unmatched paths run a dummy Argon2id verify before
+// branching so response timing does not distinguish the two states
+// (mirrors the login enumeration defense described in CLAUDE.md).
 type PasswordResetHandler struct {
 	pool              *pgxpool.Pool
 	valkey            *redis.Client
@@ -80,10 +81,12 @@ func NewPasswordResetHandler(
 
 // PostRequest serves POST /api/password-reset/request. Always returns
 // 200 with empty body regardless of whether the email matches a user —
-// this is the enumeration guard. If the email matches, mint a token +
-// insert + audit + async email send. Otherwise run a constant-time
-// Argon2id verify against the dummy hash so response timing does not
-// distinguish the two paths.
+// this is the enumeration guard. Both the matched and unmatched paths
+// run the dummy Argon2id verify before branching so response timing does
+// not distinguish the two states (mirrors the login enumeration defense
+// described in CLAUDE.md). Disabled/non-active users are treated as
+// unmatched (H5). Any prior unused tokens for the user are invalidated
+// before a fresh token is minted (H1, OWASP-mandated).
 func (h *PasswordResetHandler) PostRequest(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
 	var req struct {
@@ -92,31 +95,45 @@ func (h *PasswordResetHandler) PostRequest(w http.ResponseWriter, r *http.Reques
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		// Even on decode error: return 200. Uniform outer shape so callers
 		// cannot distinguish "bad JSON" from "unknown email".
-		w.WriteHeader(http.StatusOK)
+		writeJSON(w, http.StatusOK, map[string]any{})
 		return
 	}
 	email := strings.TrimSpace(strings.ToLower(req.Email))
 	if err := model.ValidateEmail(email); err != nil {
-		w.WriteHeader(http.StatusOK)
+		writeJSON(w, http.StatusOK, map[string]any{})
 		return
 	}
+
+	// C1 — enumeration defense: run the Argon2id cost FIRST, before any
+	// branch that depends on whether the email matched. Every response
+	// path pays the same hash cost (~50ms reference hardware) so an
+	// attacker measuring response time cannot distinguish matched from
+	// unknown. Mirrors login PostLogin's dummy-verify approach.
+	_, _ = crypto.VerifyPassword("dummy-attempt", h.dummyPasswordHash)
 
 	ipStr := extractClientIP(r)
 	ipAddr := parseClientIPAddr(ipStr)
 
 	user, err := h.userStore.GetByEmail(r.Context(), h.pool, email)
-	matched := err == nil && user != nil
+	if err != nil && !errors.Is(err, store.ErrUserNotFound) {
+		// Real pool error (not just "no such user") — log it distinctly
+		// so operators can diagnose PG outages, then still return 200
+		// to preserve the enumeration-safety contract.
+		slog.Error("password_reset.request: lookup", "error", err)
+		writeJSON(w, http.StatusOK, map[string]any{})
+		return
+	}
+	// H5: disabled / non-active users fall through to the unmatched path.
+	// The login flow already blocks them; a reset email would waste SMTP
+	// and arguably leak account-status signal.
+	matched := err == nil && user != nil && user.Status == "active"
 
 	if !matched {
-		// Constant-time dummy verify so hash cost appears in response timing.
-		// Note: VerifyPassword(password, hash) — password first, hash second.
-		_, _ = crypto.VerifyPassword("dummy-attempt", h.dummyPasswordHash)
-
-		// Best-effort audit in a short-lived tx against the pool. Not
-		// transactional with any state change because there is no state
-		// change — the audit row is the only signal that someone probed
-		// for this email. Failure logs ERROR but does not alter the
-		// response; the 200 contract is absolute.
+		// Best-effort audit against the pool. Not transactional with any
+		// state change because there is no state change — the audit row is
+		// the only signal that someone probed for this email. Failure logs
+		// ERROR but does not alter the response; the 200 contract is
+		// absolute.
 		if auditErr := h.auditStore.Log(r.Context(), h.pool, store.AuditEntry{
 			EventType:  "password_reset.requested",
 			TargetType: "user",
@@ -129,14 +146,7 @@ func (h *PasswordResetHandler) PostRequest(w http.ResponseWriter, r *http.Reques
 		}); auditErr != nil {
 			slog.Error("password_reset.request: audit unmatched", "error", auditErr)
 		}
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	if err != nil && !errors.Is(err, store.ErrUserNotFound) {
-		// Pool error on lookup — log and still return 200 (enumeration
-		// guard). Request is lost; client can retry.
-		slog.Error("password_reset.request: lookup", "error", err)
-		w.WriteHeader(http.StatusOK)
+		writeJSON(w, http.StatusOK, map[string]any{})
 		return
 	}
 
@@ -144,7 +154,7 @@ func (h *PasswordResetHandler) PostRequest(w http.ResponseWriter, r *http.Reques
 	var raw [32]byte
 	if _, err := rand.Read(raw[:]); err != nil {
 		slog.Error("password_reset.request: rand", "error", err)
-		w.WriteHeader(http.StatusOK)
+		writeJSON(w, http.StatusOK, map[string]any{})
 		return
 	}
 	plaintextToken := base64.RawURLEncoding.EncodeToString(raw[:])
@@ -152,15 +162,24 @@ func (h *PasswordResetHandler) PostRequest(w http.ResponseWriter, r *http.Reques
 	tx, err := h.pool.Begin(r.Context())
 	if err != nil {
 		slog.Error("password_reset.request: begin tx", "error", err)
-		w.WriteHeader(http.StatusOK)
+		writeJSON(w, http.StatusOK, map[string]any{})
 		return
 	}
 	defer func() { _ = tx.Rollback(r.Context()) }()
 
+	// H1: burn any prior unused tokens for this user before minting a
+	// fresh one, so clicking an older emailed link always fails after a
+	// new /request.
+	if _, err := h.tokenStore.InvalidateOutstandingForUser(r.Context(), tx, user.ID); err != nil {
+		slog.Error("password_reset.request: invalidate prior", "error", err, "user_id", user.ID)
+		writeJSON(w, http.StatusOK, map[string]any{})
+		return
+	}
+
 	tokenID, err := h.tokenStore.Insert(r.Context(), tx, user.ID, plaintextToken, 30*time.Minute, ipAddr)
 	if err != nil {
 		slog.Error("password_reset.request: insert token", "error", err, "user_id", user.ID)
-		w.WriteHeader(http.StatusOK)
+		writeJSON(w, http.StatusOK, map[string]any{})
 		return
 	}
 
@@ -175,13 +194,13 @@ func (h *PasswordResetHandler) PostRequest(w http.ResponseWriter, r *http.Reques
 		Metadata:   map[string]any{"email_matched": true, "token_id": tokenID.String()},
 	}); err != nil {
 		slog.Error("password_reset.request: audit", "error", err, "user_id", user.ID)
-		w.WriteHeader(http.StatusOK)
+		writeJSON(w, http.StatusOK, map[string]any{})
 		return
 	}
 
 	if err := tx.Commit(r.Context()); err != nil {
 		slog.Error("password_reset.request: commit", "error", err, "user_id", user.ID)
-		w.WriteHeader(http.StatusOK)
+		writeJSON(w, http.StatusOK, map[string]any{})
 		return
 	}
 
@@ -189,10 +208,10 @@ func (h *PasswordResetHandler) PostRequest(w http.ResponseWriter, r *http.Reques
 	// HTTP response isn't blocked on SMTP, and so the send survives the
 	// client closing the connection before SMTP finishes. Any failure
 	// logs ERROR; no retry in v1 (user can re-request).
-	//nolint:gosec // G118 — deliberate: see comment above (request ctx would be cancelled the moment we return 200).
+	//nolint:gosec // G118 — deliberate: see package doc; request ctx would be cancelled the moment we return.
 	go h.sendResetEmail(user.Email, plaintextToken)
 
-	w.WriteHeader(http.StatusOK)
+	writeJSON(w, http.StatusOK, map[string]any{})
 }
 
 // PostConfirm serves POST /api/password-reset/confirm. Validates the
@@ -235,6 +254,7 @@ func (h *PasswordResetHandler) PostConfirm(w http.ResponseWriter, r *http.Reques
 	token, err := h.tokenStore.GetByTokenForUpdate(r.Context(), tx, req.Token)
 	if err != nil {
 		if errors.Is(err, store.ErrResetTokenNotFound) {
+			h.auditConfirmFailed(r.Context(), "token_not_found", ip, nil)
 			writeError(w, http.StatusBadRequest, "INVALID_TOKEN", "Reset link is no longer valid.")
 			return
 		}
@@ -243,6 +263,8 @@ func (h *PasswordResetHandler) PostConfirm(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if token.UsedAt != nil || time.Now().After(token.ExpiresAt) {
+		uid := token.UserID
+		h.auditConfirmFailed(r.Context(), "token_invalid", ip, &uid)
 		writeError(w, http.StatusBadRequest, "INVALID_TOKEN", "Reset link is no longer valid.")
 		return
 	}
@@ -254,6 +276,8 @@ func (h *PasswordResetHandler) PostConfirm(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if err := model.ValidatePassword(req.Password, policy); err != nil {
+		uid := token.UserID
+		h.auditConfirmFailed(r.Context(), "policy_violation", ip, &uid)
 		writeError(w, http.StatusBadRequest, "PASSWORD_POLICY_VIOLATION", err.Error())
 		return
 	}
@@ -270,6 +294,11 @@ func (h *PasswordResetHandler) PostConfirm(w http.ResponseWriter, r *http.Reques
 	// sign-in. Matches auth.PostChangePassword, not admin reset-password.
 	if err := h.userStore.SetPasswordHash(r.Context(), tx, token.UserID, hash, false); err != nil {
 		slog.Error("password_reset.confirm: set password hash", "error", err, "user_id", token.UserID)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if err := h.userStore.ClearLockoutForPasswordChange(r.Context(), tx, token.UserID); err != nil {
+		slog.Error("password_reset.confirm: clear lockout", "error", err, "user_id", token.UserID)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 		return
 	}
@@ -332,7 +361,100 @@ func (h *PasswordResetHandler) PostConfirm(w http.ResponseWriter, r *http.Reques
 		slog.Error("password_reset.confirm: session wipe", "error", err, "user_id", userID)
 	}
 
+	// H3: OWASP out-of-band notify the account owner of the password
+	// change. Look up the email now (we have userID from the tx);
+	// the goroutine captures the string, not a DB handle.
+	if userEmail, err := h.userStore.GetEmail(r.Context(), h.pool, userID); err == nil && userEmail != "" {
+		//nolint:gosec // G118 — fire-and-forget; see sendResetEmail for rationale.
+		go h.sendPasswordChangedEmail(userEmail)
+	} else if err != nil {
+		slog.Error("password_reset.confirm: lookup email for notify", "error", err, "user_id", userID)
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{"user_id": userID.String()})
+}
+
+// PostValidate serves POST /api/password-reset/validate. Read-only
+// check consumed by ResetPasswordPage on mount: returns 200 {} iff the
+// token resolves to an unused, unexpired row. 400 INVALID_TOKEN
+// otherwise — not-found / expired / used collapse to the same code for
+// uniformity with PostConfirm (no state mutation, no audit row; rate-limited
+// via the shared passwordResetRL bucket at the router).
+//
+// Deliberately read-only: the token is 32-byte crypto/rand, so brute-
+// force is infeasible within the 30-minute TTL and a per-IP limit
+// would only add flakiness. The request body is capped at 64KB via
+// MaxBytesReader to match the other reset endpoints.
+func (h *PasswordResetHandler) PostValidate(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
+	var req struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body.")
+		return
+	}
+	if req.Token == "" {
+		writeError(w, http.StatusBadRequest, "INVALID_TOKEN", "Reset link is no longer valid.")
+		return
+	}
+	token, err := h.tokenStore.GetByToken(r.Context(), h.pool, req.Token)
+	if err != nil {
+		if errors.Is(err, store.ErrResetTokenNotFound) {
+			writeError(w, http.StatusBadRequest, "INVALID_TOKEN", "Reset link is no longer valid.")
+			return
+		}
+		slog.Error("password_reset.validate: get token", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if token.UsedAt != nil || time.Now().After(token.ExpiresAt) {
+		writeError(w, http.StatusBadRequest, "INVALID_TOKEN", "Reset link is no longer valid.")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{})
+}
+
+// auditConfirmFailed writes a best-effort password_reset.confirm_failed
+// audit row against the pool (NOT the confirm tx — on the failure paths
+// the tx is about to be rolled back, so tx-scoped audit would roll back
+// with it). Called on every 400 error path in PostConfirm.
+func (h *PasswordResetHandler) auditConfirmFailed(ctx context.Context, reason, ip string, userID *uuid.UUID) {
+	entry := store.AuditEntry{
+		EventType:  "password_reset.confirm_failed",
+		TargetType: "user",
+		IPAddress:  ip,
+		Outcome:    "failure",
+		Metadata:   map[string]any{"reason": reason},
+	}
+	if userID != nil {
+		entry.ActorID = userID
+		entry.TargetID = userID.String()
+	}
+	if err := h.auditStore.Log(ctx, h.pool, entry); err != nil {
+		slog.Error("password_reset.confirm_failed: audit", "error", err, "reason", reason)
+	}
+}
+
+// sendPasswordChangedEmail runs in a goroutine post-commit. Mirrors
+// sendResetEmail's fire-and-forget pattern — no retry in v1, audit is
+// the load-bearing compliance event.
+func (h *PasswordResetHandler) sendPasswordChangedEmail(to string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	sender, err := mail.NewSenderFromConfig(ctx, h.configService, h.pool)
+	if err != nil {
+		slog.Error("password_reset.confirm: notify sender", "error", err, "to", to)
+		return
+	}
+	instanceName, _ := h.configService.GetInstanceName(ctx, h.pool)
+	if instanceName == "" {
+		instanceName = "Schlass"
+	}
+	if err := sender.SendPasswordChanged(ctx, to, instanceName); err != nil {
+		slog.Error("password_reset.confirm: notify send", "error", err, "to", to)
+	}
 }
 
 // sendResetEmail runs in a goroutine post-commit. Loads SMTP config +

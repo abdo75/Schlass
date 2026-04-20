@@ -152,6 +152,7 @@ export function EmailTab({ value, onChange, isDirty }: Props) {
           <input
             id="smtp-pw"
             type="password"
+            autoComplete="new-password"
             value={displayPassword}
             onChange={(e) => onChange({ ...value, password: e.target.value })}
             onFocus={(e) => {

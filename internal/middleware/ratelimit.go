@@ -18,6 +18,12 @@ type RateLimiter struct {
 	prefix string
 	limit  int64
 	window time.Duration
+	// FailClosed toggles behavior on Valkey error. false (default)
+	// passes the request through, preserving availability under a
+	// Valkey blip. true responds 503 — appropriate for security-
+	// critical routes (login, MFA challenge, password-reset) where
+	// an outage must not remove the brute-force guard.
+	FailClosed bool
 }
 
 func NewRateLimiter(client *redis.Client, prefix string, limit int64, window time.Duration) *RateLimiter {
@@ -36,7 +42,13 @@ func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
 
 		allowed, retryAfter, err := rl.allow(r.Context(), key)
 		if err != nil {
-			slog.Error("rate limiter error", "error", err, "key", key) //nolint:gosec // G706: slog structured logging is not susceptible to log injection
+			slog.Error("rate limiter error", "error", err, "key", key, "fail_closed", rl.FailClosed) //nolint:gosec // G706: slog structured logging is not susceptible to log injection
+			if rl.FailClosed {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = w.Write([]byte(`{"error":"SERVICE_UNAVAILABLE","message":"Service temporarily unavailable. Please try again."}`))
+				return
+			}
 			next.ServeHTTP(w, r)
 			return
 		}

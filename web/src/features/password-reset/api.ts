@@ -17,3 +17,14 @@ export function confirmPasswordReset(token: string, password: string) {
     body: JSON.stringify({ token, password }),
   });
 }
+
+// validateResetToken pings the backend /validate endpoint — read-only
+// token check on page mount, so the reset form only renders after the
+// token is confirmed valid. Throws an apiFetch error (code =
+// "INVALID_TOKEN") on expired / used / unknown tokens.
+export function validateResetToken(token: string) {
+  return apiFetch<Record<string, never>>("/api/password-reset/validate", {
+    method: "POST",
+    body: JSON.stringify({ token }),
+  });
+}
