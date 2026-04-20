@@ -209,6 +209,11 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 	}
 	mux.Handle("POST /api/password-reset/request",
 		passwordResetRL.Middleware(http.HandlerFunc(passwordResetHandler.PostRequest)))
+	// Validate is read-only and enumeration-equivalent to /confirm's not-
+	// found path; reuse the same per-IP rate limiter as /request to bound
+	// the attack surface without a dedicated bucket.
+	mux.Handle("POST /api/password-reset/validate",
+		passwordResetRL.Middleware(http.HandlerFunc(passwordResetHandler.PostValidate)))
 	// Confirm is not rate-limited: token possession is the auth factor.
 	// The token is 32-byte crypto/rand (~256 bits) — brute-force is
 	// impossible within the 30-minute TTL, so an IP-level limiter on this
