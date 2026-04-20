@@ -68,7 +68,7 @@ Every state-changing operation must write to `audit_logs` with: event_type, acto
 
 Every handler that writes to `instance_config` must audit `config.<key>.changed` inside the same Postgres transaction as the write, following the Audit-in-tx rule above. `instance_config` is where security policy lives (MFA requirement, password policy, lockout thresholds, signing key ops, SMTP, token TTLs — see `docs/v1-scope.md` §"Security & Instance Configuration"). Configuration changes are the audit trail item regulators scrutinize most; there is no acceptable "best-effort" exception analogous to middleware session revocation.
 
-This rule is currently aspirational — no post-setup config-write handler exists (setup is the only writer, and it audits `setup.completed`). When the first admin config-mutation endpoint lands in Sprint 4+, it must ship with an integration test that reads the row and asserts `event_type LIKE 'config.%.changed'` within the same request.
+This rule is implemented by `internal/handler/settings.go` (Sprint 6b M5). The four `PATCH /api/settings/:domain` endpoints (General, Security, Tokens, Email) each emit one `config.<key>.changed` audit row per changed field inside the same PG tx as the `instance_config` write. Integration tests in `test/integration/settings_test.go` assert atomicity and no-op skip (unchanged values write no audit row). `smtp_password` is the only field whose audit metadata is `{"changed": true}` rather than `{"old_value", "new_value"}` — never leak plaintext/ciphertext. When adding new admin config fields, follow the `settings.go` pattern: snapshot pre-values → build change list → open tx → loop write+audit → commit. Never grant a config-writing code path that bypasses audit-in-tx.
 
 ### Sessions & Auth (Sprint 2+)
 
