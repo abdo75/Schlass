@@ -68,6 +68,6 @@ describe("SettingsPage shell", () => {
     render(wrap());
     await waitFor(() => expect(getSettings).toHaveBeenCalled());
     await userEvent.click(screen.getByRole("button", { name: "Email" }));
-    expect(screen.getByText(/Email tab/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "SMTP server" })).toBeInTheDocument();
   });
 });

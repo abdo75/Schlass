@@ -5,6 +5,8 @@ import {
   patchGeneral,
   patchSecurity,
   patchTokens,
+  patchEmail,
+  type PatchEmailBody,
   type SettingsSnapshot,
   type SecuritySettings,
   type TokenSettings,
@@ -14,6 +16,7 @@ import { FloatingSaveBar } from "./FloatingSaveBar";
 import { GeneralTab } from "./GeneralTab";
 import { SecurityTab } from "./SecurityTab";
 import { TokensTab } from "./TokensTab";
+import { EmailTab, type EmailTabValue } from "./EmailTab";
 
 type TabKey = "general" | "security" | "tokens" | "email";
 
@@ -26,7 +29,13 @@ interface Buffer {
   general?: { instance_name?: string };
   security?: Partial<SecuritySettings>;
   tokens?: Partial<TokenSettings>;
-  // email plugged in T11.
+  email?: {
+    host?: string;
+    port?: number;
+    username?: string;
+    password?: string;
+    from?: string;
+  };
 }
 
 export function SettingsPage() {
@@ -105,6 +114,36 @@ export function SettingsPage() {
     ? { ...snapshot.tokens, ...(buffer.tokens ?? {}) }
     : { access_token_ttl_secs: 900, refresh_token_ttl_secs: 86400 };
 
+  // Email current value = snapshot merged with any buffered overrides.
+  // The password field is special: an empty string in the buffer means
+  // "keep current" — the bullet placeholder is rendered inside EmailTab
+  // based on passwordSet, not by pre-populating the buffer here.
+  const currentEmail: EmailTabValue = snapshot
+    ? {
+        host: buffer.email?.host ?? snapshot.email.smtp_host,
+        port: buffer.email?.port ?? snapshot.email.smtp_port,
+        username: buffer.email?.username ?? snapshot.email.smtp_username,
+        password: buffer.email?.password ?? "",
+        from: buffer.email?.from ?? snapshot.email.smtp_from,
+        passwordSet: snapshot.email.smtp_password_set,
+      }
+    : { host: "", port: 587, username: "", password: "", from: "", passwordSet: false };
+
+  // Dirty Email count — stricter than the other tabs. Empty password is
+  // NOT a change (keep-current semantic), so a buffered empty password
+  // contributes 0 to dirty count. Non-empty always counts.
+  const dirtyEmailCount = useMemo(() => {
+    if (snapshot === null || !buffer.email) return 0;
+    let n = 0;
+    if (buffer.email.host !== undefined && buffer.email.host !== snapshot.email.smtp_host) n++;
+    if (buffer.email.port !== undefined && buffer.email.port !== snapshot.email.smtp_port) n++;
+    if (buffer.email.username !== undefined && buffer.email.username !== snapshot.email.smtp_username) n++;
+    if (buffer.email.from !== undefined && buffer.email.from !== snapshot.email.smtp_from) n++;
+    // Password: only counts as dirty when non-empty (empty = keep current).
+    if (buffer.email.password !== undefined && buffer.email.password !== "") n++;
+    return n;
+  }, [snapshot, buffer.email]);
+
   // Dirty field count across all tabs.
   const dirtyCount = useMemo(() => {
     if (snapshot === null) return 0;
@@ -116,9 +155,9 @@ export function SettingsPage() {
       n++;
     n += dirtySecurityKeys.size;
     n += dirtyTokenKeys.size;
-    // T11 will add email count here.
+    n += dirtyEmailCount;
     return n;
-  }, [snapshot, buffer, dirtySecurityKeys, dirtyTokenKeys]);
+  }, [snapshot, buffer, dirtySecurityKeys, dirtyTokenKeys, dirtyEmailCount]);
 
   async function handleSave() {
     if (snapshot === null || dirtyCount === 0) return;
@@ -145,7 +184,23 @@ export function SettingsPage() {
         });
         await patchTokens(payload);
       }
-      // T11 will add email saves here.
+      if (dirtyEmailCount > 0 && buffer.email) {
+        const payload: PatchEmailBody = {};
+        if (buffer.email.host !== undefined && buffer.email.host !== snapshot.email.smtp_host)
+          payload.smtp_host = buffer.email.host;
+        if (buffer.email.port !== undefined && buffer.email.port !== snapshot.email.smtp_port)
+          payload.smtp_port = buffer.email.port;
+        if (buffer.email.username !== undefined && buffer.email.username !== snapshot.email.smtp_username)
+          payload.smtp_username = buffer.email.username;
+        if (buffer.email.from !== undefined && buffer.email.from !== snapshot.email.smtp_from)
+          payload.smtp_from = buffer.email.from;
+        // Only include password when non-empty (empty = keep current).
+        if (buffer.email.password !== undefined && buffer.email.password !== "")
+          payload.smtp_password = buffer.email.password;
+        if (Object.keys(payload).length > 0) {
+          await patchEmail(payload);
+        }
+      }
       await load();
     } catch (err: unknown) {
       setError(friendlyError(err));
@@ -231,7 +286,22 @@ export function SettingsPage() {
                 />
               )}
               {activeTab === "email" && (
-                <p className="text-sm text-muted-foreground">Email tab — plugged in by Task 11.</p>
+                <EmailTab
+                  value={currentEmail}
+                  onChange={(next) =>
+                    setBuffer((b) => ({
+                      ...b,
+                      email: {
+                        host: next.host,
+                        port: next.port,
+                        username: next.username,
+                        password: next.password,
+                        from: next.from,
+                      },
+                    }))
+                  }
+                  isDirty={dirtyEmailCount > 0}
+                />
               )}
             </>
           )}
