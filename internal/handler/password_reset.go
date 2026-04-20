@@ -21,6 +21,7 @@ import (
 	"github.com/abdo75/Schlass/internal/crypto"
 	"github.com/abdo75/Schlass/internal/mail"
 	"github.com/abdo75/Schlass/internal/model"
+	"github.com/abdo75/Schlass/internal/revokebefore"
 	"github.com/abdo75/Schlass/internal/session"
 	"github.com/abdo75/Schlass/internal/store"
 )
@@ -192,6 +193,126 @@ func (h *PasswordResetHandler) PostRequest(w http.ResponseWriter, r *http.Reques
 	go h.sendResetEmail(user.Email, plaintextToken)
 
 	w.WriteHeader(http.StatusOK)
+}
+
+// PostConfirm serves POST /api/password-reset/confirm. Validates the
+// token under SELECT FOR UPDATE (single-use + not-expired guard, atomic
+// across concurrent confirm attempts), validates the new password against
+// the current instance_config policy, Argon2id-hashes, updates the user,
+// marks the token used, and audits — all in one tx. Post-commit: bumps
+// revoke_before and wipes Valkey sessions for the user, mirroring admin
+// reset-password so every OIDC token and admin web session issued before
+// the reset is rejected on next use.
+//
+// Not-found / expired / already-used all collapse to the same
+// INVALID_TOKEN response so a caller cannot distinguish which failure
+// mode fired — preserves the enumeration guard from the request endpoint.
+func (h *PasswordResetHandler) PostConfirm(w http.ResponseWriter, r *http.Request) {
+	ip := extractClientIP(r)
+
+	r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
+	var req struct {
+		Token    string `json:"token"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body.")
+		return
+	}
+	if req.Token == "" {
+		writeError(w, http.StatusBadRequest, "INVALID_TOKEN", "Reset link is no longer valid.")
+		return
+	}
+
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		slog.Error("password_reset.confirm: begin tx", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	defer func() { _ = tx.Rollback(r.Context()) }()
+
+	token, err := h.tokenStore.GetByTokenForUpdate(r.Context(), tx, req.Token)
+	if err != nil {
+		if errors.Is(err, store.ErrResetTokenNotFound) {
+			writeError(w, http.StatusBadRequest, "INVALID_TOKEN", "Reset link is no longer valid.")
+			return
+		}
+		slog.Error("password_reset.confirm: get token", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if token.UsedAt != nil || time.Now().After(token.ExpiresAt) {
+		writeError(w, http.StatusBadRequest, "INVALID_TOKEN", "Reset link is no longer valid.")
+		return
+	}
+
+	policy, err := h.configService.GetPasswordPolicy(r.Context(), tx)
+	if err != nil {
+		slog.Error("password_reset.confirm: policy", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if err := model.ValidatePassword(req.Password, policy); err != nil {
+		writeError(w, http.StatusBadRequest, "PASSWORD_POLICY_FAILED", err.Error())
+		return
+	}
+
+	hash, err := crypto.HashPassword(req.Password)
+	if err != nil {
+		slog.Error("password_reset.confirm: hash", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	// force_password_change=false: the user actively chose this password
+	// via the reset link; no reason to force another rotation on next
+	// sign-in. Matches auth.PostChangePassword, not admin reset-password.
+	if err := h.userStore.SetPasswordHash(r.Context(), tx, token.UserID, hash, false); err != nil {
+		slog.Error("password_reset.confirm: set password hash", "error", err, "user_id", token.UserID)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if err := h.tokenStore.MarkUsed(r.Context(), tx, token.ID); err != nil {
+		slog.Error("password_reset.confirm: mark used", "error", err, "token_id", token.ID)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	userID := token.UserID
+	if err := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+		EventType:  "password_reset.completed",
+		ActorID:    &userID,
+		TargetType: "user",
+		TargetID:   userID.String(),
+		IPAddress:  ip,
+		Outcome:    "success",
+		Metadata:   map[string]any{"token_id": token.ID.String()},
+	}); err != nil {
+		slog.Error("password_reset.confirm: audit", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		slog.Error("password_reset.confirm: commit", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	// Post-commit: revoke_before cutoff + wipe Valkey sessions. Mirrors
+	// admin reset-password exactly — all OIDC tokens + admin web sessions
+	// issued before this moment fail on next use. Best-effort: the
+	// load-bearing compliance event is the committed DB state plus audit
+	// row; Valkey failures log ERROR but do not affect the response.
+	if err := revokebefore.SetNow(r.Context(), h.valkey, userID.String()); err != nil {
+		slog.Error("password_reset.confirm: revoke_before", "error", err, "user_id", userID)
+	}
+	if err := h.sessionStore.DeleteAllForUser(r.Context(), userID.String()); err != nil {
+		slog.Error("password_reset.confirm: session wipe", "error", err, "user_id", userID)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"user_id": userID.String()})
 }
 
 // sendResetEmail runs in a goroutine post-commit. Loads SMTP config +

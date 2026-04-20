@@ -5,10 +5,13 @@ package integration
 import (
 	"bytes"
 	"context"
+	cryptorand "crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"net/url"
 	"strings"
 	"testing"
@@ -385,4 +388,24 @@ func (e *TestEnv) DirectCreateSession(t *testing.T, userID uuid.UUID) *http.Cook
 		t.Fatalf("DirectCreateSession: %v", err)
 	}
 	return &http.Cookie{Name: "schlass_session", Value: token}
+}
+
+// InsertResetToken mints a random 32-byte base64url plaintext token, inserts
+// a hashed row via PasswordResetTokenStore with the given TTL (may be
+// negative for already-expired tokens), and returns the plaintext so the
+// test can POST it to /api/password-reset/confirm. Bypasses the request
+// endpoint's rate limit + enumeration path — for confirm-endpoint tests
+// that just need a valid-shaped token row for a specific user.
+func (e *TestEnv) InsertResetToken(t *testing.T, userID uuid.UUID, ttl time.Duration) string {
+	t.Helper()
+	var raw [32]byte
+	if _, err := cryptorand.Read(raw[:]); err != nil {
+		t.Fatalf("InsertResetToken: rand: %v", err)
+	}
+	plaintext := base64.RawURLEncoding.EncodeToString(raw[:])
+	ts := store.NewPasswordResetTokenStore()
+	if _, err := ts.Insert(context.Background(), e.Pool, userID, plaintext, ttl, netip.Addr{}); err != nil {
+		t.Fatalf("InsertResetToken: insert: %v", err)
+	}
+	return plaintext
 }

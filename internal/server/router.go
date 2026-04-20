@@ -209,6 +209,12 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 	}
 	mux.Handle("POST /api/password-reset/request",
 		passwordResetRL.Middleware(http.HandlerFunc(passwordResetHandler.PostRequest)))
+	// Confirm is not rate-limited: token possession is the auth factor.
+	// The token is 32-byte crypto/rand (~256 bits) — brute-force is
+	// impossible within the 30-minute TTL, so an IP-level limiter on this
+	// endpoint just adds flakiness without raising attacker cost.
+	mux.Handle("POST /api/password-reset/confirm",
+		http.HandlerFunc(passwordResetHandler.PostConfirm))
 
 	// OIDC authorization endpoint — optionally authenticated (session injected
 	// when present, unauthenticated requests redirected to /login).
