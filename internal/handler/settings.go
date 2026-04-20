@@ -123,18 +123,17 @@ func (h *SettingsHandler) PatchGeneral(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, snap.General)
 }
 
-// writeValidationError maps a *model.ValidationError to a 400 response with
-// the stable UPPERCASE code that the SPA translates to an i18n key. Used
-// by every settings PATCH handler (PatchGeneral today; PatchSecurity,
-// PatchTokens, PatchEmail in T3-T5).
+// writeValidationError maps a *model.ValidationError to a 400 response.
+// Validator Code is SCREAMING_SNAKE_CASE by convention (matches existing
+// codes across the codebase: INVALID_SESSION, USER_NOT_FOUND, etc.); passes
+// through unchanged. Used by every settings PATCH handler (PatchGeneral
+// today; PatchSecurity, PatchTokens, PatchEmail in T3-T5).
 func writeValidationError(w http.ResponseWriter, err error) {
 	var ve *model.ValidationError
 	if errors.As(err, &ve) {
 		code := ve.Code
 		if code == "" {
 			code = "VALIDATION_ERROR"
-		} else {
-			code = strings.ToUpper(code)
 		}
 		writeError(w, http.StatusBadRequest, code, ve.Error())
 		return

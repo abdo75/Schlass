@@ -39,10 +39,10 @@ type EmailSettings struct {
 func ValidateGeneralSettings(s *GeneralSettings) error {
 	name := strings.TrimSpace(s.InstanceName)
 	if name == "" {
-		return &ValidationError{Field: "instance_name", Code: "instance_name.required"}
+		return &ValidationError{Field: "instance_name", Code: "INSTANCE_NAME_REQUIRED"}
 	}
 	if len(name) > 64 {
-		return &ValidationError{Field: "instance_name", Code: "instance_name.too_long"}
+		return &ValidationError{Field: "instance_name", Code: "INSTANCE_NAME_TOO_LONG"}
 	}
 	return nil
 }
@@ -51,19 +51,19 @@ func ValidateSecuritySettings(s *SecuritySettings) error {
 	if s.PasswordMinLength != nil {
 		v := *s.PasswordMinLength
 		if v < 8 || v > 128 {
-			return &ValidationError{Field: "password_min_length", Code: "password_min_length.out_of_range"}
+			return &ValidationError{Field: "password_min_length", Code: "PASSWORD_MIN_LENGTH_OUT_OF_RANGE"}
 		}
 	}
 	if s.LockoutThreshold != nil {
 		v := *s.LockoutThreshold
 		if v < 1 || v > 50 {
-			return &ValidationError{Field: "lockout_threshold", Code: "lockout_threshold.out_of_range"}
+			return &ValidationError{Field: "lockout_threshold", Code: "LOCKOUT_THRESHOLD_OUT_OF_RANGE"}
 		}
 	}
 	if s.LockoutDurationSecs != nil {
 		v := *s.LockoutDurationSecs
 		if v < 60 || v > 86400 {
-			return &ValidationError{Field: "lockout_duration_secs", Code: "lockout_duration_secs.out_of_range"}
+			return &ValidationError{Field: "lockout_duration_secs", Code: "LOCKOUT_DURATION_OUT_OF_RANGE"}
 		}
 	}
 	return nil
@@ -73,13 +73,13 @@ func ValidateTokenSettings(s *TokenSettings) error {
 	if s.AccessTokenTTLSecs != nil {
 		v := *s.AccessTokenTTLSecs
 		if v < 300 || v > 3600 {
-			return &ValidationError{Field: "access_token_ttl_secs", Code: "access_token_ttl_secs.out_of_range"}
+			return &ValidationError{Field: "access_token_ttl_secs", Code: "ACCESS_TOKEN_TTL_OUT_OF_RANGE"}
 		}
 	}
 	if s.RefreshTokenTTLSecs != nil {
 		v := *s.RefreshTokenTTLSecs
 		if v < 3600 || v > 604800 {
-			return &ValidationError{Field: "refresh_token_ttl_secs", Code: "refresh_token_ttl_secs.out_of_range"}
+			return &ValidationError{Field: "refresh_token_ttl_secs", Code: "REFRESH_TOKEN_TTL_OUT_OF_RANGE"}
 		}
 	}
 	return nil
@@ -89,28 +89,28 @@ func ValidateEmailSettings(s *EmailSettings) error {
 	if s.SMTPHost != nil {
 		h := strings.TrimSpace(*s.SMTPHost)
 		if h == "" {
-			return &ValidationError{Field: "smtp_host", Code: "smtp_host.required"}
+			return &ValidationError{Field: "smtp_host", Code: "SMTP_HOST_REQUIRED"}
 		}
 		if len(h) > 253 {
-			return &ValidationError{Field: "smtp_host", Code: "smtp_host.too_long"}
+			return &ValidationError{Field: "smtp_host", Code: "SMTP_HOST_TOO_LONG"}
 		}
 	}
 	if s.SMTPPort != nil {
 		v := *s.SMTPPort
 		if v < 1 || v > 65535 {
-			return &ValidationError{Field: "smtp_port", Code: "smtp_port.out_of_range"}
+			return &ValidationError{Field: "smtp_port", Code: "SMTP_PORT_OUT_OF_RANGE"}
 		}
 	}
 	if s.SMTPUsername != nil && len(*s.SMTPUsername) > 320 {
-		return &ValidationError{Field: "smtp_username", Code: "smtp_username.too_long"}
+		return &ValidationError{Field: "smtp_username", Code: "SMTP_USERNAME_TOO_LONG"}
 	}
 	if s.SMTPFrom != nil {
 		addr := strings.TrimSpace(*s.SMTPFrom)
 		if addr == "" {
-			return &ValidationError{Field: "smtp_from", Code: "smtp_from.required"}
+			return &ValidationError{Field: "smtp_from", Code: "SMTP_FROM_REQUIRED"}
 		}
 		if _, err := mail.ParseAddress(addr); err != nil {
-			return &ValidationError{Field: "smtp_from", Code: "smtp_from.invalid"}
+			return &ValidationError{Field: "smtp_from", Code: "SMTP_FROM_INVALID"}
 		}
 	}
 	return nil
