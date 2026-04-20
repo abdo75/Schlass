@@ -140,13 +140,6 @@ func (h *PasswordResetHandler) PostRequest(w http.ResponseWriter, r *http.Reques
 		writeJSON(w, http.StatusOK, map[string]any{})
 		return
 	}
-	if err != nil && !errors.Is(err, store.ErrUserNotFound) {
-		// Pool error on lookup — log and still return 200 (enumeration
-		// guard). Request is lost; client can retry.
-		slog.Error("password_reset.request: lookup", "error", err)
-		writeJSON(w, http.StatusOK, map[string]any{})
-		return
-	}
 
 	// Mint token — 32-byte crypto/rand, base64url-encoded.
 	var raw [32]byte
