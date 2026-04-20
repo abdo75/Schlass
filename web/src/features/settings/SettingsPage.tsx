@@ -4,13 +4,16 @@ import {
   getSettings,
   patchGeneral,
   patchSecurity,
+  patchTokens,
   type SettingsSnapshot,
   type SecuritySettings,
+  type TokenSettings,
 } from "./api";
 import { friendlyError } from "@/features/clients/errorDisplay";
 import { FloatingSaveBar } from "./FloatingSaveBar";
 import { GeneralTab } from "./GeneralTab";
 import { SecurityTab } from "./SecurityTab";
+import { TokensTab } from "./TokensTab";
 
 type TabKey = "general" | "security" | "tokens" | "email";
 
@@ -22,7 +25,8 @@ type TabKey = "general" | "security" | "tokens" | "email";
 interface Buffer {
   general?: { instance_name?: string };
   security?: Partial<SecuritySettings>;
-  // tokens / email plugged in T10-T11.
+  tokens?: Partial<TokenSettings>;
+  // email plugged in T11.
 }
 
 export function SettingsPage() {
@@ -87,6 +91,20 @@ export function SettingsPage() {
         lockout_duration_secs: 900,
       };
 
+  // Dirty Token keys — mirror of dirtySecurityKeys.
+  const dirtyTokenKeys = useMemo(() => {
+    const s = new Set<keyof TokenSettings>();
+    if (snapshot === null || !buffer.tokens) return s;
+    (Object.keys(buffer.tokens) as Array<keyof TokenSettings>).forEach((k) => {
+      if (buffer.tokens![k] !== snapshot.tokens[k]) s.add(k);
+    });
+    return s;
+  }, [snapshot, buffer.tokens]);
+
+  const currentTokens: TokenSettings = snapshot
+    ? { ...snapshot.tokens, ...(buffer.tokens ?? {}) }
+    : { access_token_ttl_secs: 900, refresh_token_ttl_secs: 86400 };
+
   // Dirty field count across all tabs.
   const dirtyCount = useMemo(() => {
     if (snapshot === null) return 0;
@@ -97,9 +115,10 @@ export function SettingsPage() {
     )
       n++;
     n += dirtySecurityKeys.size;
-    // T10-T11 will add tokens / email counts here.
+    n += dirtyTokenKeys.size;
+    // T11 will add email count here.
     return n;
-  }, [snapshot, buffer, dirtySecurityKeys]);
+  }, [snapshot, buffer, dirtySecurityKeys, dirtyTokenKeys]);
 
   async function handleSave() {
     if (snapshot === null || dirtyCount === 0) return;
@@ -119,7 +138,14 @@ export function SettingsPage() {
         });
         await patchSecurity(payload);
       }
-      // T10-T11 will add tokens / email saves here.
+      if (dirtyTokenKeys.size > 0) {
+        const payload: Partial<TokenSettings> = {};
+        dirtyTokenKeys.forEach((k) => {
+          (payload as Record<string, unknown>)[k] = currentTokens[k];
+        });
+        await patchTokens(payload);
+      }
+      // T11 will add email saves here.
       await load();
     } catch (err: unknown) {
       setError(friendlyError(err));
@@ -198,7 +224,11 @@ export function SettingsPage() {
                 />
               )}
               {activeTab === "tokens" && (
-                <p className="text-sm text-muted-foreground">Tokens tab — plugged in by Task 10.</p>
+                <TokensTab
+                  value={currentTokens}
+                  onChange={(next) => setBuffer((b) => ({ ...b, tokens: next }))}
+                  dirtyKeys={dirtyTokenKeys}
+                />
               )}
               {activeTab === "email" && (
                 <p className="text-sm text-muted-foreground">Email tab — plugged in by Task 11.</p>
