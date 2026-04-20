@@ -176,6 +176,28 @@ func (s *UserStore) ResetFailedLogins(ctx context.Context, q database.Querier, u
 	return nil
 }
 
+// ClearLockoutForPasswordChange unconditionally clears
+// failed_login_attempts and locked_until. Called inside the password-
+// mutation tx of both PostConfirm (self-reset) and users.ResetPassword
+// (admin-reset). Unlike ResetFailedLogins (which refuses to clear an
+// active lock to preserve lockout-duration against concurrent races),
+// this method assumes the caller has just successfully changed the
+// password, which is a stronger-than-login signal that the user is
+// legitimate and the lock should end.
+func (s *UserStore) ClearLockoutForPasswordChange(ctx context.Context, q database.Querier, userID uuid.UUID) error {
+	_, err := q.Exec(ctx, `
+		UPDATE users
+		SET failed_login_attempts = 0,
+		    locked_until = NULL,
+		    updated_at = now()
+		WHERE id = $1
+	`, userID)
+	if err != nil {
+		return fmt.Errorf("clear lockout for password change: %w", err)
+	}
+	return nil
+}
+
 // ListUsersParams controls the List query.
 type ListUsersParams struct {
 	Limit       int

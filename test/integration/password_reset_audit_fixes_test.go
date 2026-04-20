@@ -97,6 +97,43 @@ func TestPasswordResetRequest_PriorTokensInvalidated(t *testing.T) {
 	}
 }
 
+// TestPasswordResetConfirm_ClearsLockout asserts H4: a successful
+// self-reset clears failed_login_attempts + locked_until.
+func TestPasswordResetConfirm_ClearsLockout(t *testing.T) {
+	env := NewTestEnv(t)
+	defer env.Close()
+
+	uid := env.DirectCreateUser(t, "locked@example.com", "user")
+	if _, err := env.Pool.Exec(t.Context(), `
+		UPDATE users
+		SET failed_login_attempts = 5,
+		    locked_until = now() + interval '15 minutes'
+		WHERE id = $1
+	`, uid); err != nil {
+		t.Fatalf("seed lockout: %v", err)
+	}
+
+	tok := env.InsertResetToken(t, uid, 30*time.Minute)
+	body, _ := json.Marshal(map[string]any{"token": tok, "password": "NewStrongPass1!"})
+	if r := publicPost(t, env, "/api/password-reset/confirm", body); r.Code != http.StatusOK {
+		t.Fatalf("confirm: %d %s", r.Code, r.Body.String())
+	}
+
+	var attempts int
+	var lockedUntil *time.Time
+	if err := env.Pool.QueryRow(t.Context(),
+		`SELECT failed_login_attempts, locked_until FROM users WHERE id = $1`, uid,
+	).Scan(&attempts, &lockedUntil); err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	if attempts != 0 {
+		t.Fatalf("failed_login_attempts = %d, want 0", attempts)
+	}
+	if lockedUntil != nil {
+		t.Fatalf("locked_until = %v, want NULL", lockedUntil)
+	}
+}
+
 // TestPasswordResetRequest_EnumerationTimingParity (C1) — crude p50
 // sanity check; catches the regression where one path skips Argon2id
 // entirely. Not a statistical oracle.

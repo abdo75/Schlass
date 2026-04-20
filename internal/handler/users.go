@@ -782,6 +782,12 @@ func (h *UsersHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := h.userStore.ClearLockoutForPasswordChange(r.Context(), tx, id); err != nil {
+		slog.Error("users.ResetPassword: clear lockout", "error", err, "user_id", id) //nolint:gosec // G706
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
 	if auditErr := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
 		EventType:  "user.password_reset",
 		ActorID:    &current.ID,

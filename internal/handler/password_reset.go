@@ -291,6 +291,11 @@ func (h *PasswordResetHandler) PostConfirm(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 		return
 	}
+	if err := h.userStore.ClearLockoutForPasswordChange(r.Context(), tx, token.UserID); err != nil {
+		slog.Error("password_reset.confirm: clear lockout", "error", err, "user_id", token.UserID)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
 	if err := h.tokenStore.MarkUsed(r.Context(), tx, token.ID); err != nil {
 		slog.Error("password_reset.confirm: mark used", "error", err, "token_id", token.ID)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
