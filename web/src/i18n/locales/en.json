@@ -207,6 +207,7 @@
     "SETUP_ALREADY_COMPLETE": "Setup has already been completed.",
     "VALIDATION_ERROR": "Invalid input.",
     "PASSWORD_POLICY_VIOLATION": "Password does not meet the security requirements.",
+    "PASSWORD_BREACHED": "This password has appeared in a known data breach. Choose a different one.",
     "RATE_LIMITED": "Too many requests. Please slow down.",
     "INTERNAL_ERROR": "An unexpected error occurred.",
     "INVALID_CREDENTIALS": "Invalid email or password.",

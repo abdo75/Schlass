@@ -85,6 +85,17 @@ describe("ResetPasswordPage", () => {
     await userEvent.click(screen.getByRole("button", { name: /reset password/i }));
     expect(await screen.findByText(/does not meet the policy/i)).toBeInTheDocument();
   });
+
+  it("shows PASSWORD_BREACHED when backend returns that error code", async () => {
+    const err = Object.assign(new Error("breached"), { code: "PASSWORD_BREACHED" });
+    vi.mocked(confirmPasswordReset).mockRejectedValue(err);
+    renderWithToken("validtoken");
+    // Wait for mount-time validation to complete before the form appears.
+    await userEvent.type(await screen.findByLabelText(/^new password$/i), "BreachedPass1!");
+    await userEvent.type(screen.getByLabelText(/confirm new password/i), "BreachedPass1!");
+    await userEvent.click(screen.getByRole("button", { name: /reset password/i }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/data breach/i);
+  });
 });
 
 describe("ResetPasswordPage — password autocomplete", () => {
