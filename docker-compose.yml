@@ -42,5 +42,22 @@ services:
       timeout: 3s
       retries: 5
 
+  # Local SMTP sink for dev testing of /admin/settings Email tab and the
+  # forgot-password flow. Mailpit accepts SMTP on :1025 and serves every
+  # received message at http://localhost:8025 with rendered HTML + source
+  # + attachments. App is NOT wired to it automatically — configure it
+  # via /admin/settings > Email (Host: mailpit, Port: 1025, no auth,
+  # From: no-reply@schlass.local) then use "Test connection".
+  mailpit:
+    image: axllent/mailpit:v1.20
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8025"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
 volumes:
   pgdata:
