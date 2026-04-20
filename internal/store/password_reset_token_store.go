@@ -73,3 +73,23 @@ func (s *PasswordResetTokenStore) MarkUsed(ctx context.Context, q database.Queri
 	_, err := q.Exec(ctx, `UPDATE password_reset_tokens SET used_at = now() WHERE id = $1`, id)
 	return err
 }
+
+// InvalidateOutstandingForUser marks every non-expired, unused reset
+// token for the given user as used (used_at = now()). Returns the
+// number of rows affected. Called by PostRequest before minting a
+// fresh token so a new reset request implicitly revokes any prior
+// emailed link (OWASP Forgot Password — "Invalidate any previously
+// issued password reset tokens when a new one is generated").
+func (s *PasswordResetTokenStore) InvalidateOutstandingForUser(ctx context.Context, q database.Querier, userID uuid.UUID) (int64, error) {
+	tag, err := q.Exec(ctx, `
+		UPDATE password_reset_tokens
+		SET used_at = now()
+		WHERE user_id = $1
+		  AND used_at IS NULL
+		  AND expires_at > now()
+	`, userID)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
