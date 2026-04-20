@@ -108,16 +108,19 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 	setupGetRL := middleware.NewRateLimiter(d.ValkeyClient, "ratelimit:setup:get", setupGetLimit, time.Minute)
 	setupPostRL := middleware.NewRateLimiter(d.ValkeyClient, "ratelimit:setup:post", setupPostLimit, time.Minute)
 	loginRL := middleware.NewRateLimiter(d.ValkeyClient, "ratelimit:login", loginLimit, time.Minute)
+	loginRL.FailClosed = true
 	mfaLimit := int64(5)
 	if d.MfaChallengeRateLimit > 0 {
 		mfaLimit = d.MfaChallengeRateLimit
 	}
 	mfaChallengeRL := middleware.NewRateLimiter(d.ValkeyClient, "ratelimit:mfa", mfaLimit, time.Minute)
+	mfaChallengeRL.FailClosed = true
 	passwordResetLimit := int64(5)
 	if d.PasswordResetRateLimit > 0 {
 		passwordResetLimit = d.PasswordResetRateLimit
 	}
 	passwordResetRL := middleware.NewRateLimiter(d.ValkeyClient, "ratelimit:password_reset", passwordResetLimit, time.Minute)
+	passwordResetRL.FailClosed = true
 	authorizeLimit := int64(60)
 	if d.AuthorizeRateLimit > 0 {
 		authorizeLimit = d.AuthorizeRateLimit
