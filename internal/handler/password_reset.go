@@ -289,7 +289,27 @@ func (h *PasswordResetHandler) PostConfirm(w http.ResponseWriter, r *http.Reques
 		Outcome:    "success",
 		Metadata:   map[string]any{"token_id": token.ID.String()},
 	}); err != nil {
-		slog.Error("password_reset.confirm: audit", "error", err)
+		slog.Error("password_reset.confirm: audit completed", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	// revoke_before bump is itself a cutoff-mutation event; write its own
+	// audit row in the same tx so the event stream (filtered by
+	// event_type='user.revoke_before_set') covers every caller that bumps
+	// the cutoff (see users.ResetPassword / Disable / TerminateAllSessions
+	// / ResetMFA and auth.PostChangePassword / PostDisableMfa — same
+	// pattern). Reason="self_password_reset" distinguishes from the
+	// admin-initiated flow's "password_reset".
+	if err := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+		EventType:  "user.revoke_before_set",
+		ActorID:    &userID,
+		TargetType: "user",
+		TargetID:   userID.String(),
+		IPAddress:  ip,
+		Outcome:    "success",
+		Metadata:   map[string]any{"reason": "self_password_reset"},
+	}); err != nil {
+		slog.Error("password_reset.confirm: audit revoke_before_set", "error", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 		return
 	}

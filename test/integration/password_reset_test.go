@@ -158,6 +158,23 @@ func TestPasswordResetConfirm_ValidToken_UpdatesPassword(t *testing.T) {
 	if count != 1 {
 		t.Fatalf("want 1 completed audit, got %d", count)
 	}
+
+	// user.revoke_before_set audit row present (audit-in-tx invariant —
+	// every caller that bumps user:revoke_before writes this row in the
+	// same tx so the revoke-before event stream is complete).
+	var revokeBeforeCount int
+	if err := env.Pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM audit_logs
+		 WHERE event_type = 'user.revoke_before_set'
+		   AND actor_id = $1
+		   AND metadata->>'reason' = 'self_password_reset'`,
+		userID,
+	).Scan(&revokeBeforeCount); err != nil {
+		t.Fatalf("count revoke_before_set audit: %v", err)
+	}
+	if revokeBeforeCount != 1 {
+		t.Fatalf("want 1 user.revoke_before_set audit with reason=self_password_reset, got %d", revokeBeforeCount)
+	}
 }
 
 func TestPasswordResetConfirm_ExpiredToken_400(t *testing.T) {
