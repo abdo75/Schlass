@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { useNavigate, Navigate, useSearchParams } from "react-router-dom";
+import { useNavigate, Navigate, useSearchParams, Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -125,7 +125,12 @@ export function LoginPage() {
             </div>
 
             <div className="flex flex-col gap-2">
-              <Label htmlFor="password" className="text-[13px] font-medium">{t("auth.password")}</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="password" className="text-[13px] font-medium">{t("auth.password")}</Label>
+                <Link to="/forgot-password" className="text-[12.5px] font-medium text-primary hover:underline">
+                  {t("auth.forgot_password")}
+                </Link>
+              </div>
               <Input
                 id="password"
                 type="password"

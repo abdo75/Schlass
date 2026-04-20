@@ -19,6 +19,8 @@ import { ClientCreatePage } from "@/features/clients/ClientCreatePage";
 import { ClientDetailPage } from "@/features/clients/ClientDetailPage";
 import { SigningKeysPage } from "@/features/clients/SigningKeysPage";
 import { SettingsPage } from "@/features/settings/SettingsPage";
+import { ForgotPasswordPage } from "@/features/password-reset/ForgotPasswordPage";
+import { ResetPasswordPage } from "@/features/password-reset/ResetPasswordPage";
 
 // GET /api/setup returns 200 when setup is incomplete (with a body) and 404
 // when setup is complete — matches the existing setup handler contract.
@@ -79,6 +81,22 @@ export default function App() {
             element={
               <Bootstrap>
                 <LoginPage />
+              </Bootstrap>
+            }
+          />
+          <Route
+            path="/forgot-password"
+            element={
+              <Bootstrap>
+                <ForgotPasswordPage />
+              </Bootstrap>
+            }
+          />
+          <Route
+            path="/reset-password/:token"
+            element={
+              <Bootstrap>
+                <ResetPasswordPage />
               </Bootstrap>
             }
           />

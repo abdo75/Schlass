@@ -16,6 +16,7 @@ import (
 	"html/template"
 	"net"
 	"net/smtp"
+	"strings"
 	texttemplate "text/template"
 	"time"
 
@@ -89,6 +90,33 @@ func (s *Sender) TestConnection(ctx context.Context, to, instanceName string) er
 		return fmt.Errorf("render text: %w", err)
 	}
 	subject := "Schlass SMTP test — " + instanceName
+	return s.send(ctx, to, subject, html.Bytes(), text.Bytes())
+}
+
+// SendPasswordReset emails a reset link to `to`. token is the plaintext
+// 32-byte base64url token; publicURL is SCHLASS_PUBLIC_URL; the final
+// URL is {publicURL}/reset-password/{token}. Email local-part (the bit
+// before @) is used as the "Hi <name>" greeting since users.name does
+// not exist in v1.
+func (s *Sender) SendPasswordReset(ctx context.Context, to, token, instanceName, publicURL string) error {
+	localPart := to
+	if idx := strings.IndexByte(to, '@'); idx > 0 {
+		localPart = to[:idx]
+	}
+	resetURL := publicURL + "/reset-password/" + token
+	data := map[string]any{
+		"InstanceName":   instanceName,
+		"EmailLocalPart": localPart,
+		"ResetURL":       resetURL,
+	}
+	var html, text bytes.Buffer
+	if err := s.htmlTpl.ExecuteTemplate(&html, "password_reset.html.tmpl", data); err != nil {
+		return fmt.Errorf("render html: %w", err)
+	}
+	if err := s.textTpl.ExecuteTemplate(&text, "password_reset.txt.tmpl", data); err != nil {
+		return fmt.Errorf("render text: %w", err)
+	}
+	subject := "Reset your " + instanceName + " password"
 	return s.send(ctx, to, subject, html.Bytes(), text.Bytes())
 }
 
