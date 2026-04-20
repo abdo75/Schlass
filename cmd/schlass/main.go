@@ -94,11 +94,12 @@ func main() {
 		RecoveryCodeStore:     recoveryCodeStore,
 		AuditStore:            auditStore,
 		ConfigService:         configService,
-		LoginRateLimit:        cfg.LoginRateLimit,
-		MfaChallengeRateLimit: cfg.MfaChallengeRateLimit,
-		AuthorizeRateLimit:    cfg.AuthorizeRateLimit,
-		UserinfoRateLimit:     cfg.UserinfoRateLimit,
-		ClientsHandler:        clientsHandler,
+		LoginRateLimit:         cfg.LoginRateLimit,
+		MfaChallengeRateLimit:  cfg.MfaChallengeRateLimit,
+		PasswordResetRateLimit: cfg.PasswordResetRateLimit,
+		AuthorizeRateLimit:     cfg.AuthorizeRateLimit,
+		UserinfoRateLimit:      cfg.UserinfoRateLimit,
+		ClientsHandler:         clientsHandler,
 	})
 	if err != nil {
 		slog.Error("failed to build router", "error", err)

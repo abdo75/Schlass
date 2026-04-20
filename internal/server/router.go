@@ -44,6 +44,10 @@ type RouterDeps struct {
 	// cap. Zero means "use 5/min". E2E tests set this to a large value so the
 	// limiter doesn't trip across repeated challenge requests.
 	MfaChallengeRateLimit int64
+	// PasswordResetRateLimit overrides the per-IP /api/password-reset/request
+	// rate-limit cap. Zero means "use 5/min". Tests raise this so the guard
+	// doesn't mask enumeration-safety assertions.
+	PasswordResetRateLimit int64
 	// TokenRateLimit overrides the per-client_id /token rate-limit cap. Zero
 	// means "use 60/min". Integration tests that want to exercise the 429 path
 	// set this to a small value (e.g. 3).
@@ -109,6 +113,11 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 		mfaLimit = d.MfaChallengeRateLimit
 	}
 	mfaChallengeRL := middleware.NewRateLimiter(d.ValkeyClient, "ratelimit:mfa", mfaLimit, time.Minute)
+	passwordResetLimit := int64(5)
+	if d.PasswordResetRateLimit > 0 {
+		passwordResetLimit = d.PasswordResetRateLimit
+	}
+	passwordResetRL := middleware.NewRateLimiter(d.ValkeyClient, "ratelimit:password_reset", passwordResetLimit, time.Minute)
 	authorizeLimit := int64(60)
 	if d.AuthorizeRateLimit > 0 {
 		authorizeLimit = d.AuthorizeRateLimit
@@ -186,6 +195,20 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 
 	// Challenge endpoint rate-limited per IP — primary brute-force surface.
 	mux.Handle("POST /api/mfa/challenge", mfaChallengeRL.Middleware(http.HandlerFunc(mfaHandler.PostChallenge)))
+
+	// Password reset request — enumeration-safe (always 200), rate-limited
+	// per IP to cap email spam against unknown users.
+	passwordResetHandler, err := handler.NewPasswordResetHandler(
+		d.Pool, d.ValkeyClient, d.UserStore,
+		store.NewPasswordResetTokenStore(),
+		d.AuditStore, sessionStore, d.ConfigService,
+		d.Cfg.SchlassPublicURL,
+	)
+	if err != nil {
+		return nil, err
+	}
+	mux.Handle("POST /api/password-reset/request",
+		passwordResetRL.Middleware(http.HandlerFunc(passwordResetHandler.PostRequest)))
 
 	// OIDC authorization endpoint — optionally authenticated (session injected
 	// when present, unauthenticated requests redirected to /login).

@@ -188,6 +188,10 @@ func (e *TestEnv) BuildDeps() server.RouterDeps {
 		// challenge requests from the same virtual IP without hitting the
 		// production 5/min guard.
 		MfaChallengeRateLimit: 10000,
+		// Same rationale for password-reset request: tests fire several
+		// requests from the same virtual IP to assert enumeration-safety
+		// without tripping the production 5/min guard.
+		PasswordResetRateLimit: 10000,
 		// Same rationale for /authorize and /userinfo: integration tests
 		// fire many requests from the same virtual IP and should not trip
 		// the new 60/min per-IP limiters unless the test explicitly lowers
