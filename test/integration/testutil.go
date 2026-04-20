@@ -310,6 +310,25 @@ func (e *TestEnv) WithFakeAuditStore(t *testing.T, fn func() error) {
 	t.Cleanup(func() { e.Router = original })
 }
 
+// WithHIBPChecker rebuilds the router with a live HIBPChecker pointed at
+// the provided URL (expected to be an httptest.Server base URL). Restores
+// the original router via t.Cleanup so the swap is scoped to the current test.
+func (e *TestEnv) WithHIBPChecker(t *testing.T, endpoint string) {
+	t.Helper()
+	original := e.Router
+	deps := e.BuildDeps()
+	deps.HIBPChecker = &crypto.HIBPChecker{
+		Endpoint:   endpoint,
+		HTTPClient: &http.Client{Timeout: 2 * time.Second},
+	}
+	newRouter, err := server.BuildRouter(deps)
+	if err != nil {
+		t.Fatalf("rebuild router with hibp: %v", err)
+	}
+	e.Router = newRouter
+	t.Cleanup(func() { e.Router = original })
+}
+
 // WithBrokenValkey rebuilds the router with a Valkey client pointed at a
 // closed local port so every redis call fails with connection-refused.
 // Replaces the old StopValkey/StartValkey pattern, which couldn't coexist
