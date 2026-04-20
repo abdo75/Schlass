@@ -1,20 +1,28 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AdminPageHeader, AdminPageContent } from "@/components/AdminLayout";
-import { getSettings, patchGeneral, type SettingsSnapshot } from "./api";
+import {
+  getSettings,
+  patchGeneral,
+  patchSecurity,
+  type SettingsSnapshot,
+  type SecuritySettings,
+} from "./api";
 import { friendlyError } from "@/features/clients/errorDisplay";
 import { FloatingSaveBar } from "./FloatingSaveBar";
 import { GeneralTab } from "./GeneralTab";
+import { SecurityTab } from "./SecurityTab";
 
 type TabKey = "general" | "security" | "tokens" | "email";
 
 // Per-domain dirty buffers. When a field diverges from the server snapshot
 // it lives here until the user either discards (clears the buffer) or
 // saves (the diff-of-buffer-vs-snapshot is PATCHed, then snapshot reloads
-// and the buffer clears). One buffer per domain so T9-T11 can extend this
-// without touching the General code path.
+// and the buffer clears). One buffer per domain so T10-T11 can extend this
+// without touching the General / Security code paths.
 interface Buffer {
   general?: { instance_name?: string };
-  // security / tokens / email plugged in T9-T11.
+  security?: Partial<SecuritySettings>;
+  // tokens / email plugged in T10-T11.
 }
 
 export function SettingsPage() {
@@ -53,6 +61,32 @@ export function SettingsPage() {
     };
   }, []);
 
+  // Dirty Security keys — only keys whose buffered value diverges from the
+  // server snapshot. Just "being in the buffer" is not enough; a switch
+  // toggled twice or a NumberInput rebounded to the original value is clean.
+  const dirtySecurityKeys = useMemo(() => {
+    const s = new Set<keyof SecuritySettings>();
+    if (snapshot === null || !buffer.security) return s;
+    (Object.keys(buffer.security) as Array<keyof SecuritySettings>).forEach((k) => {
+      if (buffer.security![k] !== snapshot.security[k]) s.add(k);
+    });
+    return s;
+  }, [snapshot, buffer.security]);
+
+  // Current Security value = snapshot merged with any buffered overrides.
+  // Falls back to inert defaults while snapshot is loading so the tab can
+  // still mount without null-guards at every field read.
+  const currentSecurity: SecuritySettings = snapshot
+    ? { ...snapshot.security, ...(buffer.security ?? {}) }
+    : {
+        mfa_required: false,
+        password_min_length: 12,
+        password_require_upper: false,
+        password_require_digit: false,
+        lockout_threshold: 5,
+        lockout_duration_secs: 900,
+      };
+
   // Dirty field count across all tabs.
   const dirtyCount = useMemo(() => {
     if (snapshot === null) return 0;
@@ -62,9 +96,10 @@ export function SettingsPage() {
       buffer.general.instance_name !== snapshot.general.instance_name
     )
       n++;
-    // T9-T11 will add security / tokens / email counts here.
+    n += dirtySecurityKeys.size;
+    // T10-T11 will add tokens / email counts here.
     return n;
-  }, [snapshot, buffer]);
+  }, [snapshot, buffer, dirtySecurityKeys]);
 
   async function handleSave() {
     if (snapshot === null || dirtyCount === 0) return;
@@ -77,7 +112,14 @@ export function SettingsPage() {
       ) {
         await patchGeneral({ instance_name: buffer.general.instance_name });
       }
-      // T9-T11 will add security / tokens / email saves here.
+      if (dirtySecurityKeys.size > 0) {
+        const payload: Partial<SecuritySettings> = {};
+        dirtySecurityKeys.forEach((k) => {
+          (payload as Record<string, unknown>)[k] = currentSecurity[k];
+        });
+        await patchSecurity(payload);
+      }
+      // T10-T11 will add tokens / email saves here.
       await load();
     } catch (err: unknown) {
       setError(friendlyError(err));
@@ -149,7 +191,11 @@ export function SettingsPage() {
                 />
               )}
               {activeTab === "security" && (
-                <p className="text-sm text-muted-foreground">Security tab — plugged in by Task 9.</p>
+                <SecurityTab
+                  value={currentSecurity}
+                  onChange={(next) => setBuffer((b) => ({ ...b, security: next }))}
+                  dirtyKeys={dirtySecurityKeys}
+                />
               )}
               {activeTab === "tokens" && (
                 <p className="text-sm text-muted-foreground">Tokens tab — plugged in by Task 10.</p>
