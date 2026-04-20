@@ -228,12 +228,12 @@ export function SettingsPage() {
 
   return (
     <div
-      className="relative"
+      className="relative flex flex-1 flex-col"
       style={{ ["--page-max-w" as string]: "720px", ["--page-gutter" as string]: "32px" }}
     >
       <AdminPageHeader title="Settings" />
       <AdminPageContent>
-        <div className="mx-auto pb-28" style={{ maxWidth: "var(--page-max-w)" }}>
+        <div className="mx-auto w-full flex-1 pb-28" style={{ maxWidth: "var(--page-max-w)" }}>
           {error && (
             <p className="mb-4 text-sm text-destructive" role="alert">
               {error}
