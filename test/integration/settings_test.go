@@ -8,8 +8,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/abdo75/Schlass/internal/config"
+	"github.com/abdo75/Schlass/internal/store"
 )
 
 // adminPatch fires PATCH <path> against the test router with the given admin
@@ -317,5 +321,144 @@ func TestPatchTokens_Validation_OutOfRange(t *testing.T) {
 	rec := adminPatch(t, env, adminCookie, "/api/settings/tokens", body)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("got %d, want 400: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// newConfigServiceForEnv constructs a ConfigService using the same encryption
+// key the test router was built with, so tests can decrypt values that the
+// PATCH handler wrote. Equivalent to the wiring inside env.BuildDeps().
+func newConfigServiceForEnv(env *TestEnv) *config.ConfigService {
+	return config.NewConfigService(store.NewConfigStore(), env.Cfg.EncryptionKey)
+}
+
+// TestPatchEmail_KeepCurrentPasswordOnEmpty is the load-bearing compliance
+// test for this handler: (a) an empty smtp_password in a second PATCH keeps
+// the already-stored value intact; (b) the initial save's audit row for
+// smtp_password MUST NOT leak the plaintext — metadata should record only
+// the fact of change, never the value.
+func TestPatchEmail_KeepCurrentPasswordOnEmpty(t *testing.T) {
+	env := NewTestEnv(t)
+	defer env.Close()
+
+	env.SeedAdmin(t, "admin@example.com", "CorrectHorse1Battery")
+	adminCookie := env.LoginAsAdmin(t, "admin@example.com", "CorrectHorse1Battery")
+
+	// First save: set a real password.
+	body1, _ := json.Marshal(map[string]any{
+		"smtp_host":     "smtp.example.com",
+		"smtp_port":     587,
+		"smtp_username": "u",
+		"smtp_password": "secret-v1",
+		"smtp_from":     "no-reply@example.com",
+	})
+	resp := adminPatch(t, env, adminCookie, "/api/settings/email", body1)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("first save: got %d, want 200: %s", resp.Code, resp.Body.String())
+	}
+
+	// Second save: change host, leave password empty (= keep current).
+	body2, _ := json.Marshal(map[string]any{
+		"smtp_host":     "smtp.mailgun.org",
+		"smtp_password": "",
+	})
+	resp2 := adminPatch(t, env, adminCookie, "/api/settings/email", body2)
+	if resp2.Code != http.StatusOK {
+		t.Fatalf("second save: got %d, want 200: %s", resp2.Code, resp2.Body.String())
+	}
+
+	// Password should still decrypt to secret-v1.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	svc := newConfigServiceForEnv(env)
+	pw, err := svc.GetEncryptedValue(ctx, env.Pool, "smtp_password")
+	if err != nil {
+		t.Fatalf("decrypt password: %v", err)
+	}
+	if pw != "secret-v1" {
+		t.Fatalf("password changed; got %q, want %q", pw, "secret-v1")
+	}
+
+	// Audit metadata must never contain the password plaintext.
+	var metaJSON string
+	if err := env.Pool.QueryRow(ctx, `
+		SELECT metadata::text FROM audit_logs
+		WHERE event_type = 'config.smtp_password.changed'
+		ORDER BY created_at ASC LIMIT 1
+	`).Scan(&metaJSON); err != nil {
+		t.Fatalf("audit meta query: %v", err)
+	}
+	if strings.Contains(metaJSON, "secret-v1") {
+		t.Fatalf("audit metadata leaks password plaintext: %s", metaJSON)
+	}
+
+	// Second PATCH left password empty — must NOT have written a second
+	// smtp_password audit row.
+	var pwAuditCount int
+	if err := env.Pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM audit_logs WHERE event_type = 'config.smtp_password.changed'`,
+	).Scan(&pwAuditCount); err != nil {
+		t.Fatalf("audit count: %v", err)
+	}
+	if pwAuditCount != 1 {
+		t.Fatalf("empty smtp_password triggered extra audit row; got %d, want 1", pwAuditCount)
+	}
+}
+
+// TestPatchEmail_ReplacePassword covers the non-empty password path: a
+// subsequent PATCH with a new plaintext re-encrypts and replaces the stored
+// value. The old value is gone; the new value round-trips through
+// GetEncryptedValue.
+func TestPatchEmail_ReplacePassword(t *testing.T) {
+	env := NewTestEnv(t)
+	defer env.Close()
+
+	env.SeedAdmin(t, "admin@example.com", "CorrectHorse1Battery")
+	adminCookie := env.LoginAsAdmin(t, "admin@example.com", "CorrectHorse1Battery")
+
+	// Seed initial config.
+	seed, _ := json.Marshal(map[string]any{
+		"smtp_host":     "smtp.example.com",
+		"smtp_port":     587,
+		"smtp_username": "u",
+		"smtp_password": "old-pw",
+		"smtp_from":     "no-reply@example.com",
+	})
+	resp := adminPatch(t, env, adminCookie, "/api/settings/email", seed)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("seed: got %d, want 200: %s", resp.Code, resp.Body.String())
+	}
+
+	// Replace password only.
+	body, _ := json.Marshal(map[string]any{"smtp_password": "new-pw"})
+	resp2 := adminPatch(t, env, adminCookie, "/api/settings/email", body)
+	if resp2.Code != http.StatusOK {
+		t.Fatalf("got %d, want 200: %s", resp2.Code, resp2.Body.String())
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	svc := newConfigServiceForEnv(env)
+	pw, err := svc.GetEncryptedValue(ctx, env.Pool, "smtp_password")
+	if err != nil {
+		t.Fatalf("decrypt password: %v", err)
+	}
+	if pw != "new-pw" {
+		t.Fatalf("password did not change; got %q, want %q", pw, "new-pw")
+	}
+}
+
+// TestPatchEmail_Validation_BadFrom exercises the validator wiring: the
+// model rejects a malformed smtp_from, the handler surfaces 400.
+func TestPatchEmail_Validation_BadFrom(t *testing.T) {
+	env := NewTestEnv(t)
+	defer env.Close()
+
+	env.SeedAdmin(t, "admin@example.com", "CorrectHorse1Battery")
+	adminCookie := env.LoginAsAdmin(t, "admin@example.com", "CorrectHorse1Battery")
+
+	body, _ := json.Marshal(map[string]any{"smtp_from": "not-an-email"})
+	resp := adminPatch(t, env, adminCookie, "/api/settings/email", body)
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("got %d, want 400: %s", resp.Code, resp.Body.String())
 	}
 }

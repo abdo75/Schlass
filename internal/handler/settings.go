@@ -346,6 +346,151 @@ func (h *SettingsHandler) PatchTokens(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, snap.Tokens)
 }
 
+// PatchEmail serves PATCH /api/settings/email. Four plain fields
+// (host/port/username/from) + one encrypted field (password). Password
+// semantic: empty string keeps the current value; non-empty replaces and
+// re-encrypts via ConfigService.SetEncryptedValue (AES-256-GCM). Audit
+// metadata on smtp_password is {"changed": true} — never the plaintext or
+// ciphertext in either direction; the TestPatchEmail_KeepCurrentPasswordOnEmpty
+// integration test grep-asserts this and fails loudly on regression.
+func (h *SettingsHandler) PatchEmail(w http.ResponseWriter, r *http.Request) {
+	actor, ok := middleware.CurrentUser(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "INVALID_SESSION", "Not authenticated.")
+		return
+	}
+	ip := extractClientIP(r)
+
+	r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	var in model.EmailSettings
+	if err := dec.Decode(&in); err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body.")
+		return
+	}
+	if err := model.ValidateEmailSettings(&in); err != nil {
+		writeValidationError(w, err)
+		return
+	}
+
+	pre, err := h.configService.GetSettingsSnapshot(r.Context(), h.pool)
+	if err != nil {
+		slog.Error("settings.PatchEmail: snapshot", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	type change struct {
+		key   string
+		meta  map[string]any
+		write func(ctx context.Context, tx pgx.Tx) error
+	}
+	var changes []change
+
+	if in.SMTPHost != nil {
+		v := strings.TrimSpace(*in.SMTPHost)
+		if v != pre.Email.SMTPHost {
+			changes = append(changes, change{
+				key:  "smtp_host",
+				meta: map[string]any{"old_value": pre.Email.SMTPHost, "new_value": v},
+				write: func(ctx context.Context, tx pgx.Tx) error {
+					return h.configService.SetString(ctx, tx, "smtp_host", v)
+				},
+			})
+		}
+	}
+	if in.SMTPPort != nil && *in.SMTPPort != pre.Email.SMTPPort {
+		v := *in.SMTPPort
+		changes = append(changes, change{
+			key:  "smtp_port",
+			meta: map[string]any{"old_value": pre.Email.SMTPPort, "new_value": v},
+			write: func(ctx context.Context, tx pgx.Tx) error {
+				return h.configService.SetInt(ctx, tx, "smtp_port", v)
+			},
+		})
+	}
+	if in.SMTPUsername != nil && *in.SMTPUsername != pre.Email.SMTPUsername {
+		v := *in.SMTPUsername
+		changes = append(changes, change{
+			key:  "smtp_username",
+			meta: map[string]any{"old_value": pre.Email.SMTPUsername, "new_value": v},
+			write: func(ctx context.Context, tx pgx.Tx) error {
+				return h.configService.SetString(ctx, tx, "smtp_username", v)
+			},
+		})
+	}
+	if in.SMTPFrom != nil {
+		v := strings.TrimSpace(*in.SMTPFrom)
+		if v != pre.Email.SMTPFrom {
+			changes = append(changes, change{
+				key:  "smtp_from",
+				meta: map[string]any{"old_value": pre.Email.SMTPFrom, "new_value": v},
+				write: func(ctx context.Context, tx pgx.Tx) error {
+					return h.configService.SetString(ctx, tx, "smtp_from", v)
+				},
+			})
+		}
+	}
+	// Password: empty string = keep current (no change, no audit row).
+	// Non-empty = replace. Audit metadata records only the fact of change —
+	// never the plaintext or ciphertext.
+	if in.SMTPPassword != nil && *in.SMTPPassword != "" {
+		v := *in.SMTPPassword
+		changes = append(changes, change{
+			key:  "smtp_password",
+			meta: map[string]any{"changed": true},
+			write: func(ctx context.Context, tx pgx.Tx) error {
+				return h.configService.SetEncryptedValue(ctx, tx, "smtp_password", v)
+			},
+		})
+	}
+
+	if len(changes) == 0 {
+		writeJSON(w, http.StatusOK, pre.Email)
+		return
+	}
+
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		slog.Error("settings.PatchEmail: begin tx", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	defer func() { _ = tx.Rollback(r.Context()) }()
+
+	for _, c := range changes {
+		if err := c.write(r.Context(), tx); err != nil {
+			slog.Error("settings.PatchEmail: write", "error", err, "key", c.key)
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+			return
+		}
+		if err := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
+			EventType:  "config." + c.key + ".changed",
+			ActorID:    &actor.ID,
+			ActorEmail: actor.Email,
+			TargetType: "instance_config",
+			TargetID:   c.key,
+			IPAddress:  ip,
+			Outcome:    "success",
+			Metadata:   c.meta,
+		}); err != nil {
+			slog.Error("settings.PatchEmail: audit", "error", err, "key", c.key)
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+			return
+		}
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		slog.Error("settings.PatchEmail: commit", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	snap, _ := h.configService.GetSettingsSnapshot(r.Context(), h.pool)
+	writeJSON(w, http.StatusOK, snap.Email)
+}
+
 // writeValidationError maps a *model.ValidationError to a 400 response.
 // Validator Code is SCREAMING_SNAKE_CASE by convention (matches existing
 // codes across the codebase: INVALID_SESSION, USER_NOT_FOUND, etc.); passes
