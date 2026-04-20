@@ -16,6 +16,34 @@ func setRequiredEnv(t *testing.T) {
 	t.Setenv("SCHLASS_ENCRYPTION_KEY", base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0}, 32)))
 }
 
+func TestLoad_RejectsPublicURLWithoutScheme(t *testing.T) {
+	for _, v := range []string{"example.com", "//example.com", "ftp://example.com", "http://"} {
+		t.Run(v, func(t *testing.T) {
+			setRequiredEnv(t)
+			t.Setenv("SCHLASS_PUBLIC_URL", v)
+			if _, err := Load(); err == nil {
+				t.Fatalf("Load() with SCHLASS_PUBLIC_URL=%q should fail", v)
+			}
+		})
+	}
+}
+
+func TestLoad_AcceptsValidPublicURL(t *testing.T) {
+	for _, v := range []string{"http://localhost:3000", "https://auth.example.com", "https://auth.example.com:8443"} {
+		t.Run(v, func(t *testing.T) {
+			setRequiredEnv(t)
+			t.Setenv("SCHLASS_PUBLIC_URL", v)
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("Load() rejected valid URL %q: %v", v, err)
+			}
+			if cfg.SchlassPublicURL != v {
+				t.Fatalf("SchlassPublicURL = %q, want %q", cfg.SchlassPublicURL, v)
+			}
+		})
+	}
+}
+
 func TestLoad_SchlassPublicURL(t *testing.T) {
 	setRequiredEnv(t)
 
