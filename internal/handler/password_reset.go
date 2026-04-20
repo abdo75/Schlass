@@ -361,6 +361,16 @@ func (h *PasswordResetHandler) PostConfirm(w http.ResponseWriter, r *http.Reques
 		slog.Error("password_reset.confirm: session wipe", "error", err, "user_id", userID)
 	}
 
+	// H3: OWASP out-of-band notify the account owner of the password
+	// change. Look up the email now (we have userID from the tx);
+	// the goroutine captures the string, not a DB handle.
+	if userEmail, err := h.userStore.GetEmail(r.Context(), h.pool, userID); err == nil && userEmail != "" {
+		//nolint:gosec // G118 — fire-and-forget; see sendResetEmail for rationale.
+		go h.sendPasswordChangedEmail(userEmail)
+	} else if err != nil {
+		slog.Error("password_reset.confirm: lookup email for notify", "error", err, "user_id", userID)
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{"user_id": userID.String()})
 }
 
@@ -423,6 +433,27 @@ func (h *PasswordResetHandler) auditConfirmFailed(ctx context.Context, reason, i
 	}
 	if err := h.auditStore.Log(ctx, h.pool, entry); err != nil {
 		slog.Error("password_reset.confirm_failed: audit", "error", err, "reason", reason)
+	}
+}
+
+// sendPasswordChangedEmail runs in a goroutine post-commit. Mirrors
+// sendResetEmail's fire-and-forget pattern — no retry in v1, audit is
+// the load-bearing compliance event.
+func (h *PasswordResetHandler) sendPasswordChangedEmail(to string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	sender, err := mail.NewSenderFromConfig(ctx, h.configService, h.pool)
+	if err != nil {
+		slog.Error("password_reset.confirm: notify sender", "error", err, "to", to)
+		return
+	}
+	instanceName, _ := h.configService.GetInstanceName(ctx, h.pool)
+	if instanceName == "" {
+		instanceName = "Schlass"
+	}
+	if err := sender.SendPasswordChanged(ctx, to, instanceName); err != nil {
+		slog.Error("password_reset.confirm: notify send", "error", err, "to", to)
 	}
 }
 

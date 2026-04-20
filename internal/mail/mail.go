@@ -120,6 +120,30 @@ func (s *Sender) SendPasswordReset(ctx context.Context, to, token, instanceName,
 	return s.send(ctx, to, subject, html.Bytes(), text.Bytes())
 }
 
+// SendPasswordChanged emails a post-reset notification to `to`. OWASP
+// "out-of-band notification" — the user must hear about a successful
+// password change on a channel they control so a silent takeover is
+// visible. Called post-commit from PostConfirm (fire-and-forget).
+func (s *Sender) SendPasswordChanged(ctx context.Context, to, instanceName string) error {
+	localPart := to
+	if idx := strings.IndexByte(to, '@'); idx > 0 {
+		localPart = to[:idx]
+	}
+	data := map[string]any{
+		"InstanceName":   instanceName,
+		"EmailLocalPart": localPart,
+	}
+	var html, text bytes.Buffer
+	if err := s.htmlTpl.ExecuteTemplate(&html, "password_changed.html.tmpl", data); err != nil {
+		return fmt.Errorf("render html: %w", err)
+	}
+	if err := s.textTpl.ExecuteTemplate(&text, "password_changed.txt.tmpl", data); err != nil {
+		return fmt.Errorf("render text: %w", err)
+	}
+	subject := "Your " + instanceName + " password was changed"
+	return s.send(ctx, to, subject, html.Bytes(), text.Bytes())
+}
+
 // send assembles a multipart/alternative MIME message and dispatches via
 // STARTTLS when the server advertises it. Unencrypted delivery permitted
 // for localhost dev (MailHog, testcontainers).

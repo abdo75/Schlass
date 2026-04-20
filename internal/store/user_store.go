@@ -389,3 +389,18 @@ func (s *UserStore) SetLastLoginAt(ctx context.Context, q database.Querier, id u
 	}
 	return nil
 }
+
+// GetEmail returns the lowercase email for the given user id, or
+// ErrUserNotFound if the row is absent. Lighter than GetByID when only
+// the email address is needed (e.g. post-commit notification path).
+func (s *UserStore) GetEmail(ctx context.Context, q database.Querier, id uuid.UUID) (string, error) {
+	var email string
+	err := q.QueryRow(ctx, `SELECT email FROM users WHERE id = $1`, id).Scan(&email)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", ErrUserNotFound
+		}
+		return "", fmt.Errorf("get email: %w", err)
+	}
+	return email, nil
+}
