@@ -7,11 +7,13 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/abdo75/Schlass/internal/config"
+	"github.com/abdo75/Schlass/internal/mail"
 	"github.com/abdo75/Schlass/internal/middleware"
 	"github.com/abdo75/Schlass/internal/model"
 	"github.com/abdo75/Schlass/internal/store"
@@ -489,6 +491,46 @@ func (h *SettingsHandler) PatchEmail(w http.ResponseWriter, r *http.Request) {
 
 	snap, _ := h.configService.GetSettingsSnapshot(r.Context(), h.pool)
 	writeJSON(w, http.StatusOK, snap.Email)
+}
+
+// TestEmail serves POST /api/settings/email/test. Sends a one-off message
+// to the currently-authenticated admin's own email using the saved SMTP
+// config. Returns 400 SMTP_CONFIG_INCOMPLETE if required fields are unset,
+// 502 SMTP_DELIVERY_FAILED on transport / auth error.
+//
+// Admin-only (gated by settings.write) — no per-IP rate limit in v1; the
+// error-detail field returns the raw SMTP error string so admins can debug.
+// last_tested_at surfacing is deferred to M6+ (Email tab status line reads
+// the `delivered_at` in the response body for the initial UX).
+func (h *SettingsHandler) TestEmail(w http.ResponseWriter, r *http.Request) {
+	actor, ok := middleware.CurrentUser(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "INVALID_SESSION", "Not authenticated.")
+		return
+	}
+
+	sender, err := mail.NewSenderFromConfig(r.Context(), h.configService, h.pool)
+	if err != nil {
+		if errors.Is(err, mail.ErrSMTPConfigIncomplete) {
+			writeError(w, http.StatusBadRequest, "SMTP_CONFIG_INCOMPLETE", "Complete and save the SMTP configuration before testing.")
+			return
+		}
+		slog.Error("settings.TestEmail: new sender", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	instanceName, _ := h.configService.GetInstanceName(r.Context(), h.pool)
+	if instanceName == "" {
+		instanceName = "Schlass"
+	}
+	if err := sender.TestConnection(r.Context(), actor.Email, instanceName); err != nil {
+		slog.Error("settings.TestEmail: send", "error", err, "actor", actor.Email)
+		writeError(w, http.StatusBadGateway, "SMTP_DELIVERY_FAILED", err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"delivered_at": time.Now().UTC().Format(time.RFC3339)})
 }
 
 // writeValidationError maps a *model.ValidationError to a 400 response.
