@@ -195,6 +195,8 @@ export function ResetPasswordPage() {
                   ? t("password_reset.reset.err.mismatch")
                   : errorCode === "PASSWORD_POLICY_VIOLATION"
                   ? t("password_reset.reset.err.policy")
+                  : errorCode === "PASSWORD_BREACHED"
+                  ? t("errors.PASSWORD_BREACHED")
                   : t("password_reset.reset.err.generic")}
               </p>
             )}
