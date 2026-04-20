@@ -1,22 +1,44 @@
-import { useState, type FormEvent } from "react";
+import { useState, useEffect, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { AuthLayout } from "@/components/AuthLayout";
-import { confirmPasswordReset } from "./api";
+import { confirmPasswordReset, validateResetToken } from "./api";
 
-type State = "form" | "invalid" | "success";
+type State = "loading" | "form" | "invalid" | "success";
 
 export function ResetPasswordPage() {
   const { token = "" } = useParams();
   const navigate = useNavigate();
-  const [state, setState] = useState<State>("form");
+  const [state, setState] = useState<State>("loading");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!token) {
+        if (!cancelled) setState("invalid");
+        return;
+      }
+      try {
+        await validateResetToken(token);
+        if (!cancelled) setState("form");
+      } catch {
+        // Collapse every error (INVALID_TOKEN, network, 5xx) into the
+        // invalid-link card. We cannot safely render the form on
+        // anything other than a confirmed-valid token.
+        if (!cancelled) setState("invalid");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -42,6 +64,33 @@ export function ResetPasswordPage() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  if (state === "loading") {
+    return (
+      <AuthLayout>
+        <div
+          className="w-full rounded-xl border p-7 pt-8 text-center"
+          role="status"
+          aria-live="polite"
+        >
+          <div className="mx-auto mb-3.5 grid w-11 h-11 place-items-center rounded-full bg-muted">
+            <svg
+              viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+              className="w-[22px] h-[22px] animate-spin text-muted-foreground"
+              aria-hidden="true"
+            >
+              <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+            </svg>
+          </div>
+          <h4 className="text-[16px] font-semibold mb-2">Checking reset link…</h4>
+          <p className="text-[13px] text-muted-foreground leading-[1.55]">
+            One moment while we verify this link is still valid.
+          </p>
+        </div>
+      </AuthLayout>
+    );
   }
 
   if (state === "invalid") {

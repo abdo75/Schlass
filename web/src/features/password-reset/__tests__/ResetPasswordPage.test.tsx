@@ -3,13 +3,14 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ResetPasswordPage } from "../ResetPasswordPage";
-import { confirmPasswordReset } from "../api";
+import { confirmPasswordReset, validateResetToken } from "../api";
 import { AuthProvider } from "@/features/auth/AuthContext";
 import * as authApi from "@/features/auth/api";
 
 vi.mock("../api", () => ({
   requestPasswordReset: vi.fn(),
   confirmPasswordReset: vi.fn(),
+  validateResetToken: vi.fn(),
 }));
 
 vi.mock("@/features/auth/api");
@@ -31,13 +32,16 @@ describe("ResetPasswordPage", () => {
     vi.clearAllMocks();
     // AuthProvider's getMe call on mount — reject so the context settles to "not authed".
     vi.mocked(authApi.getMe).mockRejectedValue(new Error("unauthorized"));
+    // validateResetToken: always resolve so the form renders in these tests.
+    vi.mocked(validateResetToken).mockResolvedValue({});
   });
 
   it("submits new password and shows success state on 200", async () => {
     vi.mocked(confirmPasswordReset).mockResolvedValue({ user_id: "u-1" });
     renderWithToken("validtoken");
 
-    await userEvent.type(screen.getByLabelText(/^new password$/i), "NewStrongPass1!");
+    // Wait for mount-time validation to complete before the form appears.
+    await userEvent.type(await screen.findByLabelText(/^new password$/i), "NewStrongPass1!");
     await userEvent.type(screen.getByLabelText(/confirm new password/i), "NewStrongPass1!");
     await userEvent.click(screen.getByRole("button", { name: /reset password/i }));
 
@@ -52,7 +56,8 @@ describe("ResetPasswordPage", () => {
     vi.mocked(confirmPasswordReset).mockRejectedValue(err);
     renderWithToken("badtoken");
 
-    await userEvent.type(screen.getByLabelText(/^new password$/i), "NewStrongPass1!");
+    // Wait for mount-time validation to complete before the form appears.
+    await userEvent.type(await screen.findByLabelText(/^new password$/i), "NewStrongPass1!");
     await userEvent.type(screen.getByLabelText(/confirm new password/i), "NewStrongPass1!");
     await userEvent.click(screen.getByRole("button", { name: /reset password/i }));
 
@@ -62,7 +67,8 @@ describe("ResetPasswordPage", () => {
 
   it("shows PASSWORD_MISMATCH inline when confirm doesn't match", async () => {
     renderWithToken("validtoken");
-    await userEvent.type(screen.getByLabelText(/^new password$/i), "AAAA");
+    // Wait for mount-time validation to complete before the form appears.
+    await userEvent.type(await screen.findByLabelText(/^new password$/i), "AAAA");
     await userEvent.type(screen.getByLabelText(/confirm new password/i), "BBBB");
     await userEvent.click(screen.getByRole("button", { name: /reset password/i }));
     expect(await screen.findByText(/Passwords don't match/)).toBeInTheDocument();
@@ -73,7 +79,8 @@ describe("ResetPasswordPage", () => {
     const err = Object.assign(new Error("weak"), { code: "PASSWORD_POLICY_VIOLATION" });
     vi.mocked(confirmPasswordReset).mockRejectedValue(err);
     renderWithToken("validtoken");
-    await userEvent.type(screen.getByLabelText(/^new password$/i), "short");
+    // Wait for mount-time validation to complete before the form appears.
+    await userEvent.type(await screen.findByLabelText(/^new password$/i), "short");
     await userEvent.type(screen.getByLabelText(/confirm new password/i), "short");
     await userEvent.click(screen.getByRole("button", { name: /reset password/i }));
     expect(await screen.findByText(/does not meet the policy/i)).toBeInTheDocument();
@@ -81,8 +88,14 @@ describe("ResetPasswordPage", () => {
 });
 
 describe("ResetPasswordPage — password autocomplete", () => {
-  it("marks new-password fields with autocomplete='new-password'", async () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
     vi.mocked(authApi.getMe).mockRejectedValue(new Error("unauthorized"));
+    // validateResetToken: always resolve so the form renders in these tests.
+    vi.mocked(validateResetToken).mockResolvedValue({});
+  });
+
+  it("marks new-password fields with autocomplete='new-password'", async () => {
     render(
       <MemoryRouter initialEntries={["/reset-password/some-token"]}>
         <AuthProvider>
