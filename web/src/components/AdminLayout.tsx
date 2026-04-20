@@ -265,5 +265,5 @@ export function AdminPageHeader({
 }
 
 export function AdminPageContent({ children }: { children: React.ReactNode }) {
-  return <div className="min-w-0 flex-1 bg-sidebar px-8 py-7">{children}</div>;
+  return <div className="flex min-w-0 flex-1 flex-col bg-sidebar px-8 py-7">{children}</div>;
 }
