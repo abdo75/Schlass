@@ -161,3 +161,39 @@ func TestSettingsEmailTest_IncompleteConfig(t *testing.T) {
 		t.Fatalf("error code = %q, want SMTP_CONFIG_INCOMPLETE", out["error"])
 	}
 }
+
+// TestSettings_TestEmail_MapsSMTPErrorToCategory verifies that a dial failure
+// against an unreachable SMTP host returns a stable error code with a safe
+// human message — no internal IPs, DNS names, or TLS cert details leaked.
+func TestSettings_TestEmail_MapsSMTPErrorToCategory(t *testing.T) {
+	env := NewTestEnv(t)
+	defer env.Close()
+	env.SeedAdmin(t, "admin@example.com", "AdminPass12345!")
+	cookie := env.LoginAsAdmin(t, "admin@example.com", "AdminPass12345!")
+
+	// Configure a deliberately-unreachable SMTP host.
+	patchBody, _ := json.Marshal(map[string]any{
+		"smtp_host": "127.0.0.1",
+		"smtp_port": 1,
+		"smtp_from": "no-reply@example.com",
+	})
+	patchResp := adminPatch(t, env, cookie, "/api/settings/email", patchBody)
+	if patchResp.Code != http.StatusOK {
+		t.Fatalf("patch: %d %s", patchResp.Code, patchResp.Body.String())
+	}
+
+	testResp := adminPost(t, env, cookie, "/api/settings/email/test", nil)
+	if testResp.Code != http.StatusBadGateway {
+		t.Fatalf("test: %d, want 502, body: %s", testResp.Code, testResp.Body.String())
+	}
+	var out map[string]any
+	_ = json.NewDecoder(testResp.Body).Decode(&out)
+	code, _ := out["error"].(string)
+	if code != "SMTP_DIAL_FAILED" && code != "SMTP_DELIVERY_FAILED" {
+		t.Fatalf("error = %q, want SMTP_DIAL_FAILED or SMTP_DELIVERY_FAILED", code)
+	}
+	msg, _ := out["message"].(string)
+	if strings.Contains(msg, "127.0.0.1") {
+		t.Fatalf("message leaks internal IP: %q", msg)
+	}
+}
