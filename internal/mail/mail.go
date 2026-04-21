@@ -45,14 +45,14 @@ type Sender struct {
 // Returns ErrSMTPConfigIncomplete if required fields (host/port/from) are
 // unset.
 func NewSenderFromConfig(ctx context.Context, cfg *config.InstanceConfig, q database.Querier) (*Sender, error) {
-	snap, err := cfg.GetSettings(ctx, q)
+	snap, err := cfg.Settings(ctx, q)
 	if err != nil {
 		return nil, fmt.Errorf("settings snapshot: %w", err)
 	}
 	if snap.Email.SMTPHost == "" || snap.Email.SMTPPort == 0 || snap.Email.SMTPFrom == "" {
 		return nil, ErrSMTPConfigIncomplete
 	}
-	pw, err := cfg.GetEncryptedValue(ctx, q, "smtp_password")
+	pw, err := cfg.EncryptedValue(ctx, q, "smtp_password")
 	if err != nil {
 		return nil, fmt.Errorf("decrypt smtp_password: %w", err)
 	}

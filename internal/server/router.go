@@ -25,7 +25,7 @@ import (
 // the "audit write failure rolls back login tx" contract without touching
 // production code.
 type RouterDeps struct {
-	Cfg               *config.Config
+	Cfg               *config.Env
 	Pool              *pgxpool.Pool
 	ValkeyClient      *redis.Client
 	ConfigStore       *store.ConfigStore
@@ -35,7 +35,7 @@ type RouterDeps struct {
 	InstanceConfig    *config.InstanceConfig
 	ClientsHandler    *handler.ClientsHandler
 
-	// Rate-limit caps (requests per minute). Defaults come from config.Config;
+	// Rate-limit caps (requests per minute). Defaults come from config.Env;
 	// tests override by setting these directly on RouterDeps before BuildRouter.
 	LoginRateLimit         int64
 	MfaChallengeRateLimit  int64

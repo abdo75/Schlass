@@ -203,8 +203,8 @@ This is a compliance claim — never weaken it.
 - MFA required by default (`mfa_required = true`)
 - Password policy: min 12 chars, require uppercase + digit
 - Argon2id (19 MiB, 2 iterations, 1 parallelism) for password hashing
-- AES-256-GCM for encrypting sensitive config (smtp_password, totp_secret)
-- Encryption key from `SCHLASS_ENCRYPTION_KEY` env var (32-byte base64)
+- AES-256-GCM envelope encryption for sensitive blobs (smtp_password, totp_secret, signing-key private PEMs). Each ciphertext is `[0x01][wrapped DEK 60B][sealed data]`: a random per-message DEK seals the data, the DEK is wrapped under the operator KEK. AAD binds each blob to its storage slot (e.g. `instance_config:smtp_password`, `user_totp_secret:<user_id>`, `signing_key:private_pem`) so a blob moved to a different row or column fails decryption. Legacy single-layer v0 blobs (pre-upgrade) still decrypt for backward compat — flagged for removal once all production rows are re-encrypted.
+- KEK from `SCHLASS_ENCRYPTION_KEY` env var (32-byte base64). Rotate path: unwrap each DEK with old KEK, rewrap with new KEK — data plaintext untouched. CLI tooling is pending; today rotation requires a hand-written migration.
 - Security headers on all responses (HSTS, CSP, X-Frame-Options, etc.)
 - Structured JSON logging always (no text mode, dev/prod parity)
 

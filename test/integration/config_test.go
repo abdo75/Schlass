@@ -19,9 +19,9 @@ func TestInstanceConfigNullHandling(t *testing.T) {
 	instanceConfig := config.NewInstanceConfig(configStore, encKey)
 
 	// smtp_password is seeded as JSON null — should return empty string, not error
-	val, err := instanceConfig.GetEncryptedValue(ctx, env.Pool, "smtp_password")
+	val, err := instanceConfig.EncryptedValue(ctx, env.Pool, "smtp_password")
 	if err != nil {
-		t.Fatalf("GetEncryptedValue for null value should not error: %v", err)
+		t.Fatalf("EncryptedValue for null value should not error: %v", err)
 	}
 	if val != "" {
 		t.Fatalf("expected empty string for null config value, got %q", val)
@@ -43,9 +43,9 @@ func TestInstanceConfigEncryptionRoundTrip(t *testing.T) {
 	}
 
 	// Read it back — should decrypt to the original
-	val, err := instanceConfig.GetEncryptedValue(ctx, env.Pool, "smtp_password")
+	val, err := instanceConfig.EncryptedValue(ctx, env.Pool, "smtp_password")
 	if err != nil {
-		t.Fatalf("GetEncryptedValue failed: %v", err)
+		t.Fatalf("EncryptedValue failed: %v", err)
 	}
 	if val != "my-secret-smtp-pass" {
 		t.Fatalf("expected 'my-secret-smtp-pass', got %q", val)
@@ -69,9 +69,9 @@ func TestInstanceConfigPasswordPolicy(t *testing.T) {
 	encKey := []byte("test-encryption-key-32-bytes!!!!")
 	instanceConfig := config.NewInstanceConfig(configStore, encKey)
 
-	policy, err := instanceConfig.GetPasswordPolicy(ctx, env.Pool)
+	policy, err := instanceConfig.PasswordPolicy(ctx, env.Pool)
 	if err != nil {
-		t.Fatalf("GetPasswordPolicy failed: %v", err)
+		t.Fatalf("PasswordPolicy failed: %v", err)
 	}
 
 	// Verify defaults from seed data

@@ -272,7 +272,7 @@ func (h *PasswordResetHandler) PostConfirm(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	policy, err := h.instanceConfig.GetPasswordPolicy(r.Context(), tx)
+	policy, err := h.instanceConfig.PasswordPolicy(r.Context(), tx)
 	if err != nil {
 		slog.Error("password_reset.confirm: policy", "error", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
@@ -461,7 +461,7 @@ func (h *PasswordResetHandler) sendPasswordChangedEmail(to string) {
 		slog.Error("password_reset.confirm: notify sender", "error", err, "to", to)
 		return
 	}
-	instanceName, _ := h.instanceConfig.GetInstanceName(ctx, h.pool)
+	instanceName, _ := h.instanceConfig.InstanceName(ctx, h.pool)
 	if instanceName == "" {
 		instanceName = "Schlass"
 	}
@@ -481,7 +481,7 @@ func (h *PasswordResetHandler) sendResetEmail(to, token string) {
 		slog.Error("password_reset.request: sender construct", "error", err, "to", to)
 		return
 	}
-	instanceName, _ := h.instanceConfig.GetInstanceName(ctx, h.pool)
+	instanceName, _ := h.instanceConfig.InstanceName(ctx, h.pool)
 	if instanceName == "" {
 		instanceName = "Schlass"
 	}

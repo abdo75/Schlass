@@ -38,7 +38,7 @@ type TestEnv struct {
 	AppConnString     string
 	MigrConnString    string
 	Router            http.Handler
-	Cfg               *config.Config
+	Cfg               *config.Env
 	UserStore         *store.UserStore
 	RecoveryCodeStore *store.RecoveryCodeStore
 	SessionStore      session.Store
@@ -91,7 +91,7 @@ func NewTestEnv(t *testing.T) *TestEnv {
 
 	// Deterministic test encryption key (32 bytes of zeros). Tests that need
 	// a real key should inject their own.
-	cfg := &config.Config{
+	cfg := &config.Env{
 		DatabaseURL:           sharedAppConnString,
 		MigrationsDatabaseURL: sharedMigrConnString,
 		ValkeyURL:             "redis://" + sharedValkeyAddr,

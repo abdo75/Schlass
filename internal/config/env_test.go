@@ -173,14 +173,14 @@ func TestLoad_RateLimits(t *testing.T) {
 	knobs := []struct {
 		env         string
 		wantDefault int64
-		get         func(*Config) int64
+		get         func(*Env) int64
 	}{
-		{"SCHLASS_LOGIN_RATE_LIMIT", 5, func(c *Config) int64 { return c.LoginRateLimit }},
-		{"SCHLASS_MFA_CHALLENGE_RATE_LIMIT", 5, func(c *Config) int64 { return c.MfaChallengeRateLimit }},
-		{"SCHLASS_PASSWORD_RESET_RATE_LIMIT", 5, func(c *Config) int64 { return c.PasswordResetRateLimit }},
-		{"SCHLASS_AUTHORIZE_RATE_LIMIT", 60, func(c *Config) int64 { return c.AuthorizeRateLimit }},
-		{"SCHLASS_USERINFO_RATE_LIMIT", 60, func(c *Config) int64 { return c.UserinfoRateLimit }},
-		{"SCHLASS_TOKEN_RATE_LIMIT", 60, func(c *Config) int64 { return c.TokenRateLimit }},
+		{"SCHLASS_LOGIN_RATE_LIMIT", 5, func(c *Env) int64 { return c.LoginRateLimit }},
+		{"SCHLASS_MFA_CHALLENGE_RATE_LIMIT", 5, func(c *Env) int64 { return c.MfaChallengeRateLimit }},
+		{"SCHLASS_PASSWORD_RESET_RATE_LIMIT", 5, func(c *Env) int64 { return c.PasswordResetRateLimit }},
+		{"SCHLASS_AUTHORIZE_RATE_LIMIT", 60, func(c *Env) int64 { return c.AuthorizeRateLimit }},
+		{"SCHLASS_USERINFO_RATE_LIMIT", 60, func(c *Env) int64 { return c.UserinfoRateLimit }},
+		{"SCHLASS_TOKEN_RATE_LIMIT", 60, func(c *Env) int64 { return c.TokenRateLimit }},
 	}
 	for _, k := range knobs {
 		t.Run(k.env+"/default", func(t *testing.T) {

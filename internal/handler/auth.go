@@ -644,7 +644,7 @@ func (h *AuthHandler) PostChangePassword(w http.ResponseWriter, r *http.Request)
 	}
 
 	// 2. Load policy + validate new password.
-	policy, err := h.instanceConfig.GetPasswordPolicy(r.Context(), h.pool)
+	policy, err := h.instanceConfig.PasswordPolicy(r.Context(), h.pool)
 	if err != nil {
 		slog.Error("auth.PostChangePassword: load password policy", "error", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")

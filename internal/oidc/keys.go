@@ -41,13 +41,19 @@ func GenerateKeyPair() (publicPEM, privatePEM []byte, err error) {
 	return pubPEM, privPEM, nil
 }
 
+// signingKeyAAD binds signing-key blobs to their namespace so a wrapped
+// private key cannot be swapped into another encrypted column (e.g. a user's
+// TOTP secret). Static rather than per-kid because Insert generates the kid
+// after WrapPrivateKey runs; cross-column swap is the load-bearing defense.
+var signingKeyAAD = []byte("signing_key:private_pem")
+
 // WrapPrivateKey AES-256-GCM-encrypts the private-key PEM with the operator's
 // key-encryption key (SCHLASS_ENCRYPTION_KEY, 32 bytes).
 func WrapPrivateKey(privatePEM, kek []byte) ([]byte, error) {
 	if len(kek) != 32 {
 		return nil, fmt.Errorf("oidc: kek must be 32 bytes, got %d", len(kek))
 	}
-	return crypto.Encrypt(privatePEM, kek)
+	return crypto.Encrypt(privatePEM, kek, signingKeyAAD)
 }
 
 // UnwrapPrivateKey decrypts a wrapped private key.
@@ -55,7 +61,7 @@ func UnwrapPrivateKey(wrapped, kek []byte) ([]byte, error) {
 	if len(kek) != 32 {
 		return nil, fmt.Errorf("oidc: kek must be 32 bytes, got %d", len(kek))
 	}
-	return crypto.Decrypt(wrapped, kek)
+	return crypto.Decrypt(wrapped, kek, signingKeyAAD)
 }
 
 // ParsePrivatePEM parses a PEM-encoded RSA private key.

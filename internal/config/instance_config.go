@@ -32,7 +32,7 @@ func (s *InstanceConfig) SetSetupComplete(ctx context.Context, q database.Querie
 	return s.store.Set(ctx, q, "setup_complete", true)
 }
 
-func (s *InstanceConfig) GetInstanceName(ctx context.Context, q database.Querier) (string, error) {
+func (s *InstanceConfig) InstanceName(ctx context.Context, q database.Querier) (string, error) {
 	isNull, err := s.store.IsNull(ctx, q, "instance_name")
 	if err != nil {
 		return "", err
@@ -47,7 +47,7 @@ func (s *InstanceConfig) SetInstanceName(ctx context.Context, q database.Querier
 	return s.store.Set(ctx, q, "instance_name", name)
 }
 
-func (s *InstanceConfig) GetPasswordPolicy(ctx context.Context, q database.Querier) (model.PasswordPolicy, error) {
+func (s *InstanceConfig) PasswordPolicy(ctx context.Context, q database.Querier) (model.PasswordPolicy, error) {
 	minLength, err := s.store.GetInt(ctx, q, "password_min_length")
 	if err != nil {
 		return model.PasswordPolicy{}, err
@@ -67,7 +67,7 @@ func (s *InstanceConfig) GetPasswordPolicy(ctx context.Context, q database.Queri
 	}, nil
 }
 
-func (s *InstanceConfig) GetEncryptedValue(ctx context.Context, q database.Querier, key string) (string, error) {
+func (s *InstanceConfig) EncryptedValue(ctx context.Context, q database.Querier, key string) (string, error) {
 	isNull, err := s.store.IsNull(ctx, q, key)
 	if err != nil {
 		return "", err
@@ -86,7 +86,7 @@ func (s *InstanceConfig) GetEncryptedValue(ctx context.Context, q database.Queri
 		return "", err
 	}
 
-	plaintext, err := crypto.Decrypt(ciphertext, s.encryptionKey)
+	plaintext, err := crypto.Decrypt(ciphertext, s.encryptionKey, encryptedValueAAD(key))
 	if err != nil {
 		return "", err
 	}
@@ -95,12 +95,16 @@ func (s *InstanceConfig) GetEncryptedValue(ctx context.Context, q database.Queri
 }
 
 func (s *InstanceConfig) SetEncryptedValue(ctx context.Context, q database.Querier, key, plaintext string) error {
-	ciphertext, err := crypto.Encrypt([]byte(plaintext), s.encryptionKey)
+	ciphertext, err := crypto.Encrypt([]byte(plaintext), s.encryptionKey, encryptedValueAAD(key))
 	if err != nil {
 		return err
 	}
 	encoded := base64.StdEncoding.EncodeToString(ciphertext)
 	return s.store.Set(ctx, q, key, encoded)
+}
+
+func encryptedValueAAD(key string) []byte {
+	return []byte("instance_config:" + key)
 }
 
 func (s *InstanceConfig) SetInt(ctx context.Context, q database.Querier, key string, value int) error {
@@ -115,8 +119,8 @@ func (s *InstanceConfig) SetString(ctx context.Context, q database.Querier, key,
 	return s.store.Set(ctx, q, key, value)
 }
 
-func (s *InstanceConfig) GetSettings(ctx context.Context, q database.Querier) (*Settings, error) {
-	name, _ := s.GetInstanceName(ctx, q)
+func (s *InstanceConfig) Settings(ctx context.Context, q database.Querier) (*Settings, error) {
+	name, _ := s.InstanceName(ctx, q)
 
 	mfaReq, _ := s.store.GetBool(ctx, q, "mfa_required")
 	pwMin, _ := s.store.GetInt(ctx, q, "password_min_length")

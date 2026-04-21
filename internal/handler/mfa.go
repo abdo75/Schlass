@@ -256,7 +256,7 @@ func (h *MfaHandler) PostEnrollmentStart(w http.ResponseWriter, r *http.Request)
 
 	// 6. Build provision URI. Read instance_name from config at request time so
 	//    the issuer reflects what the admin has configured, not the hostname.
-	issuer, err := h.instanceConfig.GetInstanceName(r.Context(), h.pool)
+	issuer, err := h.instanceConfig.InstanceName(r.Context(), h.pool)
 	if err != nil {
 		slog.Warn("mfa enroll: failed to read instance_name; falling back to Schlass", "error", err)
 		issuer = ""
@@ -415,7 +415,7 @@ func (h *MfaHandler) PostEnrollmentComplete(w http.ResponseWriter, r *http.Reque
 		hashes[i] = []byte(s)
 	}
 
-	encrypted, err := crypto.Encrypt([]byte(secret), h.encryptionKey)
+	encrypted, err := crypto.Encrypt([]byte(secret), h.encryptionKey, totpSecretAAD(userID.String()))
 	if err != nil {
 		slog.Error("mfa complete: Encrypt failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
@@ -597,7 +597,7 @@ func (h *MfaHandler) PostChallenge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	secret, err := crypto.Decrypt(user.TOTPSecretEncrypted, h.encryptionKey)
+	secret, err := crypto.Decrypt(user.TOTPSecretEncrypted, h.encryptionKey, totpSecretAAD(user.ID.String()))
 	if err != nil {
 		slog.Error("mfa challenge: Decrypt failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
@@ -849,4 +849,10 @@ func (h *MfaHandler) verifyRecoveryCode(w http.ResponseWriter, r *http.Request, 
 		resp["redirect_to"] = returnTo
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// totpSecretAAD binds encrypted TOTP secrets to the owning user, so a blob
+// swapped between user rows at the DB layer fails decryption.
+func totpSecretAAD(userID string) []byte {
+	return []byte("user_totp_secret:" + userID)
 }

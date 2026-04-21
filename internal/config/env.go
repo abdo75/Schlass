@@ -11,7 +11,6 @@ import (
 	"github.com/joho/godotenv"
 )
 
-// Default values for every Config field. 
 // Override via the matching SCHLASS_* env var.
 const (
 	defaultPort             = "3000"
@@ -32,7 +31,7 @@ const (
 	defaultTokenRateLimit         int64 = 60 // per client_id per minute
 )
 
-type Config struct {
+type Env struct {
 	DatabaseURL            string
 	MigrationsDatabaseURL  string
 	ValkeyURL              string
@@ -50,10 +49,10 @@ type Config struct {
 	HIBPTimeoutMS          int
 }
 
-func Load() (*Config, error) {
+func Load() (*Env, error) {
 	_ = godotenv.Load() // Loads .env file if present
 
-	cfg := &Config{
+	cfg := &Env{
 		Port:                   defaultPort,
 		SchlassPublicURL:       defaultSchlassPublicURL,
 		LoginRateLimit:         defaultLoginRateLimit,

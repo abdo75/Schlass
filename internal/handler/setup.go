@@ -77,7 +77,7 @@ func (h *SetupHandler) PostSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	policy, err := h.instanceConfig.GetPasswordPolicy(r.Context(), h.pool)
+	policy, err := h.instanceConfig.PasswordPolicy(r.Context(), h.pool)
 	if err != nil {
 		slog.Error("failed to get password policy", "error", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")

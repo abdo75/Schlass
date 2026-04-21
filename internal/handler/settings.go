@@ -43,7 +43,7 @@ func NewSettingsHandler(pool *pgxpool.Pool, instanceConfig *config.InstanceConfi
 // one call. SMTP password is surfaced as smtp_password_set: bool only —
 // plaintext and ciphertext never leave the server.
 func (h *SettingsHandler) GetAll(w http.ResponseWriter, r *http.Request) {
-	snap, err := h.instanceConfig.GetSettings(r.Context(), h.pool)
+	snap, err := h.instanceConfig.Settings(r.Context(), h.pool)
 	if err != nil {
 		slog.Error("settings.GetAll", "error", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
@@ -78,14 +78,14 @@ func (h *SettingsHandler) PatchGeneral(w http.ResponseWriter, r *http.Request) {
 	}
 	newName := strings.TrimSpace(in.InstanceName)
 
-	oldName, err := h.instanceConfig.GetInstanceName(r.Context(), h.pool)
+	oldName, err := h.instanceConfig.InstanceName(r.Context(), h.pool)
 	if err != nil {
 		slog.Error("settings.PatchGeneral: get old", "error", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 		return
 	}
 	if newName == oldName {
-		snap, _ := h.instanceConfig.GetSettings(r.Context(), h.pool)
+		snap, _ := h.instanceConfig.Settings(r.Context(), h.pool)
 		writeJSON(w, http.StatusOK, snap.General)
 		return
 	}
@@ -123,7 +123,7 @@ func (h *SettingsHandler) PatchGeneral(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	snap, _ := h.instanceConfig.GetSettings(r.Context(), h.pool)
+	snap, _ := h.instanceConfig.Settings(r.Context(), h.pool)
 	writeJSON(w, http.StatusOK, snap.General)
 }
 
@@ -154,7 +154,7 @@ func (h *SettingsHandler) PatchSecurity(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Snapshot pre-values — needed for both change-detection and audit metadata.
-	pre, err := h.instanceConfig.GetSettings(r.Context(), h.pool)
+	pre, err := h.instanceConfig.Settings(r.Context(), h.pool)
 	if err != nil {
 		slog.Error("settings.PatchSecurity: snapshot", "error", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
@@ -248,7 +248,7 @@ func (h *SettingsHandler) PatchSecurity(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	snap, _ := h.instanceConfig.GetSettings(r.Context(), h.pool)
+	snap, _ := h.instanceConfig.Settings(r.Context(), h.pool)
 	writeJSON(w, http.StatusOK, snap.Security)
 }
 
@@ -276,7 +276,7 @@ func (h *SettingsHandler) PatchTokens(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pre, err := h.instanceConfig.GetSettings(r.Context(), h.pool)
+	pre, err := h.instanceConfig.Settings(r.Context(), h.pool)
 	if err != nil {
 		slog.Error("settings.PatchTokens: snapshot", "error", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
@@ -344,7 +344,7 @@ func (h *SettingsHandler) PatchTokens(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	snap, _ := h.instanceConfig.GetSettings(r.Context(), h.pool)
+	snap, _ := h.instanceConfig.Settings(r.Context(), h.pool)
 	writeJSON(w, http.StatusOK, snap.Tokens)
 }
 
@@ -376,7 +376,7 @@ func (h *SettingsHandler) PatchEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pre, err := h.instanceConfig.GetSettings(r.Context(), h.pool)
+	pre, err := h.instanceConfig.Settings(r.Context(), h.pool)
 	if err != nil {
 		slog.Error("settings.PatchEmail: snapshot", "error", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
@@ -489,7 +489,7 @@ func (h *SettingsHandler) PatchEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	snap, _ := h.instanceConfig.GetSettings(r.Context(), h.pool)
+	snap, _ := h.instanceConfig.Settings(r.Context(), h.pool)
 	writeJSON(w, http.StatusOK, snap.Email)
 }
 
@@ -541,7 +541,7 @@ func (h *SettingsHandler) TestEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	instanceName, _ := h.instanceConfig.GetInstanceName(r.Context(), h.pool)
+	instanceName, _ := h.instanceConfig.InstanceName(r.Context(), h.pool)
 	if instanceName == "" {
 		instanceName = "Schlass"
 	}
