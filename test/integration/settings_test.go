@@ -324,11 +324,11 @@ func TestPatchTokens_Validation_OutOfRange(t *testing.T) {
 	}
 }
 
-// newConfigServiceForEnv constructs a ConfigService using the same encryption
+// newInstanceConfigForEnv constructs a InstanceConfig using the same encryption
 // key the test router was built with, so tests can decrypt values that the
 // PATCH handler wrote. Equivalent to the wiring inside env.BuildDeps().
-func newConfigServiceForEnv(env *TestEnv) *config.ConfigService {
-	return config.NewConfigService(store.NewConfigStore(), env.Cfg.EncryptionKey)
+func newInstanceConfigForEnv(env *TestEnv) *config.InstanceConfig {
+	return config.NewInstanceConfig(store.NewConfigStore(), env.Cfg.EncryptionKey)
 }
 
 // TestPatchEmail_KeepCurrentPasswordOnEmpty is the load-bearing compliance
@@ -369,7 +369,7 @@ func TestPatchEmail_KeepCurrentPasswordOnEmpty(t *testing.T) {
 	// Password should still decrypt to secret-v1.
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	svc := newConfigServiceForEnv(env)
+	svc := newInstanceConfigForEnv(env)
 	pw, err := svc.GetEncryptedValue(ctx, env.Pool, "smtp_password")
 	if err != nil {
 		t.Fatalf("decrypt password: %v", err)
@@ -437,7 +437,7 @@ func TestPatchEmail_ReplacePassword(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	svc := newConfigServiceForEnv(env)
+	svc := newInstanceConfigForEnv(env)
 	pw, err := svc.GetEncryptedValue(ctx, env.Pool, "smtp_password")
 	if err != nil {
 		t.Fatalf("decrypt password: %v", err)

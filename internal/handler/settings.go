@@ -26,24 +26,24 @@ import (
 //
 // encryptionKey is retained on the struct so subsequent PATCH email
 // handlers (T5) can AES-GCM-wrap the SMTP password via
-// ConfigService.SetEncryptedValue. It is not used by GetAll or
+// InstanceConfig.SetEncryptedValue. It is not used by GetAll or
 // PatchGeneral.
 type SettingsHandler struct {
 	pool          *pgxpool.Pool
-	configService *config.ConfigService
+	instanceConfig *config.InstanceConfig
 	auditStore    AuditLogger
 	encryptionKey []byte
 }
 
-func NewSettingsHandler(pool *pgxpool.Pool, configService *config.ConfigService, auditStore AuditLogger, encryptionKey []byte) *SettingsHandler {
-	return &SettingsHandler{pool: pool, configService: configService, auditStore: auditStore, encryptionKey: encryptionKey}
+func NewSettingsHandler(pool *pgxpool.Pool, instanceConfig *config.InstanceConfig, auditStore AuditLogger, encryptionKey []byte) *SettingsHandler {
+	return &SettingsHandler{pool: pool, instanceConfig: instanceConfig, auditStore: auditStore, encryptionKey: encryptionKey}
 }
 
 // GetAll serves GET /api/settings. Returns every settings-domain value in
 // one call. SMTP password is surfaced as smtp_password_set: bool only —
 // plaintext and ciphertext never leave the server.
 func (h *SettingsHandler) GetAll(w http.ResponseWriter, r *http.Request) {
-	snap, err := h.configService.GetSettingsSnapshot(r.Context(), h.pool)
+	snap, err := h.instanceConfig.GetSettings(r.Context(), h.pool)
 	if err != nil {
 		slog.Error("settings.GetAll", "error", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
@@ -78,14 +78,14 @@ func (h *SettingsHandler) PatchGeneral(w http.ResponseWriter, r *http.Request) {
 	}
 	newName := strings.TrimSpace(in.InstanceName)
 
-	oldName, err := h.configService.GetInstanceName(r.Context(), h.pool)
+	oldName, err := h.instanceConfig.GetInstanceName(r.Context(), h.pool)
 	if err != nil {
 		slog.Error("settings.PatchGeneral: get old", "error", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 		return
 	}
 	if newName == oldName {
-		snap, _ := h.configService.GetSettingsSnapshot(r.Context(), h.pool)
+		snap, _ := h.instanceConfig.GetSettings(r.Context(), h.pool)
 		writeJSON(w, http.StatusOK, snap.General)
 		return
 	}
@@ -98,7 +98,7 @@ func (h *SettingsHandler) PatchGeneral(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { _ = tx.Rollback(r.Context()) }()
 
-	if err := h.configService.SetInstanceName(r.Context(), tx, newName); err != nil {
+	if err := h.instanceConfig.SetInstanceName(r.Context(), tx, newName); err != nil {
 		slog.Error("settings.PatchGeneral: set", "error", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 		return
@@ -123,7 +123,7 @@ func (h *SettingsHandler) PatchGeneral(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	snap, _ := h.configService.GetSettingsSnapshot(r.Context(), h.pool)
+	snap, _ := h.instanceConfig.GetSettings(r.Context(), h.pool)
 	writeJSON(w, http.StatusOK, snap.General)
 }
 
@@ -154,7 +154,7 @@ func (h *SettingsHandler) PatchSecurity(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Snapshot pre-values — needed for both change-detection and audit metadata.
-	pre, err := h.configService.GetSettingsSnapshot(r.Context(), h.pool)
+	pre, err := h.instanceConfig.GetSettings(r.Context(), h.pool)
 	if err != nil {
 		slog.Error("settings.PatchSecurity: snapshot", "error", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
@@ -173,37 +173,37 @@ func (h *SettingsHandler) PatchSecurity(w http.ResponseWriter, r *http.Request) 
 	if in.MFARequired != nil && *in.MFARequired != pre.Security.MFARequired {
 		v := *in.MFARequired
 		changes = append(changes, change{"mfa_required", pre.Security.MFARequired, v, func(ctx context.Context, tx pgx.Tx) error {
-			return h.configService.SetBool(ctx, tx, "mfa_required", v)
+			return h.instanceConfig.SetBool(ctx, tx, "mfa_required", v)
 		}})
 	}
 	if in.PasswordMinLength != nil && *in.PasswordMinLength != pre.Security.PasswordMinLength {
 		v := *in.PasswordMinLength
 		changes = append(changes, change{"password_min_length", pre.Security.PasswordMinLength, v, func(ctx context.Context, tx pgx.Tx) error {
-			return h.configService.SetInt(ctx, tx, "password_min_length", v)
+			return h.instanceConfig.SetInt(ctx, tx, "password_min_length", v)
 		}})
 	}
 	if in.PasswordRequireUpper != nil && *in.PasswordRequireUpper != pre.Security.PasswordRequireUpper {
 		v := *in.PasswordRequireUpper
 		changes = append(changes, change{"password_require_upper", pre.Security.PasswordRequireUpper, v, func(ctx context.Context, tx pgx.Tx) error {
-			return h.configService.SetBool(ctx, tx, "password_require_upper", v)
+			return h.instanceConfig.SetBool(ctx, tx, "password_require_upper", v)
 		}})
 	}
 	if in.PasswordRequireDigit != nil && *in.PasswordRequireDigit != pre.Security.PasswordRequireDigit {
 		v := *in.PasswordRequireDigit
 		changes = append(changes, change{"password_require_digit", pre.Security.PasswordRequireDigit, v, func(ctx context.Context, tx pgx.Tx) error {
-			return h.configService.SetBool(ctx, tx, "password_require_digit", v)
+			return h.instanceConfig.SetBool(ctx, tx, "password_require_digit", v)
 		}})
 	}
 	if in.LockoutThreshold != nil && *in.LockoutThreshold != pre.Security.LockoutThreshold {
 		v := *in.LockoutThreshold
 		changes = append(changes, change{"lockout_threshold", pre.Security.LockoutThreshold, v, func(ctx context.Context, tx pgx.Tx) error {
-			return h.configService.SetInt(ctx, tx, "lockout_threshold", v)
+			return h.instanceConfig.SetInt(ctx, tx, "lockout_threshold", v)
 		}})
 	}
 	if in.LockoutDurationSecs != nil && *in.LockoutDurationSecs != pre.Security.LockoutDurationSecs {
 		v := *in.LockoutDurationSecs
 		changes = append(changes, change{"lockout_duration_secs", pre.Security.LockoutDurationSecs, v, func(ctx context.Context, tx pgx.Tx) error {
-			return h.configService.SetInt(ctx, tx, "lockout_duration_secs", v)
+			return h.instanceConfig.SetInt(ctx, tx, "lockout_duration_secs", v)
 		}})
 	}
 
@@ -248,7 +248,7 @@ func (h *SettingsHandler) PatchSecurity(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	snap, _ := h.configService.GetSettingsSnapshot(r.Context(), h.pool)
+	snap, _ := h.instanceConfig.GetSettings(r.Context(), h.pool)
 	writeJSON(w, http.StatusOK, snap.Security)
 }
 
@@ -276,7 +276,7 @@ func (h *SettingsHandler) PatchTokens(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pre, err := h.configService.GetSettingsSnapshot(r.Context(), h.pool)
+	pre, err := h.instanceConfig.GetSettings(r.Context(), h.pool)
 	if err != nil {
 		slog.Error("settings.PatchTokens: snapshot", "error", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
@@ -293,13 +293,13 @@ func (h *SettingsHandler) PatchTokens(w http.ResponseWriter, r *http.Request) {
 	if in.AccessTokenTTLSecs != nil && *in.AccessTokenTTLSecs != pre.Tokens.AccessTokenTTLSecs {
 		v := *in.AccessTokenTTLSecs
 		changes = append(changes, change{"access_token_ttl_secs", pre.Tokens.AccessTokenTTLSecs, v, func(ctx context.Context, tx pgx.Tx) error {
-			return h.configService.SetInt(ctx, tx, "access_token_ttl_secs", v)
+			return h.instanceConfig.SetInt(ctx, tx, "access_token_ttl_secs", v)
 		}})
 	}
 	if in.RefreshTokenTTLSecs != nil && *in.RefreshTokenTTLSecs != pre.Tokens.RefreshTokenTTLSecs {
 		v := *in.RefreshTokenTTLSecs
 		changes = append(changes, change{"refresh_token_ttl_secs", pre.Tokens.RefreshTokenTTLSecs, v, func(ctx context.Context, tx pgx.Tx) error {
-			return h.configService.SetInt(ctx, tx, "refresh_token_ttl_secs", v)
+			return h.instanceConfig.SetInt(ctx, tx, "refresh_token_ttl_secs", v)
 		}})
 	}
 
@@ -344,14 +344,14 @@ func (h *SettingsHandler) PatchTokens(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	snap, _ := h.configService.GetSettingsSnapshot(r.Context(), h.pool)
+	snap, _ := h.instanceConfig.GetSettings(r.Context(), h.pool)
 	writeJSON(w, http.StatusOK, snap.Tokens)
 }
 
 // PatchEmail serves PATCH /api/settings/email. Four plain fields
 // (host/port/username/from) + one encrypted field (password). Password
 // semantic: empty string keeps the current value; non-empty replaces and
-// re-encrypts via ConfigService.SetEncryptedValue (AES-256-GCM). Audit
+// re-encrypts via InstanceConfig.SetEncryptedValue (AES-256-GCM). Audit
 // metadata on smtp_password is {"changed": true} — never the plaintext or
 // ciphertext in either direction; the TestPatchEmail_KeepCurrentPasswordOnEmpty
 // integration test grep-asserts this and fails loudly on regression.
@@ -376,7 +376,7 @@ func (h *SettingsHandler) PatchEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pre, err := h.configService.GetSettingsSnapshot(r.Context(), h.pool)
+	pre, err := h.instanceConfig.GetSettings(r.Context(), h.pool)
 	if err != nil {
 		slog.Error("settings.PatchEmail: snapshot", "error", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
@@ -397,7 +397,7 @@ func (h *SettingsHandler) PatchEmail(w http.ResponseWriter, r *http.Request) {
 				key:  "smtp_host",
 				meta: map[string]any{"old_value": pre.Email.SMTPHost, "new_value": v},
 				write: func(ctx context.Context, tx pgx.Tx) error {
-					return h.configService.SetString(ctx, tx, "smtp_host", v)
+					return h.instanceConfig.SetString(ctx, tx, "smtp_host", v)
 				},
 			})
 		}
@@ -408,7 +408,7 @@ func (h *SettingsHandler) PatchEmail(w http.ResponseWriter, r *http.Request) {
 			key:  "smtp_port",
 			meta: map[string]any{"old_value": pre.Email.SMTPPort, "new_value": v},
 			write: func(ctx context.Context, tx pgx.Tx) error {
-				return h.configService.SetInt(ctx, tx, "smtp_port", v)
+				return h.instanceConfig.SetInt(ctx, tx, "smtp_port", v)
 			},
 		})
 	}
@@ -418,7 +418,7 @@ func (h *SettingsHandler) PatchEmail(w http.ResponseWriter, r *http.Request) {
 			key:  "smtp_username",
 			meta: map[string]any{"old_value": pre.Email.SMTPUsername, "new_value": v},
 			write: func(ctx context.Context, tx pgx.Tx) error {
-				return h.configService.SetString(ctx, tx, "smtp_username", v)
+				return h.instanceConfig.SetString(ctx, tx, "smtp_username", v)
 			},
 		})
 	}
@@ -429,7 +429,7 @@ func (h *SettingsHandler) PatchEmail(w http.ResponseWriter, r *http.Request) {
 				key:  "smtp_from",
 				meta: map[string]any{"old_value": pre.Email.SMTPFrom, "new_value": v},
 				write: func(ctx context.Context, tx pgx.Tx) error {
-					return h.configService.SetString(ctx, tx, "smtp_from", v)
+					return h.instanceConfig.SetString(ctx, tx, "smtp_from", v)
 				},
 			})
 		}
@@ -443,7 +443,7 @@ func (h *SettingsHandler) PatchEmail(w http.ResponseWriter, r *http.Request) {
 			key:  "smtp_password",
 			meta: map[string]any{"changed": true},
 			write: func(ctx context.Context, tx pgx.Tx) error {
-				return h.configService.SetEncryptedValue(ctx, tx, "smtp_password", v)
+				return h.instanceConfig.SetEncryptedValue(ctx, tx, "smtp_password", v)
 			},
 		})
 	}
@@ -489,7 +489,7 @@ func (h *SettingsHandler) PatchEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	snap, _ := h.configService.GetSettingsSnapshot(r.Context(), h.pool)
+	snap, _ := h.instanceConfig.GetSettings(r.Context(), h.pool)
 	writeJSON(w, http.StatusOK, snap.Email)
 }
 
@@ -530,7 +530,7 @@ func (h *SettingsHandler) TestEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sender, err := mail.NewSenderFromConfig(r.Context(), h.configService, h.pool)
+	sender, err := mail.NewSenderFromConfig(r.Context(), h.instanceConfig, h.pool)
 	if err != nil {
 		if errors.Is(err, mail.ErrSMTPConfigIncomplete) {
 			writeError(w, http.StatusBadRequest, "SMTP_CONFIG_INCOMPLETE", "Complete and save the SMTP configuration before testing.")
@@ -541,7 +541,7 @@ func (h *SettingsHandler) TestEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	instanceName, _ := h.configService.GetInstanceName(r.Context(), h.pool)
+	instanceName, _ := h.instanceConfig.GetInstanceName(r.Context(), h.pool)
 	if instanceName == "" {
 		instanceName = "Schlass"
 	}

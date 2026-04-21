@@ -47,7 +47,7 @@ type AuthHandler struct {
 	recoveryCodeStore *store.RecoveryCodeStore
 	auditStore        AuditLogger
 	configStore       *store.ConfigStore
-	configService     *config.ConfigService
+	instanceConfig     *config.InstanceConfig
 
 	publicURL    string // for Origin check
 	cookieSecure bool   // derived from publicURL at construction time
@@ -67,7 +67,7 @@ func NewAuthHandler(
 	recoveryCodeStore *store.RecoveryCodeStore,
 	auditStore AuditLogger,
 	configStore *store.ConfigStore,
-	configService *config.ConfigService,
+	instanceConfig *config.InstanceConfig,
 	publicURL string,
 	hibpChecker *crypto.HIBPChecker,
 ) (*AuthHandler, error) {
@@ -83,7 +83,7 @@ func NewAuthHandler(
 		recoveryCodeStore: recoveryCodeStore,
 		auditStore:        auditStore,
 		configStore:       configStore,
-		configService:     configService,
+		instanceConfig:     instanceConfig,
 		publicURL:         publicURL,
 		cookieSecure:      isSecureURL(publicURL),
 		dummyHash:         dummy,
@@ -644,7 +644,7 @@ func (h *AuthHandler) PostChangePassword(w http.ResponseWriter, r *http.Request)
 	}
 
 	// 2. Load policy + validate new password.
-	policy, err := h.configService.GetPasswordPolicy(r.Context(), h.pool)
+	policy, err := h.instanceConfig.GetPasswordPolicy(r.Context(), h.pool)
 	if err != nil {
 		slog.Error("auth.PostChangePassword: load password policy", "error", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")

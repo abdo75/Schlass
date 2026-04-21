@@ -38,7 +38,7 @@ type UsersHandler struct {
 	userStore         *store.UserStore
 	auditStore        AuditLogger
 	sessionStore      session.Store
-	configService     *config.ConfigService
+	instanceConfig     *config.InstanceConfig
 	recoveryCodeStore *store.RecoveryCodeStore
 }
 
@@ -51,7 +51,7 @@ func NewUsersHandler(
 	userStore *store.UserStore,
 	auditStore AuditLogger,
 	sessionStore session.Store,
-	configService *config.ConfigService,
+	instanceConfig *config.InstanceConfig,
 	recoveryCodeStore *store.RecoveryCodeStore,
 ) *UsersHandler {
 	return &UsersHandler{
@@ -60,7 +60,7 @@ func NewUsersHandler(
 		userStore:         userStore,
 		auditStore:        auditStore,
 		sessionStore:      sessionStore,
-		configService:     configService,
+		instanceConfig:     instanceConfig,
 		recoveryCodeStore: recoveryCodeStore,
 	}
 }

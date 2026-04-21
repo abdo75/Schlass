@@ -31,7 +31,7 @@ type MfaHandler struct {
 	recoveryCodeStore *store.RecoveryCodeStore
 	auditStore        AuditLogger
 	sessionStore      session.Store
-	configService     *config.ConfigService
+	instanceConfig     *config.InstanceConfig
 	configStore       *store.ConfigStore
 	encryptionKey     []byte
 	secureCookie      bool // Secure flag on Set-Cookie — true iff SCHLASS_PUBLIC_URL is https
@@ -47,7 +47,7 @@ func NewMfaHandler(
 	recoveryCodeStore *store.RecoveryCodeStore,
 	auditStore AuditLogger,
 	sessionStore session.Store,
-	configService *config.ConfigService,
+	instanceConfig *config.InstanceConfig,
 	configStore *store.ConfigStore,
 	encryptionKey []byte,
 	publicURL string,
@@ -59,7 +59,7 @@ func NewMfaHandler(
 		recoveryCodeStore: recoveryCodeStore,
 		auditStore:        auditStore,
 		sessionStore:      sessionStore,
-		configService:     configService,
+		instanceConfig:     instanceConfig,
 		configStore:       configStore,
 		encryptionKey:     encryptionKey,
 		secureCookie:      isSecureURL(publicURL),
@@ -256,7 +256,7 @@ func (h *MfaHandler) PostEnrollmentStart(w http.ResponseWriter, r *http.Request)
 
 	// 6. Build provision URI. Read instance_name from config at request time so
 	//    the issuer reflects what the admin has configured, not the hostname.
-	issuer, err := h.configService.GetInstanceName(r.Context(), h.pool)
+	issuer, err := h.instanceConfig.GetInstanceName(r.Context(), h.pool)
 	if err != nil {
 		slog.Warn("mfa enroll: failed to read instance_name; falling back to Schlass", "error", err)
 		issuer = ""

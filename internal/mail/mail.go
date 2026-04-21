@@ -1,5 +1,5 @@
 // Package mail is Schlass's SMTP sender. Loads config from instance_config
-// via ConfigService on construction; templates are embedded via go:embed.
+// via InstanceConfig on construction; templates are embedded via go:embed.
 //
 // Used by:
 //   - POST /api/settings/email/test (TestConnection)
@@ -44,8 +44,8 @@ type Sender struct {
 // NewSenderFromConfig builds a Sender using the saved SMTP config.
 // Returns ErrSMTPConfigIncomplete if required fields (host/port/from) are
 // unset.
-func NewSenderFromConfig(ctx context.Context, cfg *config.ConfigService, q database.Querier) (*Sender, error) {
-	snap, err := cfg.GetSettingsSnapshot(ctx, q)
+func NewSenderFromConfig(ctx context.Context, cfg *config.InstanceConfig, q database.Querier) (*Sender, error) {
+	snap, err := cfg.GetSettings(ctx, q)
 	if err != nil {
 		return nil, fmt.Errorf("settings snapshot: %w", err)
 	}

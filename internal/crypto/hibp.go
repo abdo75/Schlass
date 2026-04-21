@@ -13,10 +13,6 @@ import (
 	"time"
 )
 
-// DefaultHIBPEndpoint is the canonical production HIBP range API. Tests
-// and offline dev override it via HIBPChecker.Endpoint.
-const DefaultHIBPEndpoint = "https://api.pwnedpasswords.com/range"
-
 // HIBPChecker queries the Have I Been Pwned range API to detect whether
 // a candidate password appears in any published breach corpus (NIST SP
 // 800-63B-4 §3.1.1.2). Uses k-anonymity: the password's SHA-1 hash is
@@ -27,8 +23,8 @@ const DefaultHIBPEndpoint = "https://api.pwnedpasswords.com/range"
 // A nil *HIBPChecker behaves as if checking is disabled — IsPwned
 // always returns (false, nil). Callers must be nil-safe.
 type HIBPChecker struct {
-	// Endpoint is the range API base URL (no trailing slash). Empty
-	// means use DefaultHIBPEndpoint.
+	// Endpoint is the range API base URL (no trailing slash). Required —
+	// the canonical production value lives in config.defaultHIBPEndpoint.
 	Endpoint string
 	// HTTPClient is the client used for range requests. nil means use
 	// a client with Timeout = 1500ms.
@@ -48,11 +44,7 @@ func (c *HIBPChecker) IsPwned(ctx context.Context, password string) (bool, error
 	full := strings.ToUpper(hex.EncodeToString(sum[:]))
 	prefix, suffix := full[:5], full[5:]
 
-	endpoint := c.Endpoint
-	if endpoint == "" {
-		endpoint = DefaultHIBPEndpoint
-	}
-	url := endpoint + "/" + prefix
+	url := c.Endpoint + "/" + prefix
 
 	httpClient := c.HTTPClient
 	if httpClient == nil {

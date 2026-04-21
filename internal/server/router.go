@@ -32,33 +32,17 @@ type RouterDeps struct {
 	UserStore         *store.UserStore
 	RecoveryCodeStore *store.RecoveryCodeStore
 	AuditStore        handler.AuditLogger
-	ConfigService     *config.ConfigService
+	InstanceConfig    *config.InstanceConfig
 	ClientsHandler    *handler.ClientsHandler
 
-	// LoginRateLimit overrides the per-IP /api/login rate-limit cap. Zero (the
-	// production default path) means "use 5/min". Tests that need to drive many
-	// login attempts from the same virtual IP set this to a large value so the
-	// rate limiter never trips and the test can exercise application-level
-	// lockout semantics in isolation.
-	LoginRateLimit int64
-	// MfaChallengeRateLimit overrides the per-IP /api/mfa/challenge rate-limit
-	// cap. Zero means "use 5/min". E2E tests set this to a large value so the
-	// limiter doesn't trip across repeated challenge requests.
-	MfaChallengeRateLimit int64
-	// PasswordResetRateLimit overrides the per-IP /api/password-reset/request
-	// rate-limit cap. Zero means "use 5/min". Tests raise this so the guard
-	// doesn't mask enumeration-safety assertions.
+	// Rate-limit caps (requests per minute). Defaults come from config.Config;
+	// tests override by setting these directly on RouterDeps before BuildRouter.
+	LoginRateLimit         int64
+	MfaChallengeRateLimit  int64
 	PasswordResetRateLimit int64
-	// TokenRateLimit overrides the per-client_id /token rate-limit cap. Zero
-	// means "use 60/min". Integration tests that want to exercise the 429 path
-	// set this to a small value (e.g. 3).
-	TokenRateLimit int64
-	// AuthorizeRateLimit overrides the per-IP /authorize rate-limit cap.
-	// Zero means "use 60/min". Tests set large values to avoid flake.
-	AuthorizeRateLimit int64
-	// UserinfoRateLimit overrides the per-IP /userinfo rate-limit cap.
-	// Zero means "use 60/min".
-	UserinfoRateLimit int64
+	TokenRateLimit         int64
+	AuthorizeRateLimit     int64
+	UserinfoRateLimit      int64
 
 	// HIBPChecker is the Have I Been Pwned k-anonymity client. nil disables
 	// the breach-corpus check on all user-supplied password-set handlers.
@@ -74,9 +58,9 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 	sessionStore := session.NewValkeyStore(d.ValkeyClient, 24*time.Hour)
 
 	healthHandler := handler.NewHealthHandler(d.Pool, d.ValkeyClient)
-	setupHandler := handler.NewSetupHandler(d.Pool, d.ConfigService, d.ConfigStore, d.UserStore, d.AuditStore, d.HIBPChecker)
+	setupHandler := handler.NewSetupHandler(d.Pool, d.InstanceConfig, d.ConfigStore, d.UserStore, d.AuditStore, d.HIBPChecker)
 	authHandler, err := handler.NewAuthHandler(
-		d.Pool, d.ValkeyClient, sessionStore, d.UserStore, d.RecoveryCodeStore, d.AuditStore, d.ConfigStore, d.ConfigService, d.Cfg.SchlassPublicURL, d.HIBPChecker,
+		d.Pool, d.ValkeyClient, sessionStore, d.UserStore, d.RecoveryCodeStore, d.AuditStore, d.ConfigStore, d.InstanceConfig, d.Cfg.SchlassPublicURL, d.HIBPChecker,
 	)
 	if err != nil {
 		return nil, err
@@ -84,13 +68,13 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 
 	authMW := middleware.Auth(sessionStore, d.UserStore, d.AuditStore, d.Pool)
 
-	usersHandler := handler.NewUsersHandler(d.Pool, d.ValkeyClient, d.UserStore, d.AuditStore, sessionStore, d.ConfigService, d.RecoveryCodeStore)
+	usersHandler := handler.NewUsersHandler(d.Pool, d.ValkeyClient, d.UserStore, d.AuditStore, sessionStore, d.InstanceConfig, d.RecoveryCodeStore)
 	adminSigningKeysHandler := handler.NewAdminSigningKeysHandler(d.Pool, d.AuditStore, d.Cfg.EncryptionKey)
-	settingsHandler := handler.NewSettingsHandler(d.Pool, d.ConfigService, d.AuditStore, d.Cfg.EncryptionKey)
+	settingsHandler := handler.NewSettingsHandler(d.Pool, d.InstanceConfig, d.AuditStore, d.Cfg.EncryptionKey)
 
 	mfaHandler := handler.NewMfaHandler(
 		d.Pool, d.ValkeyClient, d.UserStore, d.RecoveryCodeStore,
-		d.AuditStore, sessionStore, d.ConfigService, d.ConfigStore,
+		d.AuditStore, sessionStore, d.InstanceConfig, d.ConfigStore,
 		d.Cfg.EncryptionKey,
 		d.Cfg.SchlassPublicURL,
 	)
@@ -99,44 +83,27 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 		return authMW(middleware.RequirePermission(perm)(h))
 	}
 
-	setupGetLimit := int64(10)
-	setupPostLimit := int64(5)
-	loginLimit := int64(5)
-	if d.LoginRateLimit > 0 {
-		loginLimit = d.LoginRateLimit
-		// When the operator has raised the login cap (e.g. for E2E test
-		// runs) it would be surprising to leave the sibling /api/setup
-		// limits at their tiny defaults, because those are just as easy
-		// to trip from a headless browser. Scale them to the same cap.
-		setupGetLimit = d.LoginRateLimit
-		setupPostLimit = d.LoginRateLimit
+	// Setup endpoints are tied to the login cap so an operator that raises
+	// login for E2E runs doesn't hit the tiny setup defaults. Minimums kept
+	// at 10 (GET) and 5 (POST).
+	setupGetLimit := d.LoginRateLimit
+	if setupGetLimit < 10 {
+		setupGetLimit = 10
+	}
+	setupPostLimit := d.LoginRateLimit
+	if setupPostLimit < 5 {
+		setupPostLimit = 5
 	}
 	setupGetRL := middleware.NewRateLimiter(d.ValkeyClient, "ratelimit:setup:get", setupGetLimit, time.Minute)
 	setupPostRL := middleware.NewRateLimiter(d.ValkeyClient, "ratelimit:setup:post", setupPostLimit, time.Minute)
-	loginRL := middleware.NewRateLimiter(d.ValkeyClient, "ratelimit:login", loginLimit, time.Minute)
+	loginRL := middleware.NewRateLimiter(d.ValkeyClient, "ratelimit:login", d.LoginRateLimit, time.Minute)
 	loginRL.FailClosed = true
-	mfaLimit := int64(5)
-	if d.MfaChallengeRateLimit > 0 {
-		mfaLimit = d.MfaChallengeRateLimit
-	}
-	mfaChallengeRL := middleware.NewRateLimiter(d.ValkeyClient, "ratelimit:mfa", mfaLimit, time.Minute)
+	mfaChallengeRL := middleware.NewRateLimiter(d.ValkeyClient, "ratelimit:mfa", d.MfaChallengeRateLimit, time.Minute)
 	mfaChallengeRL.FailClosed = true
-	passwordResetLimit := int64(5)
-	if d.PasswordResetRateLimit > 0 {
-		passwordResetLimit = d.PasswordResetRateLimit
-	}
-	passwordResetRL := middleware.NewRateLimiter(d.ValkeyClient, "ratelimit:password_reset", passwordResetLimit, time.Minute)
+	passwordResetRL := middleware.NewRateLimiter(d.ValkeyClient, "ratelimit:password_reset", d.PasswordResetRateLimit, time.Minute)
 	passwordResetRL.FailClosed = true
-	authorizeLimit := int64(60)
-	if d.AuthorizeRateLimit > 0 {
-		authorizeLimit = d.AuthorizeRateLimit
-	}
-	userinfoLimit := int64(60)
-	if d.UserinfoRateLimit > 0 {
-		userinfoLimit = d.UserinfoRateLimit
-	}
-	authorizeRL := middleware.NewRateLimiter(d.ValkeyClient, "ratelimit:authorize", authorizeLimit, time.Minute)
-	userinfoRL := middleware.NewRateLimiter(d.ValkeyClient, "ratelimit:userinfo", userinfoLimit, time.Minute)
+	authorizeRL := middleware.NewRateLimiter(d.ValkeyClient, "ratelimit:authorize", d.AuthorizeRateLimit, time.Minute)
+	userinfoRL := middleware.NewRateLimiter(d.ValkeyClient, "ratelimit:userinfo", d.UserinfoRateLimit, time.Minute)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", healthHandler.GetHealth)
@@ -210,7 +177,7 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 	passwordResetHandler, err := handler.NewPasswordResetHandler(
 		d.Pool, d.ValkeyClient, d.UserStore,
 		store.NewPasswordResetTokenStore(),
-		d.AuditStore, sessionStore, d.ConfigService,
+		d.AuditStore, sessionStore, d.InstanceConfig,
 		d.Cfg.SchlassPublicURL,
 		d.HIBPChecker,
 	)

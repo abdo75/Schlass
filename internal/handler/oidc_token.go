@@ -50,8 +50,7 @@ type tokenResponse struct {
 }
 
 const (
-	refreshTokenTTL       = 24 * time.Hour // absolute TTL from initial code exchange (spec §5f)
-	defaultTokenRateLimit = int64(60)      // per minute, per client_id (spec §5e)
+	refreshTokenTTL = 24 * time.Hour // absolute TTL from initial code exchange (spec §5f)
 )
 
 // OIDCTokenHandler serves POST /token for the authorization_code grant.
@@ -81,10 +80,6 @@ func NewOIDCTokenHandler(
 	encryptionKey []byte,
 	tokenRateLimit int64,
 ) *OIDCTokenHandler {
-	limit := defaultTokenRateLimit
-	if tokenRateLimit > 0 {
-		limit = tokenRateLimit
-	}
 	return &OIDCTokenHandler{
 		pool:            pool,
 		valkey:          valkey,
@@ -97,7 +92,7 @@ func NewOIDCTokenHandler(
 		refreshStore:    oidc.NewRefreshStore(valkey),
 		publicURL:       publicURL,
 		encryptionKey:   encryptionKey,
-		tokenRateLimit:  limit,
+		tokenRateLimit:  tokenRateLimit,
 	}
 }
 

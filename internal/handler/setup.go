@@ -18,7 +18,7 @@ import (
 
 type SetupHandler struct {
 	pool          *pgxpool.Pool
-	configService *config.ConfigService
+	instanceConfig *config.InstanceConfig
 	configStore   *store.ConfigStore
 	userStore     *store.UserStore
 	auditStore    AuditLogger
@@ -27,7 +27,7 @@ type SetupHandler struct {
 
 func NewSetupHandler(
 	pool *pgxpool.Pool,
-	configService *config.ConfigService,
+	instanceConfig *config.InstanceConfig,
 	configStore *store.ConfigStore,
 	userStore *store.UserStore,
 	auditStore AuditLogger,
@@ -35,7 +35,7 @@ func NewSetupHandler(
 ) *SetupHandler {
 	return &SetupHandler{
 		pool:          pool,
-		configService: configService,
+		instanceConfig: instanceConfig,
 		configStore:   configStore,
 		userStore:     userStore,
 		auditStore:    auditStore,
@@ -44,7 +44,7 @@ func NewSetupHandler(
 }
 
 func (h *SetupHandler) GetSetup(w http.ResponseWriter, r *http.Request) {
-	complete, err := h.configService.IsSetupComplete(r.Context(), h.pool)
+	complete, err := h.instanceConfig.IsSetupComplete(r.Context(), h.pool)
 	if err != nil {
 		slog.Error("failed to check setup state", "error", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
@@ -60,7 +60,7 @@ func (h *SetupHandler) GetSetup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *SetupHandler) PostSetup(w http.ResponseWriter, r *http.Request) {
-	complete, err := h.configService.IsSetupComplete(r.Context(), h.pool)
+	complete, err := h.instanceConfig.IsSetupComplete(r.Context(), h.pool)
 	if err != nil {
 		slog.Error("failed to check setup state", "error", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
@@ -77,7 +77,7 @@ func (h *SetupHandler) PostSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	policy, err := h.configService.GetPasswordPolicy(r.Context(), h.pool)
+	policy, err := h.instanceConfig.GetPasswordPolicy(r.Context(), h.pool)
 	if err != nil {
 		slog.Error("failed to get password policy", "error", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
@@ -132,12 +132,12 @@ func (h *SetupHandler) PostSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.configService.SetSetupComplete(r.Context(), tx); err != nil {
+	if err := h.instanceConfig.SetSetupComplete(r.Context(), tx); err != nil {
 		slog.Error("failed to set setup_complete", "error", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 		return
 	}
-	if err := h.configService.SetInstanceName(r.Context(), tx, req.InstanceName); err != nil {
+	if err := h.instanceConfig.SetInstanceName(r.Context(), tx, req.InstanceName); err != nil {
 		slog.Error("failed to set instance_name", "error", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 		return

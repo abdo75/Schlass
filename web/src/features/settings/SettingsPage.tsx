@@ -7,7 +7,7 @@ import {
   patchTokens,
   patchEmail,
   type PatchEmailBody,
-  type SettingsSnapshot,
+  type Settings,
   type SecuritySettings,
   type TokenSettings,
 } from "./api";
@@ -39,7 +39,7 @@ interface Buffer {
 }
 
 export function SettingsPage() {
-  const [snapshot, setSnapshot] = useState<SettingsSnapshot | null>(null);
+  const [snapshot, setSnapshot] = useState<Settings | null>(null);
   const [buffer, setBuffer] = useState<Buffer>({});
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);

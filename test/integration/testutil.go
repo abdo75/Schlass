@@ -181,7 +181,7 @@ func (e *TestEnv) BuildDeps() server.RouterDeps {
 		UserStore:         store.NewUserStore(),
 		RecoveryCodeStore: store.NewRecoveryCodeStore(),
 		AuditStore:        auditStore,
-		ConfigService:     config.NewConfigService(configStore, e.Cfg.EncryptionKey),
+		InstanceConfig:    config.NewInstanceConfig(configStore, e.Cfg.EncryptionKey),
 		// Tests drive many login attempts from the same virtual client IP
 		// (httptest uses 192.0.2.1 for every request). Raise the login
 		// rate-limit cap so the production 5/min guard doesn't mask the
@@ -201,6 +201,7 @@ func (e *TestEnv) BuildDeps() server.RouterDeps {
 		// the cap (via env.BuildDeps + rebuild).
 		AuthorizeRateLimit: 10000,
 		UserinfoRateLimit:  10000,
+		TokenRateLimit:     10000,
 		ClientsHandler:     clientsHandler,
 		// HIBPChecker is intentionally nil for integration tests — avoids
 		// live HIBP network calls which would make tests flaky and slow.

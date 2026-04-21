@@ -109,18 +109,3 @@ func TestHIBPChecker_ContextCancel_ReturnsError(t *testing.T) {
 	}
 }
 
-func TestHIBPChecker_DefaultEndpointUsed_WhenEmpty(t *testing.T) {
-	c := &HIBPChecker{}
-	// We can't hit the real HIBP API in unit tests, but we can assert
-	// the config path: an empty endpoint should not produce a build-
-	// request error (malformed URL). Use a zero-timeout client so the
-	// test fails fast.
-	c.HTTPClient = &http.Client{Timeout: 1 * time.Millisecond}
-	_, err := c.IsPwned(context.Background(), "password")
-	if err == nil {
-		t.Fatal("expected timeout error (sanity check that default endpoint resolves)")
-	}
-	if strings.Contains(err.Error(), "build request") {
-		t.Fatalf("default endpoint shouldn't fail to build request: %v", err)
-	}
-}

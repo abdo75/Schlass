@@ -40,7 +40,7 @@ type PasswordResetHandler struct {
 	tokenStore        *store.PasswordResetTokenStore
 	auditStore        AuditLogger
 	sessionStore      session.Store
-	configService     *config.ConfigService
+	instanceConfig     *config.InstanceConfig
 	publicURL         string
 	dummyPasswordHash string
 	hibpChecker       *crypto.HIBPChecker // nil means HIBP check is disabled
@@ -53,7 +53,7 @@ func NewPasswordResetHandler(
 	tokenStore *store.PasswordResetTokenStore,
 	auditStore AuditLogger,
 	sessionStore session.Store,
-	configService *config.ConfigService,
+	instanceConfig *config.InstanceConfig,
 	publicURL string,
 	hibpChecker *crypto.HIBPChecker,
 ) (*PasswordResetHandler, error) {
@@ -75,7 +75,7 @@ func NewPasswordResetHandler(
 		tokenStore:        tokenStore,
 		auditStore:        auditStore,
 		sessionStore:      sessionStore,
-		configService:     configService,
+		instanceConfig:     instanceConfig,
 		publicURL:         publicURL,
 		dummyPasswordHash: dummy,
 		hibpChecker:       hibpChecker,
@@ -272,7 +272,7 @@ func (h *PasswordResetHandler) PostConfirm(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	policy, err := h.configService.GetPasswordPolicy(r.Context(), tx)
+	policy, err := h.instanceConfig.GetPasswordPolicy(r.Context(), tx)
 	if err != nil {
 		slog.Error("password_reset.confirm: policy", "error", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
@@ -456,12 +456,12 @@ func (h *PasswordResetHandler) sendPasswordChangedEmail(to string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	sender, err := mail.NewSenderFromConfig(ctx, h.configService, h.pool)
+	sender, err := mail.NewSenderFromConfig(ctx, h.instanceConfig, h.pool)
 	if err != nil {
 		slog.Error("password_reset.confirm: notify sender", "error", err, "to", to)
 		return
 	}
-	instanceName, _ := h.configService.GetInstanceName(ctx, h.pool)
+	instanceName, _ := h.instanceConfig.GetInstanceName(ctx, h.pool)
 	if instanceName == "" {
 		instanceName = "Schlass"
 	}
@@ -476,12 +476,12 @@ func (h *PasswordResetHandler) sendResetEmail(to, token string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	sender, err := mail.NewSenderFromConfig(ctx, h.configService, h.pool)
+	sender, err := mail.NewSenderFromConfig(ctx, h.instanceConfig, h.pool)
 	if err != nil {
 		slog.Error("password_reset.request: sender construct", "error", err, "to", to)
 		return
 	}
-	instanceName, _ := h.configService.GetInstanceName(ctx, h.pool)
+	instanceName, _ := h.instanceConfig.GetInstanceName(ctx, h.pool)
 	if instanceName == "" {
 		instanceName = "Schlass"
 	}
