@@ -65,7 +65,7 @@ func TestVerifyPasswordRejectsInvalidHash(t *testing.T) {
 
 func TestVerifyPasswordRejectsMalformedHashes(t *testing.T) {
 	cases := map[string]string{
-		"wrong algorithm":   "$argon2i$v=19$m=19456,t=2,p=1$c2FsdHNhbHRzYWx0c2FsdA$aGFzaGhhc2hoYXNoaGFzaGhhc2hoYXNoaGFzaA",
+		"wrong algorithm":     "$argon2i$v=19$m=19456,t=2,p=1$c2FsdHNhbHRzYWx0c2FsdA$aGFzaGhhc2hoYXNoaGFzaGhhc2hoYXNoaGFzaA",
 		"unparseable version": "$argon2id$v=foo$m=19456,t=2,p=1$c2FsdHNhbHRzYWx0c2FsdA$aGFzaGhhc2hoYXNoaGFzaGhhc2hoYXNoaGFzaA",
 		"unparseable params":  "$argon2id$v=19$m=bad,t=2,p=1$c2FsdHNhbHRzYWx0c2FsdA$aGFzaGhhc2hoYXNoaGFzaGhhc2hoYXNoaGFzaA",
 		"non-b64 salt":        "$argon2id$v=19$m=19456,t=2,p=1$!!!notb64!!!$aGFzaGhhc2hoYXNoaGFzaGhhc2hoYXNoaGFzaA",

@@ -17,12 +17,12 @@ import (
 )
 
 type SetupHandler struct {
-	pool          *pgxpool.Pool
+	pool           *pgxpool.Pool
 	instanceConfig *config.InstanceConfig
-	configStore   *store.ConfigStore
-	userStore     *store.UserStore
-	auditStore    AuditLogger
-	hibpChecker   *crypto.HIBPChecker
+	configStore    *store.ConfigStore
+	userStore      *store.UserStore
+	auditStore     AuditLogger
+	hibpChecker    *crypto.HIBPChecker
 }
 
 func NewSetupHandler(
@@ -34,12 +34,12 @@ func NewSetupHandler(
 	hibpChecker *crypto.HIBPChecker,
 ) *SetupHandler {
 	return &SetupHandler{
-		pool:          pool,
+		pool:           pool,
 		instanceConfig: instanceConfig,
-		configStore:   configStore,
-		userStore:     userStore,
-		auditStore:    auditStore,
-		hibpChecker:   hibpChecker,
+		configStore:    configStore,
+		userStore:      userStore,
+		auditStore:     auditStore,
+		hibpChecker:    hibpChecker,
 	}
 }
 
@@ -94,8 +94,8 @@ func (h *SetupHandler) PostSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// HIBP breach-corpus check (NIST SP 800-63B-4 §3.1.1.2). Fail-open
-	// on network error — HIBP outages must not block password changes.
+	// HIBP breach-corpus check (NIST SP 800-63B-4 §3.1.1.2). Fail-open on
+	// network error — HIBP outages must not block password changes.
 	if pwned, hibpErr := h.hibpChecker.IsPwned(r.Context(), req.Password); hibpErr != nil {
 		slog.Warn("password_breach_check: hibp unavailable", "error", hibpErr)
 	} else if pwned {
@@ -117,12 +117,10 @@ func (h *SetupHandler) PostSetup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 		return
 	}
-	defer func() { _ = tx.Rollback(r.Context()) }() // error is non-actionable after a successful Commit (pgx returns ErrTxClosed)
+	defer func() { _ = tx.Rollback(r.Context()) }()
 
-	// Canonicalize email to lowercase before storage. The DB also enforces
-	// this via a functional UNIQUE INDEX on LOWER(email) (migration 000012);
-	// the handler boundary is the primary chokepoint, the index is the
-	// defense-in-depth backstop for any path that bypasses the handler.
+	// email canonicalized lowercase; DB also enforces via UNIQUE(LOWER(email))
+	// in migration 000012 as defense-in-depth.
 	req.Email = strings.ToLower(req.Email)
 
 	userID, err := h.userStore.Create(r.Context(), tx, req.Email, passwordHash, "super_admin", false)

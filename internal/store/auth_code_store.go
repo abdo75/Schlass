@@ -11,7 +11,6 @@ import (
 	"github.com/abdo75/Schlass/internal/database"
 )
 
-// AuthCodeRow mirrors authorization_codes for Ship B's insert + consume path.
 type AuthCodeRow struct {
 	CodeHash            string
 	ClientID            uuid.UUID
@@ -25,17 +24,14 @@ type AuthCodeRow struct {
 	FamilyID            uuid.UUID
 }
 
-// ErrAuthCodeAlreadyUsed means: replay, expiry, or unknown code. Collapsed
-// into one error because the caller's response is the same for all three.
-// The caller distinguishes replay (for family-revoke) via LookupFamilyByCodeHash.
+// ErrAuthCodeAlreadyUsed collapses replay / expiry / unknown — caller
+// response is identical. Replay detection uses LookupFamilyByCodeHash.
 var ErrAuthCodeAlreadyUsed = errors.New("auth_code: already used, expired, or unknown")
 
-// AuthCodeStore holds no state; it is a method namespace for authorization_codes SQL operations.
 type AuthCodeStore struct{}
 
 func NewAuthCodeStore() *AuthCodeStore { return &AuthCodeStore{} }
 
-// Insert writes a new authorization code row.
 func (s *AuthCodeStore) Insert(ctx context.Context, q database.Querier, row AuthCodeRow) error {
 	_, err := q.Exec(ctx, `
 		INSERT INTO authorization_codes
@@ -48,9 +44,8 @@ func (s *AuthCodeStore) Insert(ctx context.Context, q database.Querier, row Auth
 	return err
 }
 
-// ConsumeOnce atomically marks the code used via UPDATE...RETURNING. Returns
-// ErrAuthCodeAlreadyUsed if the row is missing, expired, or already used —
-// the caller's response is the same across all three cases.
+// ConsumeOnce atomically marks the code used via UPDATE...RETURNING.
+// Missing, expired, already-used all collapse to ErrAuthCodeAlreadyUsed.
 func (s *AuthCodeStore) ConsumeOnce(ctx context.Context, q database.Querier, codeHash string) (*AuthCodeRow, error) {
 	var row AuthCodeRow
 	err := q.QueryRow(ctx, `
@@ -71,8 +66,7 @@ func (s *AuthCodeStore) ConsumeOnce(ctx context.Context, q database.Querier, cod
 	return &row, nil
 }
 
-// LookupFamilyByCodeHash fetches family_id only — used for replay detection
-// after ConsumeOnce failed (the family still needs revoking).
+// LookupFamilyByCodeHash — replay detection after ConsumeOnce failed.
 func (s *AuthCodeStore) LookupFamilyByCodeHash(ctx context.Context, q database.Querier, codeHash string) (uuid.UUID, error) {
 	var id uuid.UUID
 	err := q.QueryRow(ctx, `SELECT family_id FROM authorization_codes WHERE code_hash = $1`, codeHash).Scan(&id)

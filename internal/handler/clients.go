@@ -1,5 +1,3 @@
-// Package handler — clients.go hosts the ClientsHandler for /api/clients/*
-// admin endpoints.
 package handler
 
 import (
@@ -24,9 +22,6 @@ import (
 	"github.com/abdo75/Schlass/internal/store"
 )
 
-// ClientsHandler serves the admin-only /api/clients/* endpoints. Constructed
-// in internal/server/router.go and wrapped with middleware.Auth +
-// middleware.RequirePermission gates at wiring time.
 type ClientsHandler struct {
 	pool        *pgxpool.Pool
 	valkey      *redis.Client
@@ -35,7 +30,6 @@ type ClientsHandler struct {
 	publicURL   *url.URL
 }
 
-// NewClientsHandler wires the dependencies. All fields are required.
 func NewClientsHandler(pool *pgxpool.Pool, valkey *redis.Client, cs *store.ClientStore, as AuditLogger, publicURL *url.URL) *ClientsHandler {
 	return &ClientsHandler{
 		pool:        pool,
@@ -45,8 +39,6 @@ func NewClientsHandler(pool *pgxpool.Pool, valkey *redis.Client, cs *store.Clien
 		publicURL:   publicURL,
 	}
 }
-
-// --- response DTO (T5.2) ----------------------------------------------------
 
 type clientDTO struct {
 	ID                      string     `json:"id"`
@@ -85,9 +77,6 @@ func toClientDTO(c *store.Client) clientDTO {
 	}
 }
 
-// --- shared helpers (T5.2) --------------------------------------------------
-
-// parseClientID extracts the :id path segment and validates it as a UUID.
 func parseClientID(w http.ResponseWriter, r *http.Request) (string, bool) {
 	raw := r.PathValue("id")
 	if _, err := uuid.Parse(raw); err != nil {
@@ -97,20 +86,14 @@ func parseClientID(w http.ResponseWriter, r *http.Request) (string, bool) {
 	return raw, true
 }
 
-// --- deferred helpers (T5.4) ------------------------------------------------
-
 const (
-	// clientSecretOverlapTTL is the 2026-standard grace period during which
-	// a rotated client's previous secret is still accepted at /token.
+	// 24h grace window during which a rotated client's previous secret is
+	// still accepted at /token.
 	clientSecretOverlapTTL = 24 * time.Hour
 
-	// clientRequestMaxBytes caps create/update bodies to defend against
-	// memory-exhaustion via giant JSON.
 	clientRequestMaxBytes = 64 * 1024
 )
 
-// strictJSON decodes a JSON request body with DisallowUnknownFields and a
-// MaxBytesReader cap. On failure writes 400 and returns false.
 func strictJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
 	r.Body = http.MaxBytesReader(w, r.Body, clientRequestMaxBytes)
 	dec := json.NewDecoder(r.Body)
@@ -131,7 +114,6 @@ func strictJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
 	return true
 }
 
-// generateClientSecret mints a 32-byte random secret, base64url-encoded.
 func generateClientSecret() (string, error) {
 	buf := make([]byte, 32)
 	if _, err := rand.Read(buf); err != nil {
@@ -140,10 +122,6 @@ func generateClientSecret() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(buf), nil
 }
 
-// --- read handlers (T5.3) ---------------------------------------------------
-
-// GetList serves GET /api/clients?status=active|disabled|all. Default filter
-// is "active".
 func (h *ClientsHandler) GetList(w http.ResponseWriter, r *http.Request) {
 	status := r.URL.Query().Get("status")
 	if status == "" {
@@ -165,7 +143,6 @@ func (h *ClientsHandler) GetList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"clients": out})
 }
 
-// GetOne serves GET /api/clients/:id. Admin path — surfaces any status.
 func (h *ClientsHandler) GetOne(w http.ResponseWriter, r *http.Request) {
 	id, ok := parseClientID(w, r)
 	if !ok {
@@ -183,8 +160,6 @@ func (h *ClientsHandler) GetOne(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"client": toClientDTO(c)})
 }
 
-// --- write handlers (T5.4) --------------------------------------------------
-
 type createClientReq struct {
 	Name              string   `json:"name"`
 	ClientType        string   `json:"client_type"`
@@ -199,8 +174,7 @@ type createClientResp struct {
 	Client       clientDTO `json:"client"`
 }
 
-// PostCreate serves POST /api/clients. Mints a 32-byte secret, Argon2id-hashes
-// it, and returns the plaintext ONCE in the response body. Audit-in-tx.
+// PostCreate returns the generated secret plaintext ONCE in the response.
 func (h *ClientsHandler) PostCreate(w http.ResponseWriter, r *http.Request) {
 	current, ok := middleware.CurrentUser(r.Context())
 	if !ok {
@@ -213,7 +187,6 @@ func (h *ClientsHandler) PostCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate fields.
 	name, err := model.ValidateClientName(req.Name)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "clients.validation_error", err.Error())
@@ -311,8 +284,6 @@ func (h *ClientsHandler) PostCreate(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// --- write handlers (T5.5) --------------------------------------------------
-
 type patchClientReq struct {
 	Name              *string   `json:"name,omitempty"`
 	RedirectURIs      *[]string `json:"redirect_uris,omitempty"`
@@ -320,14 +291,10 @@ type patchClientReq struct {
 	AllowedGrantTypes *[]string `json:"allowed_grant_types,omitempty"`
 }
 
-// PatchOne serves PATCH /api/clients/:id. Partial merge. Uses SELECT ... FOR
-// UPDATE inside the tx to serialize concurrent PATCHes. Emits one audit row
-// per changed field, in canonical order: name → redirect_uris → scopes →
-// grants. No-op PATCH commits with zero audit rows.
-//
-// Immutable fields: client_type, token_endpoint_auth_method, status,
-// secret_hash, secret_hash_previous. DisallowUnknownFields + 64KB body cap
-// reject attempts to patch these (plus typos like "redirect_urls").
+// PatchOne row-locks under SELECT FOR UPDATE to serialize concurrent PATCHes.
+// Emits one audit row per changed field in canonical order (name →
+// redirect_uris → scopes → grants). Immutable fields are rejected by
+// DisallowUnknownFields + the 64KB body cap.
 func (h *ClientsHandler) PatchOne(w http.ResponseWriter, r *http.Request) {
 	current, ok := middleware.CurrentUser(r.Context())
 	if !ok {
@@ -344,7 +311,6 @@ func (h *ClientsHandler) PatchOne(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate non-nil fields up front.
 	if req.Name != nil {
 		v, err := model.ValidateClientName(*req.Name)
 		if err != nil {
@@ -406,7 +372,6 @@ func (h *ClientsHandler) PatchOne(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Per-field audit in canonical order: name, redirect_uris, scopes, grants.
 	if old.Name != updated.Name {
 		if err := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
 			EventType:  "client.name_updated",
@@ -488,11 +453,9 @@ func slicesEqual(a, b []string) bool {
 	return true
 }
 
-// --- write handlers (T5.6) --------------------------------------------------
-
-// PostDisable serves POST /api/clients/:id/disable. Soft disable — reversible
-// via PostEnable. Outstanding access tokens expire naturally within 15min.
-// /token refresh grant already rejects disabled clients via existing GetByID.
+// PostDisable is reversible via PostEnable. Outstanding access tokens
+// expire naturally within 15min; /token refresh grant rejects disabled
+// clients via existing GetByID.
 func (h *ClientsHandler) PostDisable(w http.ResponseWriter, r *http.Request) {
 	current, ok := middleware.CurrentUser(r.Context())
 	if !ok {
@@ -538,8 +501,6 @@ func (h *ClientsHandler) PostDisable(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// PostEnable serves POST /api/clients/:id/enable. Restores the client with
-// its existing secret. Returns 404 if not disabled.
 func (h *ClientsHandler) PostEnable(w http.ResponseWriter, r *http.Request) {
 	current, ok := middleware.CurrentUser(r.Context())
 	if !ok {
@@ -604,9 +565,9 @@ type rotateSecretResp struct {
 	PreviousSecretExpiresAt time.Time `json:"previous_secret_expires_at"`
 }
 
-// PostRotateSecret serves POST /api/clients/:id/rotate-secret. Moves existing
-// secret → previous with 24h TTL, mints a new 32-byte secret, returns plaintext
-// ONCE. Second rotate discards any pre-existing previous.
+// PostRotateSecret moves existing secret → previous with 24h TTL, mints a
+// new 32-byte secret, returns the plaintext ONCE. A second rotate discards
+// any pre-existing previous.
 func (h *ClientsHandler) PostRotateSecret(w http.ResponseWriter, r *http.Request) {
 	current, ok := middleware.CurrentUser(r.Context())
 	if !ok {
@@ -688,9 +649,8 @@ func (h *ClientsHandler) PostRotateSecret(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// DeleteOne serves DELETE /api/clients/:id. Hard delete — cascades pending
-// auth codes via FK. Post-commit, writes client:revoke_before to kill
-// outstanding ATs immediately. Audit row carries {name, previously_disabled_at}.
+// DeleteOne hard-deletes (cascades pending auth codes via FK). Post-commit
+// bumps client:revoke_before so outstanding access tokens fail on next use.
 func (h *ClientsHandler) DeleteOne(w http.ResponseWriter, r *http.Request) {
 	current, ok := middleware.CurrentUser(r.Context())
 	if !ok {
@@ -743,10 +703,7 @@ func (h *ClientsHandler) DeleteOne(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Post-commit: revoke outstanding ATs for this client. Best-effort —
-	// matches the middleware session revocation precedent documented in
-	// CLAUDE.md (PG-committed mutation is the load-bearing compliance event;
-	// Valkey write is a fast-path optimization).
+	// Best-effort — PG-committed delete is the load-bearing event.
 	if err := revokebefore.ClientSetNow(context.Background(), h.valkey, id); err != nil {
 		slog.Error("delete client: revoke_before set failed", "err", err, "client_id", id) //nolint:gosec // G706: slog structured logging is not susceptible to log injection
 	}

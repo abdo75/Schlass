@@ -3,15 +3,10 @@ package handler
 import "net/url"
 
 // SanitizeReturnTo validates a user-supplied return_to and returns its
-// canonical relative form (path + optional query). Fails closed.
-//
-// Rules:
-//   - Must parse as a URL.
-//   - Scheme either empty (relative) or equal to publicURL's scheme.
-//   - Host either empty (relative) or equal to publicURL's host.
-//   - Path must be exactly "/authorize".
-//
-// Rejects protocol-relative, off-origin targets, and trailing-path tricks.
+// canonical relative form (path + optional query). Fails closed: scheme
+// + host must match publicURL (or be empty) and path must equal
+// "/authorize". Rejects protocol-relative, off-origin, and trailing-path
+// tricks — open-redirect guard for the return_to carrier.
 func SanitizeReturnTo(raw, publicURL string) (string, bool) {
 	if raw == "" {
 		return "", false

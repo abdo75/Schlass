@@ -18,25 +18,17 @@ type ctxKey int
 
 const userCtxKey ctxKey = 0
 
-// AuditLogger is the narrow contract the Auth middleware needs. *store.AuditStore
-// satisfies it; integration tests swap in a fake that errors on Log. Duplicated
-// from handler.AuditLogger (same shape) because middleware cannot import handler
-// (handler imports middleware).
+// AuditLogger duplicated from handler.AuditLogger (middleware cannot import
+// handler — handler imports middleware).
 type AuditLogger interface {
 	Log(ctx context.Context, q database.Querier, entry store.AuditEntry) error
 }
 
-// Auth is the middleware that enforces authentication on wrapped routes.
-// See docs/superpowers/specs/2026-04-15-sprint2-login-design.md §2.
-//
-// Note on audit policy: session.revoked audit writes in this middleware
-// are intentionally best-effort (return value ignored, ERROR-level slog
-// on failure). This is the documented exception to the project-wide
-// audit-in-tx rule. Making middleware revocation audit-in-tx would wedge
-// every authed request on PG errors, trading availability for a duplicate
-// audit row. The load-bearing compliance event is the original user-disable
-// action at the source (in a Sprint 4+ admin handler), not the subsequent
-// cleanup here. Do NOT "fix" this to audit-in-tx.
+// Auth middleware — session.revoked audit writes here are deliberately
+// best-effort (return ignored, ERROR slog on failure). Making them
+// audit-in-tx would wedge every authed request on PG errors. Load-bearing
+// compliance event is the user-disable action in its source handler, not
+// this cleanup. DO NOT "fix" to audit-in-tx.
 func Auth(
 	sessionStore session.Store,
 	userStore *store.UserStore,
@@ -117,8 +109,6 @@ func Auth(
 	}
 }
 
-// CurrentUser returns the authenticated user from the request context.
-// Returns (nil, false) if the request did not pass through the Auth middleware.
 func CurrentUser(ctx context.Context) (*store.User, bool) {
 	u, ok := ctx.Value(userCtxKey).(*store.User)
 	return u, ok
@@ -133,9 +123,7 @@ func writeAuthError(w http.ResponseWriter, status int, code, message string) {
 	})
 }
 
-// InjectUserForTest lets tests populate the request context with a user
-// without going through the real Auth middleware. Only intended for unit
-// tests of middleware that depends on CurrentUser (e.g. RequirePermission).
+// InjectUserForTest — unit test helper; never used in production code.
 func InjectUserForTest(ctx context.Context, user *store.User) context.Context {
 	return context.WithValue(ctx, userCtxKey, user)
 }

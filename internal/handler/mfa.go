@@ -17,13 +17,9 @@ import (
 	"github.com/abdo75/Schlass/internal/store"
 )
 
-// MfaHandler serves enrollment (/api/mfa/enrollment/*) and challenge
-// (/api/mfa/challenge) endpoints. Enrollment state lives in Valkey keyed by
-// the schlass_mfa_enroll cookie until the /complete step commits the
-// encrypted secret + recovery-code hashes to PG in a single audit-in-tx
-// transaction. Challenge state lives in Valkey keyed by
-// schlass_mfa_challenge until verification succeeds or attempts_remaining
-// hits zero.
+// MfaHandler serves /api/mfa/enrollment/* and /api/mfa/challenge. Enrollment
+// and challenge state live in Valkey keyed by short-lived cookies; /complete
+// commits the encrypted secret + recovery-code hashes to PG in one tx.
 type MfaHandler struct {
 	pool              *pgxpool.Pool
 	valkey            *redis.Client
@@ -31,15 +27,12 @@ type MfaHandler struct {
 	recoveryCodeStore *store.RecoveryCodeStore
 	auditStore        AuditLogger
 	sessionStore      session.Store
-	instanceConfig     *config.InstanceConfig
+	instanceConfig    *config.InstanceConfig
 	configStore       *store.ConfigStore
 	encryptionKey     []byte
-	secureCookie      bool // Secure flag on Set-Cookie — true iff SCHLASS_PUBLIC_URL is https
+	secureCookie      bool
 }
 
-// NewMfaHandler constructs the handler with all dependencies. Signature
-// mirrors NewAuthHandler's construction-time derivation of secureCookie from
-// the public URL.
 func NewMfaHandler(
 	pool *pgxpool.Pool,
 	valkey *redis.Client,
@@ -59,49 +52,42 @@ func NewMfaHandler(
 		recoveryCodeStore: recoveryCodeStore,
 		auditStore:        auditStore,
 		sessionStore:      sessionStore,
-		instanceConfig:     instanceConfig,
+		instanceConfig:    instanceConfig,
 		configStore:       configStore,
 		encryptionKey:     encryptionKey,
 		secureCookie:      isSecureURL(publicURL),
 	}
 }
 
-// Cookie names — centralised so the handler, AuthGuard, and any challenge-
-// cookie guard all agree on the string.
 const (
 	MfaEnrollCookieName    = "schlass_mfa_enroll"
 	MfaChallengeCookieName = "schlass_mfa_challenge"
 )
 
-// Valkey TTLs.
 const (
 	mfaEnrollTTL    = 10 * time.Minute
 	mfaChallengeTTL = 120 * time.Second //nolint:unused // used by Task 12 (PostLogin integration)
 )
 
-// Attempt caps for the enrollment-verify and challenge endpoints.
 const (
 	mfaEnrollVerifyMaxAttempts = 5
 	mfaChallengeMaxAttempts    = 5
 )
 
-// Valkey key prefixes. Intentionally not the same prefix as the opaque-
-// session store (internal/session) to keep MFA transient state visibly
-// separate from admin sessions.
 const (
 	mfaEnrollKeyPrefix    = "mfa:enroll:"
 	mfaChallengeKeyPrefix = "mfa:challenge:"
 )
 
-// mfaEnrollContext captures who's enrolling and which auth mode they arrived
-// via. Enrollment cookie path = pre-session (first login or post-admin-reset
-// via fresh login). Session path = post-session (setup wizard admin, or a
-// user who got admin-reset while holding an active session).
+// mfaEnrollContext captures who's enrolling and which auth mode they
+// arrived via. Cookie path = pre-session (first login or post-admin-reset);
+// session path = post-session (setup-wizard admin, or a user admin-reset
+// while holding an active session).
 type mfaEnrollContext struct {
 	UserID        uuid.UUID
 	Email         string
-	SessionAuthed bool   // true = came in via a valid session cookie; false = via enrollment cookie
-	EnrollToken   string // empty when SessionAuthed; the raw token when cookie-authed
+	SessionAuthed bool
+	EnrollToken   string
 }
 
 var (
@@ -109,13 +95,11 @@ var (
 	errAlreadyEnrolled = errors.New("already enrolled")
 )
 
-// resolveEnrollPrincipal returns the enrollment principal from either auth
-// source. The enrollment cookie is preferred when present (covers the standard
-// login flow). If the cookie is absent or invalid, a session cookie is
-// accepted provided the user genuinely needs to enroll
-// (mfa_required=true AND totp_enrolled_at IS NULL).
+// resolveEnrollPrincipal prefers the enrollment cookie; falls back to a
+// session cookie only when the user genuinely needs enrollment
+// (mfa_required=true AND totp_enrolled_at IS NULL). Without this dual-auth
+// the setup-wizard admin gets stuck in an infinite /setup-mfa ↔ /admin loop.
 func (h *MfaHandler) resolveEnrollPrincipal(r *http.Request) (*mfaEnrollContext, error) {
-	// Prefer enrollment cookie when present.
 	if tokenCookie, err := r.Cookie(MfaEnrollCookieName); err == nil && tokenCookie.Value != "" {
 		token := tokenCookie.Value
 		key := mfaEnrollKeyPrefix + token
@@ -134,13 +118,8 @@ func (h *MfaHandler) resolveEnrollPrincipal(r *http.Request) (*mfaEnrollContext,
 				}
 			}
 		}
-		// Cookie present but Valkey state missing/invalid — fall through to
-		// session-auth path; if that also fails, caller returns 401.
 	}
 
-	// Session-auth fallback: user has an authenticated session AND genuinely
-	// needs to enroll. These endpoints are not behind middleware.Auth, so we
-	// read the session cookie directly.
 	sessionCookie, err := r.Cookie("schlass_session")
 	if err != nil || sessionCookie.Value == "" {
 		return nil, errNoEnrollAuth
@@ -157,7 +136,6 @@ func (h *MfaHandler) resolveEnrollPrincipal(r *http.Request) (*mfaEnrollContext,
 	if err != nil {
 		return nil, errNoEnrollAuth
 	}
-	// Only allow session-auth enrollment when the user actually needs it.
 	mfaRequired, err := h.configStore.GetBool(r.Context(), h.pool, "mfa_required")
 	if err != nil {
 		return nil, errNoEnrollAuth
@@ -173,7 +151,6 @@ func (h *MfaHandler) resolveEnrollPrincipal(r *http.Request) (*mfaEnrollContext,
 }
 
 func (h *MfaHandler) PostEnrollmentStart(w http.ResponseWriter, r *http.Request) {
-	// 1. Resolve enrollment principal from either auth source.
 	ctx, err := h.resolveEnrollPrincipal(r)
 	if err != nil {
 		if errors.Is(err, errAlreadyEnrolled) {
@@ -184,8 +161,6 @@ func (h *MfaHandler) PostEnrollmentStart(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// 2. Determine Valkey key. For session-authed users, mint a fresh
-	//    enrollment token and set the cookie so /verify and /complete can use it.
 	var key string
 	if ctx.SessionAuthed {
 		token, err := generateRandomToken(32)
@@ -212,7 +187,7 @@ func (h *MfaHandler) PostEnrollmentStart(w http.ResponseWriter, r *http.Request)
 			Secure:   h.secureCookie,
 			MaxAge:   int(mfaEnrollTTL.Seconds()),
 		})
-		// Stamp the session_authed flag so /complete knows not to issue a new session.
+		// session_authed flag tells /complete to skip creating a new session.
 		if err := h.valkey.HSet(r.Context(), key, "session_authed", "1").Err(); err != nil {
 			slog.Error("mfa enroll: HSet session_authed failed", "error", err)
 		}
@@ -220,8 +195,6 @@ func (h *MfaHandler) PostEnrollmentStart(w http.ResponseWriter, r *http.Request)
 		key = mfaEnrollKeyPrefix + ctx.EnrollToken
 	}
 
-	// 3. Load user to check not already enrolled (cookie-path guard; session-path
-	//    was already checked in resolveEnrollPrincipal).
 	user, err := h.userStore.GetByID(r.Context(), h.pool, ctx.UserID)
 	if err != nil {
 		slog.Error("mfa enroll: GetByID failed", "error", err)
@@ -233,9 +206,8 @@ func (h *MfaHandler) PostEnrollmentStart(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// 4. Generate fresh secret. Any pre-existing secret in Valkey (from a
-	//    prior /start on the same token — user refreshed mid-flow) is
-	//    overwritten; the new call is authoritative.
+	// Any pre-existing secret on this token (user refreshed mid-flow) is
+	// overwritten; the new call is authoritative.
 	secret, err := crypto.GenerateTOTPSecret()
 	if err != nil {
 		slog.Error("mfa enroll: GenerateTOTPSecret failed", "error", err)
@@ -243,7 +215,6 @@ func (h *MfaHandler) PostEnrollmentStart(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// 5. Persist secret into the token key. TTL refresh to full 10 min.
 	if err := h.valkey.HSet(r.Context(), key, "secret_base32", secret).Err(); err != nil {
 		slog.Error("mfa enroll: HSet secret failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
@@ -251,11 +222,8 @@ func (h *MfaHandler) PostEnrollmentStart(w http.ResponseWriter, r *http.Request)
 	}
 	if err := h.valkey.Expire(r.Context(), key, mfaEnrollTTL).Err(); err != nil {
 		slog.Error("mfa enroll: Expire refresh failed", "error", err)
-		// Non-fatal — the key still has whatever TTL it had. Continue.
 	}
 
-	// 6. Build provision URI. Read instance_name from config at request time so
-	//    the issuer reflects what the admin has configured, not the hostname.
 	issuer, err := h.instanceConfig.InstanceName(r.Context(), h.pool)
 	if err != nil {
 		slog.Warn("mfa enroll: failed to read instance_name; falling back to Schlass", "error", err)
@@ -287,9 +255,8 @@ func (h *MfaHandler) PostEnrollmentVerify(w http.ResponseWriter, r *http.Request
 	token := tokenCookie.Value
 	key := mfaEnrollKeyPrefix + token
 
-	// Atomic HIncrBy — increment before doing anything else. If the key is
-	// missing (expired or never set), HIncrBy creates it with value 1; we
-	// catch that in the "secret missing" check below.
+	// Atomic HIncrBy — increment before any verification work so concurrent
+	// requests cannot race on the counter.
 	attempts, err := h.valkey.HIncrBy(r.Context(), key, "verify_attempts", 1).Result()
 	if err != nil {
 		slog.Error("mfa enroll verify: HIncrBy failed", "error", err)
@@ -297,7 +264,6 @@ func (h *MfaHandler) PostEnrollmentVerify(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if attempts > mfaEnrollVerifyMaxAttempts {
-		// Cap exceeded — nuke the token so any subsequent hit also 401s.
 		h.valkey.Del(r.Context(), key)
 		writeError(w, http.StatusUnauthorized, "MFA_ENROLLMENT_EXPIRED", "Too many failed verification attempts — please start again.")
 		return
@@ -332,9 +298,6 @@ func (h *MfaHandler) PostEnrollmentVerify(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Code OK — generate recovery codes. Plaintext returned once in the
-	// response body; hashes stashed in Valkey under the same token key for
-	// the /complete step's PG commit.
 	plaintext, hashes, err := crypto.GenerateRecoveryCodes()
 	if err != nil {
 		slog.Error("mfa enroll verify: GenerateRecoveryCodes failed", "error", err)
@@ -380,7 +343,6 @@ func (h *MfaHandler) PostEnrollmentComplete(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Pull full Valkey state in one round-trip.
 	state, err := h.valkey.HGetAll(r.Context(), key).Result()
 	if err != nil || len(state) == 0 {
 		writeError(w, http.StatusUnauthorized, "MFA_ENROLLMENT_EXPIRED", "Enrollment session has expired — please start again.")
@@ -422,25 +384,20 @@ func (h *MfaHandler) PostEnrollmentComplete(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Read session_authed flag from the Valkey state BEFORE opening the tx.
-	// The stamp inside the tx only fires when this is false — the session-
-	// authed path already had last_login_at set when the user originally
-	// logged in, so we don't overwrite that with the enrollment moment.
+	// session-authed path skips last_login_at stamp below — that user
+	// already had it set when the original session was issued.
 	sessionAuthed := state["session_authed"] == "1"
 
-	// Optional return_to threaded in at /api/login and stashed on the enroll
-	// hash. Present only for cookie-path enrollments (session-path users
-	// came from elsewhere and follow role-based routing).
+	// return_to is only set on the cookie-path (threaded from /api/login).
 	returnTo := state["return_to"]
 
-	// PG tx: SetTOTPEnrolled + Insert recovery codes + audit, atomic commit.
 	tx, err := h.pool.Begin(r.Context())
 	if err != nil {
 		slog.Error("mfa complete: Begin failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 		return
 	}
-	defer func() { _ = tx.Rollback(r.Context()) }() // non-actionable after Commit
+	defer func() { _ = tx.Rollback(r.Context()) }()
 
 	if err := h.userStore.SetTOTPEnrolled(r.Context(), tx, userID, encrypted); err != nil {
 		slog.Error("mfa complete: SetTOTPEnrolled failed", "error", err)
@@ -476,10 +433,6 @@ func (h *MfaHandler) PostEnrollmentComplete(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Only stamp last_login_at when this enrollment issues a fresh session.
-	// The session-authed path (setup-wizard admin, or a user who got admin-
-	// reset while holding an active session) already had last_login_at set
-	// when the original session was issued.
 	if !sessionAuthed {
 		if err := h.userStore.SetLastLoginAt(r.Context(), tx, userID); err != nil {
 			slog.Error("mfa complete: SetLastLoginAt failed", "error", err)
@@ -494,7 +447,6 @@ func (h *MfaHandler) PostEnrollmentComplete(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Post-tx: destroy enrollment token in Valkey and clear enrollment cookie.
 	h.valkey.Del(r.Context(), key)
 	http.SetCookie(w, &http.Cookie{
 		Name:     MfaEnrollCookieName,
@@ -506,8 +458,6 @@ func (h *MfaHandler) PostEnrollmentComplete(w http.ResponseWriter, r *http.Reque
 		MaxAge:   -1,
 	})
 
-	// Only issue a new session when the user did not already have one. On the
-	// session-authed path the existing session remains valid — no rotation needed.
 	if !sessionAuthed {
 		sessionToken, err := h.sessionStore.Create(r.Context(), userID.String(), ip, r.Header.Get("User-Agent"))
 		if err != nil {
@@ -543,8 +493,8 @@ func (h *MfaHandler) PostChallenge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Atomic decrement-fetch. Decrement before any other work so concurrent
-	// requests can't slip through by racing on the same counter value.
+	// Decrement-before-verify: concurrent requests cannot slip through by
+	// racing on the counter.
 	remaining, err := h.valkey.HIncrBy(r.Context(), key, "attempts_remaining", -1).Result()
 	if err != nil {
 		writeError(w, http.StatusUnauthorized, "MFA_CHALLENGE_EXPIRED", "Sign-in session expired — please sign in again.")
@@ -568,9 +518,8 @@ func (h *MfaHandler) PostChallenge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Return_to (optional) was stashed at /api/login by PostLogin. redis.Nil
-	// on an absent field is expected and benign; only genuine transport
-	// errors are worth logging.
+	// redis.Nil on an absent field is benign; only genuine transport errors
+	// are worth logging.
 	returnTo, err := h.valkey.HGet(r.Context(), key, "return_to").Result()
 	if err != nil && !errors.Is(err, redis.Nil) {
 		slog.Warn("mfa challenge: return_to HGet degraded", "error", err)
@@ -583,7 +532,6 @@ func (h *MfaHandler) PostChallenge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Dispatch on which input field is populated. Recovery path lands in Task 11.
 	if req.RecoveryCode != "" {
 		h.verifyRecoveryCode(w, r, user, req.RecoveryCode, token, key, returnTo)
 		return
@@ -618,7 +566,6 @@ func (h *MfaHandler) PostChallenge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Success tx: advance counter + login.succeeded + mfa.challenge_succeeded.
 	tx, err := h.pool.Begin(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
@@ -666,7 +613,6 @@ func (h *MfaHandler) PostChallenge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Post-tx: destroy challenge token, clear cookie, create session.
 	h.valkey.Del(r.Context(), key)
 	http.SetCookie(w, &http.Cookie{
 		Name:     MfaChallengeCookieName,
@@ -691,8 +637,9 @@ func (h *MfaHandler) PostChallenge(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// writeChallengeFailedAudit writes an mfa.challenge_failed audit row.
-// Best-effort: uses its own tx, logs on failure but does not block the caller.
+// writeChallengeFailedAudit is best-effort (own tx; logs on failure but
+// does not block the caller). Documented exception to audit-in-tx: the
+// brute-force guard is the atomic decrement, not the audit row.
 func (h *MfaHandler) writeChallengeFailedAudit(r *http.Request, userID, reason string) {
 	tx, err := h.pool.Begin(r.Context())
 	if err != nil {
@@ -729,10 +676,10 @@ func (h *MfaHandler) writeChallengeFailedAudit(r *http.Request, userID, reason s
 	}
 }
 
-// verifyRecoveryCode is the recovery-path branch of PostChallenge.
-// It iterates over ALL unused recovery codes in constant time (no short-
-// circuit on first match) to prevent timing-based enumeration of the
-// remaining-code count, then commits the burn + audit triple atomically.
+// verifyRecoveryCode iterates ALL unused recovery codes in constant time
+// (no short-circuit on first match) — variable-time-with-mismatch leaks the
+// count of remaining codes via repeated-failure timing. ~100ms per attempt
+// is an accepted cost.
 func (h *MfaHandler) verifyRecoveryCode(w http.ResponseWriter, r *http.Request, user *store.User, plaintext, token, key, returnTo string) {
 	codes, err := h.recoveryCodeStore.ListUnused(r.Context(), h.pool, user.ID)
 	if err != nil {
@@ -741,10 +688,6 @@ func (h *MfaHandler) verifyRecoveryCode(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	// CONSTANT-TIME ITERATION — do not short-circuit on first match. The
-	// variable-time-with-mismatch path would leak the count of unused codes
-	// to an attacker timing repeated failures. Accept the ~100ms cost of 10
-	// Argon2id verifies per attempt.
 	var matchedID *uuid.UUID
 	for _, c := range codes {
 		ok, err := crypto.VerifyPassword(plaintext, string(c.CodeHash))
@@ -756,7 +699,7 @@ func (h *MfaHandler) verifyRecoveryCode(w http.ResponseWriter, r *http.Request, 
 			id := c.ID
 			matchedID = &id
 		}
-		// Continue iterating — keep timing uniform even after first match.
+		// Continue iterating — timing must be uniform after first match.
 	}
 
 	if matchedID == nil {
@@ -765,7 +708,6 @@ func (h *MfaHandler) verifyRecoveryCode(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	// Success tx: mark used + login.succeeded + mfa.challenge_succeeded + mfa.recovery_code_used.
 	tx, err := h.pool.Begin(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
@@ -827,7 +769,6 @@ func (h *MfaHandler) verifyRecoveryCode(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	// Post-tx: destroy challenge token, clear cookie, create session.
 	h.valkey.Del(r.Context(), key)
 	http.SetCookie(w, &http.Cookie{
 		Name:     MfaChallengeCookieName,
@@ -851,7 +792,7 @@ func (h *MfaHandler) verifyRecoveryCode(w http.ResponseWriter, r *http.Request, 
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// totpSecretAAD binds encrypted TOTP secrets to the owning user, so a blob
+// totpSecretAAD binds encrypted TOTP secrets to the owning user so a blob
 // swapped between user rows at the DB layer fails decryption.
 func totpSecretAAD(userID string) []byte {
 	return []byte("user_totp_secret:" + userID)

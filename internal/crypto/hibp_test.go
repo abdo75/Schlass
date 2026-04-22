@@ -157,4 +157,3 @@ func TestHIBPChecker_ContextCancel_ReturnsError(t *testing.T) {
 		t.Fatal("expected error on context deadline")
 	}
 }
-

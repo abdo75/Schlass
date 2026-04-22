@@ -27,9 +27,7 @@ type PasswordResetTokenStore struct{}
 
 func NewPasswordResetTokenStore() *PasswordResetTokenStore { return &PasswordResetTokenStore{} }
 
-// Insert stores the SHA-256 hash of the plaintext token. Plaintext never
-// touches the DB. Returns the new token_id so callers can embed it in
-// audit metadata.
+// Insert stores SHA-256(plaintext) only. Plaintext never touches the DB.
 func (s *PasswordResetTokenStore) Insert(ctx context.Context, q database.Querier, userID uuid.UUID, plaintextToken string, ttl time.Duration, ip netip.Addr) (uuid.UUID, error) {
 	hash := sha256.Sum256([]byte(plaintextToken))
 	var id uuid.UUID
@@ -45,10 +43,8 @@ func (s *PasswordResetTokenStore) Insert(ctx context.Context, q database.Querier
 	return id, err
 }
 
-// GetByTokenForUpdate locks the row by SHA-256(token) so concurrent
-// confirm attempts can't race. Returns ErrResetTokenNotFound on no
-// match. Handler should treat not-found / expired / already-used as the
-// same INVALID_TOKEN client-facing error.
+// GetByTokenForUpdate row-locks so concurrent confirm attempts can't race.
+// Handler treats not-found / expired / already-used as INVALID_TOKEN.
 func (s *PasswordResetTokenStore) GetByTokenForUpdate(ctx context.Context, q database.Querier, plaintextToken string) (*PasswordResetToken, error) {
 	hash := sha256.Sum256([]byte(plaintextToken))
 	row := q.QueryRow(ctx, `
@@ -67,16 +63,14 @@ func (s *PasswordResetTokenStore) GetByTokenForUpdate(ctx context.Context, q dat
 	return &t, nil
 }
 
-// MarkUsed flips used_at = now() on the row by id. Caller must hold the
-// row under FOR UPDATE. Idempotent — marking used twice is a no-op.
+// MarkUsed idempotent. Caller must hold the row under FOR UPDATE.
 func (s *PasswordResetTokenStore) MarkUsed(ctx context.Context, q database.Querier, id uuid.UUID) error {
 	_, err := q.Exec(ctx, `UPDATE password_reset_tokens SET used_at = now() WHERE id = $1`, id)
 	return err
 }
 
-// GetByToken is the non-locking counterpart of GetByTokenForUpdate for
-// the read-only /validate endpoint. No FOR UPDATE — validate must not
-// hold a row lock across the request.
+// GetByToken is the non-locking read for /validate. Must not hold a row
+// lock across the request.
 func (s *PasswordResetTokenStore) GetByToken(ctx context.Context, q database.Querier, plaintextToken string) (*PasswordResetToken, error) {
 	hash := sha256.Sum256([]byte(plaintextToken))
 	row := q.QueryRow(ctx, `
@@ -94,12 +88,8 @@ func (s *PasswordResetTokenStore) GetByToken(ctx context.Context, q database.Que
 	return &t, nil
 }
 
-// InvalidateOutstandingForUser marks every non-expired, unused reset
-// token for the given user as used (used_at = now()). Returns the
-// number of rows affected. Called by PostRequest before minting a
-// fresh token so a new reset request implicitly revokes any prior
-// emailed link (OWASP Forgot Password — "Invalidate any previously
-// issued password reset tokens when a new one is generated").
+// InvalidateOutstandingForUser — OWASP Forgot Password: any new /request
+// implicitly revokes any prior emailed link.
 func (s *PasswordResetTokenStore) InvalidateOutstandingForUser(ctx context.Context, q database.Querier, userID uuid.UUID) (int64, error) {
 	tag, err := q.Exec(ctx, `
 		UPDATE password_reset_tokens

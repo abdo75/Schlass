@@ -1,6 +1,6 @@
-// Package server exposes BuildRouter, the single source of truth for HTTP
-// route wiring. main.go and the integration test harness both import this
-// package so production and test code share exactly one wiring path.
+// Package server exposes BuildRouter — the single source of truth for HTTP
+// route wiring. main.go and the integration test harness both import this so
+// production and test code share exactly one wiring path.
 package server
 
 import (
@@ -19,11 +19,9 @@ import (
 	"github.com/abdo75/Schlass/internal/web"
 )
 
-// RouterDeps bundles every dependency BuildRouter needs. AuditStore is typed
-// as the handler.AuditLogger interface (not *store.AuditStore) so integration
-// tests can inject a fake that returns an error on Log — letting us exercise
-// the "audit write failure rolls back login tx" contract without touching
-// production code.
+// RouterDeps — AuditStore is handler.AuditLogger (not *store.AuditStore) so
+// integration tests can inject a fake that errors on Log to exercise the
+// "audit write failure rolls back login tx" contract.
 type RouterDeps struct {
 	Cfg               *config.Env
 	Pool              *pgxpool.Pool
@@ -35,8 +33,6 @@ type RouterDeps struct {
 	InstanceConfig    *config.InstanceConfig
 	ClientsHandler    *handler.ClientsHandler
 
-	// Rate-limit caps (requests per minute). Defaults come from config.Env;
-	// tests override by setting these directly on RouterDeps before BuildRouter.
 	LoginRateLimit         int64
 	MfaChallengeRateLimit  int64
 	PasswordResetRateLimit int64
@@ -44,16 +40,10 @@ type RouterDeps struct {
 	AuthorizeRateLimit     int64
 	UserinfoRateLimit      int64
 
-	// HIBPChecker is the Have I Been Pwned k-anonymity client. nil disables
-	// the breach-corpus check on all user-supplied password-set handlers.
-	// Integration tests set this to nil to avoid live network calls.
+	// nil disables HIBP breach-corpus check on all password-set handlers.
 	HIBPChecker *crypto.HIBPChecker
 }
 
-// BuildRouter assembles the full HTTP handler chain: mux with every route,
-// per-route rate limiters, auth middleware on protected endpoints, and the
-// global RequestLogging + SecurityHeaders wrappers. Returns an error only if
-// AuthHandler construction fails (dummy-hash pre-compute).
 func BuildRouter(d RouterDeps) (http.Handler, error) {
 	sessionStore := session.NewValkeyStore(d.ValkeyClient, 24*time.Hour)
 
@@ -83,9 +73,7 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 		return authMW(middleware.RequirePermission(perm)(h))
 	}
 
-	// Setup endpoints are tied to the login cap so an operator that raises
-	// login for E2E runs doesn't hit the tiny setup defaults. Minimums kept
-	// at 10 (GET) and 5 (POST).
+	// Setup tied to login cap so E2E raising login doesn't hit tiny setup defaults.
 	setupGetLimit := d.LoginRateLimit
 	if setupGetLimit < 10 {
 		setupGetLimit = 10
@@ -162,18 +150,14 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 	mux.HandleFunc("GET /.well-known/openid-configuration", discoveryHandler.GetConfiguration)
 	mux.HandleFunc("GET /.well-known/jwks.json", discoveryHandler.GetJWKS)
 
-	// Enrollment endpoints are gated only by possession of the schlass_mfa_enroll
-	// cookie (validated inside each handler). No middleware.Auth wrapper — the
-	// user is NOT authenticated yet at enrollment time.
+	// Enrollment endpoints are gated by possession of schlass_mfa_enroll cookie
+	// (validated inside each handler). No authMW — user is NOT authenticated yet.
 	mux.Handle("POST /api/mfa/enrollment/start", http.HandlerFunc(mfaHandler.PostEnrollmentStart))
 	mux.Handle("POST /api/mfa/enrollment/verify", http.HandlerFunc(mfaHandler.PostEnrollmentVerify))
 	mux.Handle("POST /api/mfa/enrollment/complete", http.HandlerFunc(mfaHandler.PostEnrollmentComplete))
 
-	// Challenge endpoint rate-limited per IP — primary brute-force surface.
 	mux.Handle("POST /api/mfa/challenge", mfaChallengeRL.Middleware(http.HandlerFunc(mfaHandler.PostChallenge)))
 
-	// Password reset request — enumeration-safe (always 200), rate-limited
-	// per IP to cap email spam against unknown users.
 	passwordResetHandler, err := handler.NewPasswordResetHandler(
 		d.Pool, d.ValkeyClient, d.UserStore,
 		store.NewPasswordResetTokenStore(),
@@ -186,25 +170,18 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 	}
 	mux.Handle("POST /api/password-reset/request",
 		passwordResetRL.Middleware(http.HandlerFunc(passwordResetHandler.PostRequest)))
-	// Validate is read-only and enumeration-equivalent to /confirm's not-
-	// found path; reuse the same per-IP rate limiter as /request to bound
-	// the attack surface without a dedicated bucket.
 	mux.Handle("POST /api/password-reset/validate",
 		passwordResetRL.Middleware(http.HandlerFunc(passwordResetHandler.PostValidate)))
-	// Confirm is not rate-limited: token possession is the auth factor.
-	// The token is 32-byte crypto/rand (~256 bits) — brute-force is
-	// impossible within the 30-minute TTL, so an IP-level limiter on this
-	// endpoint just adds flakiness without raising attacker cost.
+	// Confirm is NOT rate-limited: token possession is the auth. The token is
+	// 32-byte crypto/rand (~256 bits) — brute-force infeasible in 30-min TTL,
+	// IP limiter just adds flakiness without raising attacker cost.
 	mux.Handle("POST /api/password-reset/confirm",
 		http.HandlerFunc(passwordResetHandler.PostConfirm))
 
-	// OIDC authorization endpoint — optionally authenticated (session injected
-	// when present, unauthenticated requests redirected to /login).
 	authorizeHandler := handler.NewOIDCAuthorizeHandler(d.Pool, sessionStore, d.AuditStore, d.Cfg.SchlassPublicURL)
 	optionalAuth := middleware.OptionalAuth(sessionStore, d.UserStore, d.AuditStore, d.Pool)
 	mux.Handle("GET /authorize", authorizeRL.Middleware(optionalAuth(http.HandlerFunc(authorizeHandler.Handle))))
 
-	// OIDC token endpoint — client auth happens inside the handler.
 	tokenHandler := handler.NewOIDCTokenHandler(
 		d.Pool, d.ValkeyClient,
 		d.UserStore, d.AuditStore,
@@ -214,7 +191,6 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 	)
 	mux.Handle("POST /token", http.HandlerFunc(tokenHandler.Handle))
 
-	// OIDC userinfo endpoint — gated by Bearer access token.
 	userInfoHandler := handler.NewOIDCUserInfoHandler(d.Pool, d.AuditStore)
 	bearerAuth := middleware.BearerAuth(middleware.BearerAuthDeps{
 		Pool:      d.Pool,

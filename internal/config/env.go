@@ -20,7 +20,7 @@ const (
 	defaultHIBPTimeoutMS    = 1500
 )
 
-// Rate-limit defaults (per IP per minute). 
+// Rate-limit defaults (per IP per minute).
 // int64 so they drop into the struct literal without a cast.
 const (
 	defaultLoginRateLimit         int64 = 5

@@ -7,7 +7,6 @@ import (
 	"github.com/abdo75/Schlass/internal/store"
 )
 
-// JWK is a single JSON Web Key entry (RSA only for Ship B).
 type JWK struct {
 	Kty string `json:"kty"`
 	Use string `json:"use"`
@@ -17,14 +16,12 @@ type JWK struct {
 	E   string `json:"e"`
 }
 
-// JWKSet wraps a JWKS.
 type JWKSet struct {
 	Keys []JWK `json:"keys"`
 }
 
-// BuildJWKSet converts publishable signing keys (active + retiring) into a
-// JWK set. The JWT kid header on a token must match the JWK kid so verifiers
-// can pick the right key.
+// BuildJWKSet converts publishable signing keys (active + retiring) to JWKS.
+// JWT kid header must match the JWK kid so verifiers pick the right key.
 func BuildJWKSet(keys []*store.SigningKey) (JWKSet, error) {
 	out := JWKSet{Keys: make([]JWK, 0, len(keys))}
 	for _, k := range keys {

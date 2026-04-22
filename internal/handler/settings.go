@@ -19,29 +19,20 @@ import (
 	"github.com/abdo75/Schlass/internal/store"
 )
 
-// SettingsHandler serves the admin Settings page: a single GET that
-// returns the full snapshot across all four domains + four PATCH
-// endpoints (general/security/tokens/email) that each write a subset of
-// instance_config keys with per-key audit-in-tx.
-//
-// encryptionKey is retained on the struct so subsequent PATCH email
-// handlers (T5) can AES-GCM-wrap the SMTP password via
-// InstanceConfig.SetEncryptedValue. It is not used by GetAll or
-// PatchGeneral.
+// SettingsHandler serves /api/settings. Every PATCH emits one
+// config.<key>.changed audit row per changed field in the same tx; unchanged
+// fields write no audit row (no-op save produces no audit noise).
 type SettingsHandler struct {
-	pool          *pgxpool.Pool
+	pool           *pgxpool.Pool
 	instanceConfig *config.InstanceConfig
-	auditStore    AuditLogger
-	encryptionKey []byte
+	auditStore     AuditLogger
+	encryptionKey  []byte
 }
 
 func NewSettingsHandler(pool *pgxpool.Pool, instanceConfig *config.InstanceConfig, auditStore AuditLogger, encryptionKey []byte) *SettingsHandler {
 	return &SettingsHandler{pool: pool, instanceConfig: instanceConfig, auditStore: auditStore, encryptionKey: encryptionKey}
 }
 
-// GetAll serves GET /api/settings. Returns every settings-domain value in
-// one call. SMTP password is surfaced as smtp_password_set: bool only —
-// plaintext and ciphertext never leave the server.
 func (h *SettingsHandler) GetAll(w http.ResponseWriter, r *http.Request) {
 	snap, err := h.instanceConfig.Settings(r.Context(), h.pool)
 	if err != nil {
@@ -52,10 +43,6 @@ func (h *SettingsHandler) GetAll(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, snap)
 }
 
-// PatchGeneral serves PATCH /api/settings/general. One-field payload (just
-// instance_name). Establishes the config.<key>.changed audit-in-tx pattern
-// every other settings PATCH (T3-T5) will follow. No-op when the value is
-// unchanged — avoids audit noise from client-side retries and double-clicks.
 func (h *SettingsHandler) PatchGeneral(w http.ResponseWriter, r *http.Request) {
 	actor, ok := middleware.CurrentUser(r.Context())
 	if !ok {
@@ -127,11 +114,6 @@ func (h *SettingsHandler) PatchGeneral(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, snap.General)
 }
 
-// PatchSecurity serves PATCH /api/settings/security. Six possible keys;
-// every non-nil field that differs from the current value emits one
-// config.<key>.changed audit row inside a single PG tx. Fields that
-// match the current value are skipped — no audit noise on no-op saves.
-// This is the template T4 (tokens) and T5 (email) clone.
 func (h *SettingsHandler) PatchSecurity(w http.ResponseWriter, r *http.Request) {
 	actor, ok := middleware.CurrentUser(r.Context())
 	if !ok {
@@ -153,7 +135,6 @@ func (h *SettingsHandler) PatchSecurity(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Snapshot pre-values — needed for both change-detection and audit metadata.
 	pre, err := h.instanceConfig.Settings(r.Context(), h.pool)
 	if err != nil {
 		slog.Error("settings.PatchSecurity: snapshot", "error", err)
@@ -161,8 +142,6 @@ func (h *SettingsHandler) PatchSecurity(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Build the change list before opening the tx so no-op saves skip tx
-	// overhead entirely.
 	type change struct {
 		key   string
 		oldV  any
@@ -252,9 +231,6 @@ func (h *SettingsHandler) PatchSecurity(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, snap.Security)
 }
 
-// PatchTokens serves PATCH /api/settings/tokens. Two numeric keys
-// (access_token_ttl_secs + refresh_token_ttl_secs); per-field audit-in-tx
-// mirroring PatchSecurity.
 func (h *SettingsHandler) PatchTokens(w http.ResponseWriter, r *http.Request) {
 	actor, ok := middleware.CurrentUser(r.Context())
 	if !ok {
@@ -348,13 +324,11 @@ func (h *SettingsHandler) PatchTokens(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, snap.Tokens)
 }
 
-// PatchEmail serves PATCH /api/settings/email. Four plain fields
-// (host/port/username/from) + one encrypted field (password). Password
-// semantic: empty string keeps the current value; non-empty replaces and
-// re-encrypts via InstanceConfig.SetEncryptedValue (AES-256-GCM). Audit
-// metadata on smtp_password is {"changed": true} — never the plaintext or
-// ciphertext in either direction; the TestPatchEmail_KeepCurrentPasswordOnEmpty
-// integration test grep-asserts this and fails loudly on regression.
+// PatchEmail: password semantic is empty = keep current, non-empty =
+// replace + re-encrypt via SetEncryptedValue (AES-256-GCM). Audit metadata
+// on smtp_password is {"changed": true} ONLY — never plaintext or
+// ciphertext. TestPatchEmail_KeepCurrentPasswordOnEmpty grep-asserts this
+// and fails loudly on regression.
 func (h *SettingsHandler) PatchEmail(w http.ResponseWriter, r *http.Request) {
 	actor, ok := middleware.CurrentUser(r.Context())
 	if !ok {
@@ -434,9 +408,6 @@ func (h *SettingsHandler) PatchEmail(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 	}
-	// Password: empty string = keep current (no change, no audit row).
-	// Non-empty = replace. Audit metadata records only the fact of change —
-	// never the plaintext or ciphertext.
 	if in.SMTPPassword != nil && *in.SMTPPassword != "" {
 		v := *in.SMTPPassword
 		changes = append(changes, change{
@@ -493,11 +464,9 @@ func (h *SettingsHandler) PatchEmail(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, snap.Email)
 }
 
-// categorizeSMTPError maps a mail-package error to a stable client-facing
-// code + safe human message. The raw err.Error() can embed internal DNS
-// names, IPs, and STARTTLS certificate chain details — admin-only, but
-// still undesirable on any UI surface that an XSS or admin-session theft
-// could scrape.
+// categorizeSMTPError maps mail errors to stable client-facing codes. The
+// raw err.Error() may embed DNS names, IPs, or TLS chain details — safe to
+// log but not to surface on any UI an XSS or admin-session theft could scrape.
 func categorizeSMTPError(err error) (code, msg string) {
 	s := err.Error()
 	switch {
@@ -514,15 +483,6 @@ func categorizeSMTPError(err error) (code, msg string) {
 	}
 }
 
-// TestEmail serves POST /api/settings/email/test. Sends a one-off message
-// to the currently-authenticated admin's own email using the saved SMTP
-// config. Returns 400 SMTP_CONFIG_INCOMPLETE if required fields are unset,
-// 502 on transport / auth error with a stable code that does not leak
-// internal addresses or TLS details.
-//
-// Admin-only (gated by settings.write) — no per-IP rate limit in v1.
-// last_tested_at surfacing is deferred to M6+ (Email tab status line reads
-// the `delivered_at` in the response body for the initial UX).
 func (h *SettingsHandler) TestEmail(w http.ResponseWriter, r *http.Request) {
 	actor, ok := middleware.CurrentUser(r.Context())
 	if !ok {
@@ -555,11 +515,6 @@ func (h *SettingsHandler) TestEmail(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"delivered_at": time.Now().UTC().Format(time.RFC3339)})
 }
 
-// writeValidationError maps a *model.ValidationError to a 400 response.
-// Validator Code is SCREAMING_SNAKE_CASE by convention (matches existing
-// codes across the codebase: INVALID_SESSION, USER_NOT_FOUND, etc.); passes
-// through unchanged. Used by every settings PATCH handler (PatchGeneral
-// today; PatchSecurity, PatchTokens, PatchEmail in T3-T5).
 func writeValidationError(w http.ResponseWriter, err error) {
 	var ve *model.ValidationError
 	if errors.As(err, &ve) {

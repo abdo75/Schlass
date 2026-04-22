@@ -13,7 +13,7 @@ import (
 )
 
 type HIBPChecker struct {
-	Endpoint string
+	Endpoint   string
 	HTTPClient *http.Client
 }
 

@@ -10,23 +10,20 @@ import (
 	"github.com/abdo75/Schlass/internal/database"
 )
 
-// SigningKey mirrors the signing_keys row.
 type SigningKey struct {
 	ID                  uuid.UUID
 	Algorithm           string
 	PublicKeyPEM        []byte
 	PrivateKeyEncrypted []byte
-	Status              string // "active" | "retiring" | "retired"
+	Status              string // active | retiring | retired
 	CreatedAt           time.Time
 	RotatedAt           *time.Time
 }
 
-// SigningKeyStore is a stateless namespace for signing_keys SQL.
 type SigningKeyStore struct{}
 
 func NewSigningKeyStore() *SigningKeyStore { return &SigningKeyStore{} }
 
-// Insert adds a new row. Returns the generated UUID.
 func (s *SigningKeyStore) Insert(
 	ctx context.Context, q database.Querier,
 	publicPEM, privateEncrypted []byte, status string,
@@ -43,7 +40,7 @@ func (s *SigningKeyStore) Insert(
 	return id, nil
 }
 
-// ListPublishable returns active + retiring keys (never retired). Active first.
+// ListPublishable returns active + retiring (never retired), active first.
 func (s *SigningKeyStore) ListPublishable(
 	ctx context.Context, q database.Querier,
 ) ([]*SigningKey, error) {
@@ -72,7 +69,6 @@ func (s *SigningKeyStore) ListPublishable(
 	return keys, rows.Err()
 }
 
-// GetActive returns the single key currently signing new tokens.
 func (s *SigningKeyStore) GetActive(
 	ctx context.Context, q database.Querier,
 ) (*SigningKey, error) {
@@ -93,7 +89,7 @@ func (s *SigningKeyStore) GetActive(
 	return &k, nil
 }
 
-// MarkRetiring transitions active → retiring and stamps rotated_at=now().
+// MarkRetiring: active → retiring, stamps rotated_at=now().
 func (s *SigningKeyStore) MarkRetiring(
 	ctx context.Context, q database.Querier, id uuid.UUID,
 ) error {
@@ -105,7 +101,7 @@ func (s *SigningKeyStore) MarkRetiring(
 	return err
 }
 
-// MarkRetired transitions retiring → retired.
+// MarkRetired: retiring → retired.
 func (s *SigningKeyStore) MarkRetired(
 	ctx context.Context, q database.Querier, id uuid.UUID,
 ) error {
@@ -117,7 +113,7 @@ func (s *SigningKeyStore) MarkRetired(
 	return err
 }
 
-// ListRetirable returns retiring keys whose rotated_at is older than cutoff.
+// ListRetirable: retiring keys whose rotated_at is older than cutoff.
 func (s *SigningKeyStore) ListRetirable(
 	ctx context.Context, q database.Querier, cutoff time.Time,
 ) ([]uuid.UUID, error) {

@@ -40,13 +40,13 @@ func TestSecurityHeadersAreSet(t *testing.T) {
 
 func TestSecurityHeaders_ScopesNoReferrerToResetRoutes(t *testing.T) {
 	cases := map[string]string{
-		"/reset-password/abc":           "no-referrer",
-		"/forgot-password":              "no-referrer",
-		"/api/password-reset/validate":  "no-referrer",
-		"/api/password-reset/request":   "no-referrer",
-		"/api/password-reset/confirm":   "no-referrer",
-		"/api/users":                    "strict-origin-when-cross-origin",
-		"/":                             "strict-origin-when-cross-origin",
+		"/reset-password/abc":          "no-referrer",
+		"/forgot-password":             "no-referrer",
+		"/api/password-reset/validate": "no-referrer",
+		"/api/password-reset/request":  "no-referrer",
+		"/api/password-reset/confirm":  "no-referrer",
+		"/api/users":                   "strict-origin-when-cross-origin",
+		"/":                            "strict-origin-when-cross-origin",
 	}
 	h := middleware.SecurityHeaders(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
 	for path, want := range cases {

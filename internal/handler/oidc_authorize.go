@@ -23,12 +23,9 @@ import (
 
 const authCodeTTL = 60 * time.Second
 
-// OIDCAuthorizeHandler serves GET /authorize. Flow:
-//  1. Validate client_id + redirect_uri FIRST — failure renders local error.
-//  2. Validate other params — failure redirects back to RP with error=.
-//  3. Session resolution (OptionalAuth already ran). Handle prompt=none /
-//     prompt=login / max_age re-auth. No session → 302 /login?return_to=...
-//  4. Mint code + audit in one tx, 302 to RP callback with ?code=&state=.
+// OIDCAuthorizeHandler serves GET /authorize. client_id + redirect_uri are
+// validated FIRST (local-error render) so failures don't bounce to an
+// untrusted URL; other param failures redirect back to the now-trusted RP.
 type OIDCAuthorizeHandler struct {
 	pool         *pgxpool.Pool
 	clientStore  *store.ClientStore
@@ -61,8 +58,6 @@ func (h *OIDCAuthorizeHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	clientID := q.Get("client_id")
 	redirectURI := q.Get("redirect_uri")
 
-	// --- 1. Validate client_id + redirect_uri FIRST.
-	//        Failure renders local error (untrusted trigger).
 	if clientID == "" || redirectURI == "" {
 		h.renderLocalError(r, w, oidc.ErrInvalidRequest("missing client_id or redirect_uri"),
 			map[string]any{
@@ -89,7 +84,6 @@ func (h *OIDCAuthorizeHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// --- 2. Other params. Failures redirect back to trusted RP.
 	responseType := q.Get("response_type")
 	if responseType != "code" {
 		h.redirectError(w, r, redirectURI, q.Get("state"), oidc.ErrUnsupportedResponseType("only 'code' supported"))
@@ -107,7 +101,6 @@ func (h *OIDCAuthorizeHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Scope: default to "openid profile" when absent.
 	scopesStr := q.Get("scope")
 	if scopesStr == "" {
 		scopesStr = "openid profile"
@@ -124,7 +117,6 @@ func (h *OIDCAuthorizeHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Prompt.
 	prompt := q.Get("prompt")
 	if strings.Contains(prompt, " ") {
 		h.redirectError(w, r, redirectURI, state, oidc.ErrInvalidRequest("combined prompt values not supported"))
@@ -135,8 +127,7 @@ func (h *OIDCAuthorizeHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// max_age (seconds). Cap at math.MaxInt64/int64(time.Second) to avoid
-	// overflow when converting uint64 → time.Duration (int64 nanoseconds).
+	// max_age capped to avoid overflow converting uint64 → int64 ns Duration.
 	const maxAgeCap uint64 = uint64(1<<63-1) / uint64(time.Second)
 	var maxAge time.Duration
 	if ma := q.Get("max_age"); ma != "" {
@@ -151,7 +142,6 @@ func (h *OIDCAuthorizeHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		maxAge = time.Duration(secs) * time.Second //nolint:gosec // bounded by maxAgeCap above
 	}
 
-	// --- 3. Session resolution (OptionalAuth already ran).
 	user, _ := middleware.CurrentUser(r.Context())
 
 	needReauth := user == nil || prompt == "login"
@@ -167,7 +157,6 @@ func (h *OIDCAuthorizeHandler) Handle(w http.ResponseWriter, r *http.Request) {
 			h.redirectError(w, r, redirectURI, state, oidc.ErrLoginRequired())
 			return
 		}
-		// Clear existing session if any + audit session.reauth_forced.
 		if user != nil {
 			if cookie, cerr := r.Cookie("schlass_session"); cerr == nil {
 				_ = h.sessionStore.Delete(r.Context(), user.ID.String(), cookie.Value)
@@ -189,7 +178,6 @@ func (h *OIDCAuthorizeHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// --- 4. Mint code + audit in one tx.
 	rawCodeBuf := make([]byte, 32)
 	if _, err := rand.Read(rawCodeBuf); err != nil {
 		h.redirectError(w, r, redirectURI, state, oidc.ErrServerError("entropy"))
@@ -249,7 +237,6 @@ func (h *OIDCAuthorizeHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 302 to RP callback.
 	v := url.Values{}
 	v.Set("code", rawCode)
 	v.Set("state", state)
@@ -262,14 +249,10 @@ func (h *OIDCAuthorizeHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, dest, http.StatusFound)
 }
 
-// renderLocalError writes a best-effort audit row with a correlation ID and
-// 302s to /oidc/error?ref=<corrid>. The SPA page at /oidc/error renders the
-// user-visible message; we only drop a marker + audit trail here.
-//
-// Metadata key is error_ref (not correlation_id) because audit_store.Log
-// already reserves "correlation_id" for the HTTP request trace ID injected
-// by middleware.RequestLogging. Admins look up local-error events via
-// metadata->>'error_ref' = $1 using the ref value the user reported.
+// renderLocalError writes a best-effort audit row with a correlation ID
+// (metadata key error_ref — correlation_id is reserved for the request
+// trace ID) and 302s to /oidc/error?ref=<corrid>. The SPA page renders the
+// message; we only drop a marker + audit trail.
 func (h *OIDCAuthorizeHandler) renderLocalError(r *http.Request, w http.ResponseWriter, ae *oidc.AuthorizeError, extra map[string]any) {
 	corrID, cerr := oidc.NewCorrelationID()
 	if cerr != nil {
@@ -295,8 +278,6 @@ func (h *OIDCAuthorizeHandler) renderLocalError(r *http.Request, w http.Response
 	http.Redirect(w, r, "/oidc/error?ref="+corrID, http.StatusFound)
 }
 
-// redirectError bounces back to the registered redirect_uri with OAuth
-// error query params. Used when client_id + redirect_uri are trusted.
 func (h *OIDCAuthorizeHandler) redirectError(w http.ResponseWriter, r *http.Request, redirectURI, state string, ae *oidc.AuthorizeError) {
 	v := url.Values{}
 	v.Set("error", ae.Code)
@@ -323,9 +304,8 @@ func (h *OIDCAuthorizeHandler) getSessionFromCookie(r *http.Request) (*session.S
 	return h.sessionStore.Get(r.Context(), c.Value)
 }
 
-// writeBestEffortAudit persists an audit row in its own tx. Failure is
-// slog.Error'd but does not block the caller — matches the middleware
-// session.revoked pattern.
+// writeBestEffortAudit: own tx, failure logged but does not block the
+// caller. Matches the middleware session.revoked pattern.
 func (h *OIDCAuthorizeHandler) writeBestEffortAudit(r *http.Request, entry store.AuditEntry) {
 	tx, err := h.pool.Begin(r.Context())
 	if err != nil {
@@ -342,10 +322,7 @@ func (h *OIDCAuthorizeHandler) writeBestEffortAudit(r *http.Request, entry store
 	}
 }
 
-// Ensure errors package is used (kept here so future callers of errors.Is stay clean).
 var _ = errors.New
-
-// --- tiny helpers local to this file
 
 func containsString(slice []string, want string) bool {
 	for _, v := range slice {
