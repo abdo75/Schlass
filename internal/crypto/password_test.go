@@ -63,6 +63,85 @@ func TestVerifyPasswordRejectsInvalidHash(t *testing.T) {
 	}
 }
 
+func TestVerifyPasswordRejectsMalformedHashes(t *testing.T) {
+	cases := map[string]string{
+		"wrong algorithm":   "$argon2i$v=19$m=19456,t=2,p=1$c2FsdHNhbHRzYWx0c2FsdA$aGFzaGhhc2hoYXNoaGFzaGhhc2hoYXNoaGFzaA",
+		"unparseable version": "$argon2id$v=foo$m=19456,t=2,p=1$c2FsdHNhbHRzYWx0c2FsdA$aGFzaGhhc2hoYXNoaGFzaGhhc2hoYXNoaGFzaA",
+		"unparseable params":  "$argon2id$v=19$m=bad,t=2,p=1$c2FsdHNhbHRzYWx0c2FsdA$aGFzaGhhc2hoYXNoaGFzaGhhc2hoYXNoaGFzaA",
+		"non-b64 salt":        "$argon2id$v=19$m=19456,t=2,p=1$!!!notb64!!!$aGFzaGhhc2hoYXNoaGFzaGhhc2hoYXNoaGFzaA",
+		"non-b64 hash":        "$argon2id$v=19$m=19456,t=2,p=1$c2FsdHNhbHRzYWx0c2FsdA$!!!notb64!!!",
+		"too few parts":       "$argon2id$v=19$m=19456,t=2,p=1$onlyonefield",
+		"empty string":        "",
+	}
+	for name, encoded := range cases {
+		t.Run(name, func(t *testing.T) {
+			ok, err := crypto.VerifyPassword("password", encoded)
+			if err == nil {
+				t.Fatalf("expected error, got ok=%v", ok)
+			}
+			if ok {
+				t.Fatalf("expected ok=false on malformed hash")
+			}
+		})
+	}
+}
+
+func TestHashPasswordEmbedsExpectedParameters(t *testing.T) {
+	hash, err := crypto.HashPassword("anything")
+	if err != nil {
+		t.Fatalf("HashPassword failed: %v", err)
+	}
+
+	const wantPrefix = "$argon2id$v=19$m=19456,t=2,p=1$"
+	if !strings.HasPrefix(hash, wantPrefix) {
+		t.Fatalf("hash params drifted from constants.\n  want prefix: %s\n  got hash:    %s", wantPrefix, hash)
+	}
+}
+
+func TestHashAndVerifyEmptyPassword(t *testing.T) {
+	hash, err := crypto.HashPassword("")
+	if err != nil {
+		t.Fatalf("HashPassword(\"\") failed: %v", err)
+	}
+
+	ok, err := crypto.VerifyPassword("", hash)
+	if err != nil {
+		t.Fatalf("VerifyPassword(\"\", hash) failed: %v", err)
+	}
+	if !ok {
+		t.Fatal("empty password should round-trip cleanly")
+	}
+
+	ok, err = crypto.VerifyPassword("not-empty", hash)
+	if err != nil {
+		t.Fatalf("VerifyPassword mismatch failed: %v", err)
+	}
+	if ok {
+		t.Fatal("non-empty password must not match empty-password hash")
+	}
+}
+
+func BenchmarkHashPassword(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		if _, err := crypto.HashPassword("benchmark-password"); err != nil {
+			b.Fatalf("HashPassword failed: %v", err)
+		}
+	}
+}
+
+func BenchmarkVerifyPassword(b *testing.B) {
+	hash, err := crypto.HashPassword("benchmark-password")
+	if err != nil {
+		b.Fatalf("HashPassword failed: %v", err)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := crypto.VerifyPassword("benchmark-password", hash); err != nil {
+			b.Fatalf("VerifyPassword failed: %v", err)
+		}
+	}
+}
+
 func TestGenerateTemporaryPassword_LengthAndAlphabet(t *testing.T) {
 	seen := make(map[string]bool, 128)
 	for i := 0; i < 128; i++ {

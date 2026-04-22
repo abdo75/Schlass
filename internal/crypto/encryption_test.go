@@ -39,6 +39,12 @@ func TestEncryptDecryptRoundTrip(t *testing.T) {
 	}
 }
 
+// v1 layout: [0x01][wrapped DEK: 12B nonce + 32B DEK + 16B tag = 60B][sealed data].
+const (
+	testWrappedDEKStart = 1
+	testWrappedDEKEnd   = 1 + 12 + 32 + 16
+)
+
 func TestEncryptProducesDifferentCiphertexts(t *testing.T) {
 	key := testKey(t)
 	aad := []byte("ctx")
@@ -50,7 +56,7 @@ func TestEncryptProducesDifferentCiphertexts(t *testing.T) {
 	if bytes.Equal(c1, c2) {
 		t.Fatal("two encryptions of same plaintext must differ (unique DEK + nonces)")
 	}
-	if bytes.Equal(c1[1:61], c2[1:61]) {
+	if bytes.Equal(c1[testWrappedDEKStart:testWrappedDEKEnd], c2[testWrappedDEKStart:testWrappedDEKEnd]) {
 		t.Fatal("wrapped DEK region must differ between encryptions")
 	}
 }
@@ -80,6 +86,23 @@ func TestDecryptDetectsTampering(t *testing.T) {
 	}
 }
 
+// TestDecryptDetectsWrappedDEKTampering flips a byte inside the wrapped-DEK
+// region so the DEK-unwrap step fails before sealed-data open is ever tried.
+// Complements TestDecryptDetectsTampering (which hits the outer GCM tag).
+func TestDecryptDetectsWrappedDEKTampering(t *testing.T) {
+	key := testKey(t)
+	aad := []byte("ctx")
+	ciphertext, _ := crypto.Encrypt([]byte("original"), key, aad)
+
+	tampered := make([]byte, len(ciphertext))
+	copy(tampered, ciphertext)
+	tampered[testWrappedDEKStart+5] ^= 0xff
+
+	if _, err := crypto.Decrypt(tampered, key, aad); err == nil {
+		t.Fatal("expected error when wrapped DEK region is tampered")
+	}
+}
+
 func TestDecryptWithWrongKeyFails(t *testing.T) {
 	key1 := testKey(t)
 	key2 := testKey(t)
@@ -98,6 +121,40 @@ func TestDecryptWithWrongAADFails(t *testing.T) {
 
 	if _, err := crypto.Decrypt(ciphertext, key, []byte("instance_config:other_key")); err == nil {
 		t.Fatal("decrypt with mismatched AAD must fail (prevents cross-slot swap attack)")
+	}
+}
+
+func TestRoundTripWithNilAAD(t *testing.T) {
+	key := testKey(t)
+	plaintext := []byte("no-aad-bound")
+
+	ct, err := crypto.Encrypt(plaintext, key, nil)
+	if err != nil {
+		t.Fatalf("Encrypt nil aad: %v", err)
+	}
+	got, err := crypto.Decrypt(ct, key, nil)
+	if err != nil {
+		t.Fatalf("Decrypt nil aad: %v", err)
+	}
+	if !bytes.Equal(got, plaintext) {
+		t.Fatalf("nil-aad round-trip: got %q want %q", got, plaintext)
+	}
+}
+
+func TestRoundTripEmptyPlaintext(t *testing.T) {
+	key := testKey(t)
+	aad := []byte("ctx")
+
+	ct, err := crypto.Encrypt([]byte{}, key, aad)
+	if err != nil {
+		t.Fatalf("Encrypt empty: %v", err)
+	}
+	got, err := crypto.Decrypt(ct, key, aad)
+	if err != nil {
+		t.Fatalf("Decrypt empty: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("empty round-trip: got %q want empty", got)
 	}
 }
 
@@ -177,7 +234,6 @@ func TestSwapDetection(t *testing.T) {
 	ctA, _ := crypto.Encrypt([]byte("smtp-password-value"), key, []byte("instance_config:smtp_password"))
 	ctB, _ := crypto.Encrypt([]byte("totp-secret-value"), key, []byte("user_totp_secret:user-123"))
 
-	// Swap: try to read slot A's ciphertext as if it were slot B.
 	if _, err := crypto.Decrypt(ctA, key, []byte("user_totp_secret:user-123")); err == nil {
 		t.Fatal("swap A->B must fail: AAD binding broken")
 	}
