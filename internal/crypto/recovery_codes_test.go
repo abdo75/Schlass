@@ -54,8 +54,6 @@ func TestGenerateRecoveryCodes_HashVerifyRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateRecoveryCodes: %v", err)
 	}
-	// Every plaintext code should verify against its own hash and not
-	// against another code's hash.
 	for i, code := range plaintext {
 		ok, err := crypto.VerifyPassword(code, hashes[i])
 		if err != nil {
