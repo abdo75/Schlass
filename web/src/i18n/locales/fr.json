@@ -333,7 +333,10 @@
       "submitting": "Envoi en cours…",
       "back_to_login": "← Retour à la connexion",
       "sent_title": "Consultez votre e-mail",
-      "sent_body": "Si un compte existe pour <1>{{email}}</1>, un lien de réinitialisation a été envoyé. Le lien expire dans 30 minutes."
+      "sent_body": "Si un compte existe pour <1>{{email}}</1>, un lien de réinitialisation a été envoyé. Le lien expire dans 30 minutes.",
+      "admin_banner": "Les comptes administrateur ne peuvent pas être réinitialisés par e-mail. Contactez un autre administrateur.",
+      "recovery_prompt": "Instance avec un seul administrateur et sans sauvegarde ?",
+      "recovery_link": "Guide de récupération pour l'opérateur →"
     },
     "reset": {
       "loading_title": "Vérification du lien…",
@@ -363,8 +366,15 @@
     "de": "Deutsch"
   },
   "user_menu": {
-    "theme": { "heading": "Thème", "light": "Clair", "dark": "Sombre", "system": "Système" },
-    "language": { "heading": "Langue" },
+    "theme": {
+      "heading": "Thème",
+      "light": "Clair",
+      "dark": "Sombre",
+      "system": "Système"
+    },
+    "language": {
+      "heading": "Langue"
+    },
     "my_account": "Mon compte",
     "admin_panel": "Panneau d'administration",
     "sign_out": "Se déconnecter"

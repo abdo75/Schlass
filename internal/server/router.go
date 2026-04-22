@@ -158,9 +158,13 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 
 	mux.Handle("POST /api/mfa/challenge", mfaChallengeRL.Middleware(http.HandlerFunc(mfaHandler.PostChallenge)))
 
+	resetPepper, err := crypto.DeriveTokenPepper(d.Cfg.EncryptionKey)
+	if err != nil {
+		return nil, err
+	}
 	passwordResetHandler, err := handler.NewPasswordResetHandler(
 		d.Pool, d.ValkeyClient, d.UserStore,
-		store.NewPasswordResetTokenStore(),
+		store.NewPasswordResetTokenStore(resetPepper),
 		d.AuditStore, sessionStore, d.InstanceConfig,
 		d.Cfg.SchlassPublicURL,
 		d.HIBPChecker,

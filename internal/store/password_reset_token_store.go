@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
 	"net/netip"
 	"time"
@@ -10,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/abdo75/Schlass/internal/crypto"
 	"github.com/abdo75/Schlass/internal/database"
 )
 
@@ -23,13 +23,23 @@ type PasswordResetToken struct {
 	CreatedAt time.Time
 }
 
-type PasswordResetTokenStore struct{}
+// PasswordResetTokenStore holds the HMAC pepper used to hash plaintext
+// tokens before storage. Pepper is HKDF-derived from SCHLASS_ENCRYPTION_KEY
+// at startup — deterministic, so no persistence needed.
+type PasswordResetTokenStore struct {
+	pepper []byte
+}
 
-func NewPasswordResetTokenStore() *PasswordResetTokenStore { return &PasswordResetTokenStore{} }
+func NewPasswordResetTokenStore(pepper []byte) *PasswordResetTokenStore {
+	if len(pepper) != 32 {
+		panic("password_reset_token_store: pepper must be 32 bytes")
+	}
+	return &PasswordResetTokenStore{pepper: pepper}
+}
 
-// Insert stores SHA-256(plaintext) only. Plaintext never touches the DB.
+// Insert stores HMAC-SHA256(pepper, plaintext). Plaintext never touches the DB.
 func (s *PasswordResetTokenStore) Insert(ctx context.Context, q database.Querier, userID uuid.UUID, plaintextToken string, ttl time.Duration, ip netip.Addr) (uuid.UUID, error) {
-	hash := sha256.Sum256([]byte(plaintextToken))
+	hash := crypto.HMACToken(plaintextToken, s.pepper)
 	var id uuid.UUID
 	var ipArg any
 	if ip.IsValid() {
@@ -39,20 +49,20 @@ func (s *PasswordResetTokenStore) Insert(ctx context.Context, q database.Querier
 		INSERT INTO password_reset_tokens (user_id, token_hash, expires_at, ip_address)
 		VALUES ($1, $2, now() + $3::INTERVAL, $4)
 		RETURNING id
-	`, userID, hash[:], ttl, ipArg).Scan(&id)
+	`, userID, hash, ttl, ipArg).Scan(&id)
 	return id, err
 }
 
 // GetByTokenForUpdate row-locks so concurrent confirm attempts can't race.
 // Handler treats not-found / expired / already-used as INVALID_TOKEN.
 func (s *PasswordResetTokenStore) GetByTokenForUpdate(ctx context.Context, q database.Querier, plaintextToken string) (*PasswordResetToken, error) {
-	hash := sha256.Sum256([]byte(plaintextToken))
+	hash := crypto.HMACToken(plaintextToken, s.pepper)
 	row := q.QueryRow(ctx, `
 		SELECT id, user_id, expires_at, used_at, created_at
 		FROM password_reset_tokens
 		WHERE token_hash = $1
 		FOR UPDATE
-	`, hash[:])
+	`, hash)
 	var t PasswordResetToken
 	if err := row.Scan(&t.ID, &t.UserID, &t.ExpiresAt, &t.UsedAt, &t.CreatedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -72,12 +82,12 @@ func (s *PasswordResetTokenStore) MarkUsed(ctx context.Context, q database.Queri
 // GetByToken is the non-locking read for /validate. Must not hold a row
 // lock across the request.
 func (s *PasswordResetTokenStore) GetByToken(ctx context.Context, q database.Querier, plaintextToken string) (*PasswordResetToken, error) {
-	hash := sha256.Sum256([]byte(plaintextToken))
+	hash := crypto.HMACToken(plaintextToken, s.pepper)
 	row := q.QueryRow(ctx, `
 		SELECT id, user_id, expires_at, used_at, created_at
 		FROM password_reset_tokens
 		WHERE token_hash = $1
-	`, hash[:])
+	`, hash)
 	var t PasswordResetToken
 	if err := row.Scan(&t.ID, &t.UserID, &t.ExpiresAt, &t.UsedAt, &t.CreatedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

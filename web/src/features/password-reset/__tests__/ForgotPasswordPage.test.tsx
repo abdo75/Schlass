@@ -55,4 +55,20 @@ describe("ForgotPasswordPage", () => {
     const link = screen.getByRole("link", { name: /Back to sign in/i });
     expect(link).toHaveAttribute("href", "/login");
   });
+
+  it("shows the admin-cannot-reset-by-email banner", () => {
+    renderPage();
+    expect(
+      screen.getByText(/Administrator accounts can't reset by email/i),
+    ).toBeInTheDocument();
+  });
+
+  it("shows the single-admin recovery prompt + guide link", () => {
+    renderPage();
+    expect(
+      screen.getByText(/Single-admin instance with no backup/i),
+    ).toBeInTheDocument();
+    const link = screen.getByRole("link", { name: /Operator recovery guide/i });
+    expect(link).toHaveAttribute("href", "/docs/operator/recovery");
+  });
 });
