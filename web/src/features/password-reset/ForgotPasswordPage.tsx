@@ -121,7 +121,9 @@ export function ForgotPasswordPage() {
         <div className="border-t border-border px-8 pb-6 pt-4 text-center text-[12px] leading-[1.55] text-muted-foreground">
           <div>{t("password_reset.forgot.recovery_prompt")}</div>
           <a
-            href="/docs/operator/recovery"
+            href="https://github.com/abdo75/Schlass/blob/main/docs/operator/recovery.md"
+            target="_blank"
+            rel="noopener noreferrer"
             className="mt-1 inline-block font-medium text-primary hover:underline"
           >
             {t("password_reset.forgot.recovery_link")}

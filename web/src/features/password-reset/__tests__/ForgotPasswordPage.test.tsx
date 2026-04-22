@@ -69,6 +69,9 @@ describe("ForgotPasswordPage", () => {
       screen.getByText(/Single-admin instance with no backup/i),
     ).toBeInTheDocument();
     const link = screen.getByRole("link", { name: /Operator recovery guide/i });
-    expect(link).toHaveAttribute("href", "/docs/operator/recovery");
+    expect(link).toHaveAttribute(
+      "href",
+      "https://github.com/abdo75/Schlass/blob/main/docs/operator/recovery.md",
+    );
   });
 });
