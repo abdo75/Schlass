@@ -68,12 +68,42 @@ func TestValidateTOTP_PreviousStep_Allowed(t *testing.T) {
 		t.Fatalf("GenerateCode: %v", err)
 	}
 
-	matched, _, err := crypto.ValidateTOTP(code, secret, 0)
+	matched, step, err := crypto.ValidateTOTP(code, secret, 0)
 	if err != nil {
 		t.Fatalf("ValidateTOTP: %v", err)
 	}
 	if !matched {
 		t.Fatal("code from -30s should validate with Skew: 1")
+	}
+	// matchedStep must be exactly the step at t=-30s. Replay prevention
+	// depends on this precise value being persisted as lastCounter.
+	expectedStep := previous.Unix() / 30
+	if step != expectedStep {
+		t.Fatalf("matched step = %d, want %d (step at t-30s)", step, expectedStep)
+	}
+}
+
+func TestValidateTOTP_NextStep_Allowed(t *testing.T) {
+	secret, err := crypto.GenerateTOTPSecret()
+	if err != nil {
+		t.Fatalf("GenerateTOTPSecret: %v", err)
+	}
+	future := time.Now().Add(30 * time.Second)
+	code, err := totp.GenerateCode(secret, future)
+	if err != nil {
+		t.Fatalf("GenerateCode: %v", err)
+	}
+
+	matched, step, err := crypto.ValidateTOTP(code, secret, 0)
+	if err != nil {
+		t.Fatalf("ValidateTOTP: %v", err)
+	}
+	if !matched {
+		t.Fatal("code from +30s should validate with Skew: 1 (client clock ahead)")
+	}
+	expectedStep := future.Unix() / 30
+	if step != expectedStep {
+		t.Fatalf("matched step = %d, want %d (step at t+30s)", step, expectedStep)
 	}
 }
 
@@ -124,6 +154,29 @@ func TestValidateTOTP_ReplayRejected(t *testing.T) {
 	if matched2 {
 		t.Fatal("replay of same code should reject when lastCounter >= step")
 	}
+
+	// Third validate with lastCounter FAR ahead of step — must also reject.
+	// Guards the strict `>` gate: a step that's already stale by many steps
+	// must never re-validate (e.g. after several successful logins since).
+	matched3, _, err := crypto.ValidateTOTP(code, secret, step+5)
+	if err != nil {
+		t.Fatalf("third ValidateTOTP: %v", err)
+	}
+	if matched3 {
+		t.Fatal("code from a step far behind lastCounter must reject")
+	}
+}
+
+func TestValidateTOTP_InvalidSecret_Errors(t *testing.T) {
+	// A secret that cannot be base32-decoded must surface the library error
+	// via ValidateTOTP's wrapped error, not be silently swallowed as matched=false.
+	matched, _, err := crypto.ValidateTOTP("123456", "!!!not-base32!!!", 0)
+	if err == nil {
+		t.Fatal("invalid base32 secret should return an error")
+	}
+	if matched {
+		t.Fatal("invalid secret must not produce a match")
+	}
 }
 
 func TestValidateTOTP_BadCode(t *testing.T) {
@@ -153,5 +206,26 @@ func TestBuildProvisionURI(t *testing.T) {
 	}
 	if !strings.Contains(uri, "issuer=Schlass") {
 		t.Fatal("URI missing issuer param")
+	}
+}
+
+func TestBuildProvisionURI_EmptyField_Rejected(t *testing.T) {
+	cases := []struct {
+		name, issuer, email, secret string
+	}{
+		{"empty issuer", "", "alice@example.com", "JBSWY3DPEHPK3PXP"},
+		{"empty email", "Schlass", "", "JBSWY3DPEHPK3PXP"},
+		{"empty secret", "Schlass", "alice@example.com", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			uri, err := crypto.BuildProvisionURI(tc.issuer, tc.email, tc.secret)
+			if err == nil {
+				t.Fatalf("expected error for %s, got URI %q", tc.name, uri)
+			}
+			if uri != "" {
+				t.Fatalf("expected empty URI on error, got %q", uri)
+			}
+		})
 	}
 }
