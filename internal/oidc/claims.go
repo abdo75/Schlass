@@ -8,15 +8,10 @@ import (
 )
 
 const (
-	// AccessTokenTTL is the absolute lifetime of an access token per spec §5h.
 	AccessTokenTTL = 15 * time.Minute
-	// IDTokenTTL matches AccessTokenTTL for Ship B.
-	IDTokenTTL = 15 * time.Minute
+	IDTokenTTL     = 15 * time.Minute
 )
 
-// Scopes wraps a space-separated scope string. Helpers for membership
-// and serialization keep scope handling consistent across the claims +
-// /token code path.
 type Scopes []string
 
 func (s Scopes) String() string { return strings.Join(s, " ") }
@@ -30,9 +25,7 @@ func (s Scopes) Has(want string) bool {
 	return false
 }
 
-// BuildAccessClaims produces the access-token claims body (RFC 9068).
-// issuer is SCHLASS_PUBLIC_URL; audience is the client_id (string).
-// jti is the caller-generated JWT ID; now is the caller's sign time.
+// BuildAccessClaims: RFC 9068. issuer = SCHLASS_PUBLIC_URL, aud = client_id.
 func BuildAccessClaims(
 	user *store.User, clientID, issuer, jti string,
 	scopes Scopes, now time.Time,
@@ -49,11 +42,8 @@ func BuildAccessClaims(
 	}
 }
 
-// BuildIDClaims produces the ID-token claims body (OIDC Core). authTime is
-// the session's CreatedAt (see spec §5a.6 — session.CreatedAt IS auth_time).
-// nonce is the nonce stored on the authorization_code row (may be empty).
-// If scopes include "profile", preferred_username and updated_at are set.
-// If scopes include "email", email and email_verified=true are set.
+// BuildIDClaims: authTime = session.CreatedAt (spec §5a.6). Profile scope
+// adds preferred_username + updated_at; email scope adds email + verified=true.
 func BuildIDClaims(
 	user *store.User, clientID, issuer, jti, nonce string,
 	scopes Scopes, authTime time.Time, now time.Time,
@@ -81,9 +71,7 @@ func BuildIDClaims(
 	return c
 }
 
-// UserInfoClaims emits the body of the /userinfo response per token scopes.
-// sub is always present. The shape differs from ID-token claims: iss/aud/iat
-// are not set (userinfo is not a JWT) — this is a plain JSON object.
+// UserInfoClaims is plain JSON (not a JWT) — OIDC Core §5.3 allows either.
 type UserInfoClaims struct {
 	Sub               string `json:"sub"`
 	PreferredUsername string `json:"preferred_username,omitempty"`
@@ -92,7 +80,6 @@ type UserInfoClaims struct {
 	EmailVerified     *bool  `json:"email_verified,omitempty"`
 }
 
-// BuildUserInfoClaims produces the /userinfo body per token scope list.
 func BuildUserInfoClaims(user *store.User, scopes Scopes) UserInfoClaims {
 	c := UserInfoClaims{Sub: user.ID.String()}
 	if scopes.Has("profile") {

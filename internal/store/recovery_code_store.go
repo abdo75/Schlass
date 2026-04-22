@@ -12,9 +12,6 @@ import (
 	"github.com/abdo75/Schlass/internal/database"
 )
 
-// RecoveryCode is one row from totp_recovery_codes. Consumed by the MFA
-// challenge handler during recovery-code login to verify input against
-// code_hash.
 type RecoveryCode struct {
 	ID        uuid.UUID
 	UserID    uuid.UUID
@@ -29,8 +26,6 @@ func NewRecoveryCodeStore() *RecoveryCodeStore {
 	return &RecoveryCodeStore{}
 }
 
-// Insert persists N recovery codes for a user in a single round-trip.
-// Called inside the enrollment-complete tx. Uses pgx.Batch for efficiency.
 func (s *RecoveryCodeStore) Insert(ctx context.Context, q database.Querier, userID uuid.UUID, hashes [][]byte) error {
 	if len(hashes) == 0 {
 		return nil
@@ -54,9 +49,7 @@ func (s *RecoveryCodeStore) Insert(ctx context.Context, q database.Querier, user
 	return nil
 }
 
-// ListUnused returns every unused recovery code for a user. Called during
-// recovery-code login to iterate and verify the input against each hash.
-// Returned in created_at order — stable for integration-test assertions.
+// ListUnused returns in created_at order — stable for integration tests.
 func (s *RecoveryCodeStore) ListUnused(ctx context.Context, q database.Querier, userID uuid.UUID) ([]RecoveryCode, error) {
 	rows, err := q.Query(ctx,
 		`SELECT id, user_id, code_hash, used_at, created_at
@@ -79,8 +72,6 @@ func (s *RecoveryCodeStore) ListUnused(ctx context.Context, q database.Querier, 
 	return out, rows.Err()
 }
 
-// CountUnused returns how many recovery codes remain unused for a user.
-// Cheap aggregate for /api/me to display "N codes remaining".
 func (s *RecoveryCodeStore) CountUnused(ctx context.Context, q database.Querier, userID uuid.UUID) (int, error) {
 	var n int
 	err := q.QueryRow(ctx,
@@ -92,9 +83,7 @@ func (s *RecoveryCodeStore) CountUnused(ctx context.Context, q database.Querier,
 	return n, nil
 }
 
-// MarkUsed flips used_at on one code to now(). Called inside the challenge-
-// success tx when a recovery code is burned. Returns an error if the code
-// was already burned or doesn't exist.
+// MarkUsed errors if the code was already burned or doesn't exist.
 func (s *RecoveryCodeStore) MarkUsed(ctx context.Context, q database.Querier, codeID uuid.UUID) error {
 	ct, err := q.Exec(ctx,
 		`UPDATE totp_recovery_codes SET used_at = now() WHERE id = $1 AND used_at IS NULL`,
@@ -108,9 +97,6 @@ func (s *RecoveryCodeStore) MarkUsed(ctx context.Context, q database.Querier, co
 	return nil
 }
 
-// DeleteAllForUser clears every recovery code for a user. Called from the
-// admin reset-MFA handler in the same tx as clearing totp_secret_encrypted.
-// Returns the number of rows deleted for audit metadata.
 func (s *RecoveryCodeStore) DeleteAllForUser(ctx context.Context, q database.Querier, userID uuid.UUID) (int64, error) {
 	ct, err := q.Exec(ctx,
 		`DELETE FROM totp_recovery_codes WHERE user_id = $1`,

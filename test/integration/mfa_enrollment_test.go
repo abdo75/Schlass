@@ -400,7 +400,7 @@ func TestMfaEnrollmentStart_ProvisionURI_FallsBackToSchlass(t *testing.T) {
 	env.CompleteSetup(t, "admin@example.com", "CorrectHorse1Battery")
 	userID := env.GetUserIDByEmail(t, "admin@example.com")
 
-	// Blank the instance_name so GetInstanceName returns "". Values are stored
+	// Blank the instance_name so InstanceName returns "". Values are stored
 	// as JSON so an empty string is the JSON literal '""'.
 	if _, err := env.Pool.Exec(t.Context(),
 		`UPDATE instance_config SET value = '""' WHERE key = 'instance_name'`,

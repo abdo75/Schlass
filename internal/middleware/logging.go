@@ -44,12 +44,10 @@ func RequestLogging(next http.Handler) http.Handler {
 	})
 }
 
-// redactLogPath replaces token-bearing URL segments with a "[redacted]"
-// placeholder so aggregated logs cannot be used to mint a working
-// reset link. The SPA /reset-password/:token is the only URL that
-// carries a plaintext token in the path today; the backend
-// /api/password-reset/* endpoints carry the token in the POST body,
-// where MaxBytesReader already bounds exposure.
+// redactLogPath replaces token-bearing segments with "[redacted]" so
+// aggregated logs cannot be used to mint a working reset link. The SPA
+// /reset-password/:token is the only URL carrying a plaintext token in the
+// path today.
 func redactLogPath(path string) string {
 	const prefix = "/reset-password/"
 	if strings.HasPrefix(path, prefix) {

@@ -18,10 +18,9 @@ import (
 	"github.com/abdo75/Schlass/internal/store"
 )
 
-// intersectScopesAgainstClient returns granted ∩ allowed preserving the order
-// of granted. Returns invalid_scope error if the intersection is empty.
-// Used by both auth_code and refresh grants to re-validate scopes against
-// the client's current allowed_scopes (which an admin PATCH may have narrowed).
+// intersectScopesAgainstClient preserves the order of `granted`. An admin
+// PATCH may narrow `allowed` between issuance and use — refresh + auth_code
+// grants both re-validate here.
 func intersectScopesAgainstClient(granted, allowed []string) ([]string, error) {
 	allowedSet := make(map[string]struct{}, len(allowed))
 	for _, s := range allowed {
@@ -39,23 +38,20 @@ func intersectScopesAgainstClient(granted, allowed []string) ([]string, error) {
 	return out, nil
 }
 
-// tokenResponse is the RFC 6749 §5.1 success response body.
+// tokenResponse — RFC 6749 §5.1 success body.
 type tokenResponse struct {
 	AccessToken  string `json:"access_token"`
-	TokenType    string `json:"token_type"` // always "Bearer"
-	ExpiresIn    int    `json:"expires_in"` // seconds
+	TokenType    string `json:"token_type"`
+	ExpiresIn    int    `json:"expires_in"`
 	RefreshToken string `json:"refresh_token,omitempty"`
 	IDToken      string `json:"id_token,omitempty"`
 	Scope        string `json:"scope,omitempty"`
 }
 
 const (
-	refreshTokenTTL       = 24 * time.Hour // absolute TTL from initial code exchange (spec §5f)
-	defaultTokenRateLimit = int64(60)      // per minute, per client_id (spec §5e)
+	refreshTokenTTL = 24 * time.Hour // absolute, from initial code exchange
 )
 
-// OIDCTokenHandler serves POST /token for the authorization_code grant.
-// Refresh-token grant lands in M4 as an additive dispatch branch.
 type OIDCTokenHandler struct {
 	pool            *pgxpool.Pool
 	valkey          *redis.Client
@@ -81,10 +77,6 @@ func NewOIDCTokenHandler(
 	encryptionKey []byte,
 	tokenRateLimit int64,
 ) *OIDCTokenHandler {
-	limit := defaultTokenRateLimit
-	if tokenRateLimit > 0 {
-		limit = tokenRateLimit
-	}
 	return &OIDCTokenHandler{
 		pool:            pool,
 		valkey:          valkey,
@@ -97,18 +89,15 @@ func NewOIDCTokenHandler(
 		refreshStore:    oidc.NewRefreshStore(valkey),
 		publicURL:       publicURL,
 		encryptionKey:   encryptionKey,
-		tokenRateLimit:  limit,
+		tokenRateLimit:  tokenRateLimit,
 	}
 }
 
-// Handle routes POST /token. Dispatches on grant_type; only authorization_code
-// is implemented in M3. refresh_token returns 400 unsupported_grant_type until M4.
 func (h *OIDCTokenHandler) Handle(w http.ResponseWriter, r *http.Request) {
-	// Always no-store on token responses (RFC 6749 §5.1).
+	// RFC 6749 §5.1 — no-store on token responses.
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Pragma", "no-cache")
 
-	// Bound the form body size before parsing to prevent memory exhaustion.
 	r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
 	if err := r.ParseForm(); err != nil {
 		writeTokenError(w, http.StatusBadRequest, "invalid_request", "Malformed form body.")
@@ -126,7 +115,6 @@ func (h *OIDCTokenHandler) Handle(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *OIDCTokenHandler) handleAuthorizationCode(w http.ResponseWriter, r *http.Request) {
-	// 1. Extract + basic validation of form params.
 	clientID := r.PostForm.Get("client_id")
 	clientSecret := r.PostForm.Get("client_secret")
 	code := r.PostForm.Get("code")
@@ -142,7 +130,6 @@ func (h *OIDCTokenHandler) handleAuthorizationCode(w http.ResponseWriter, r *htt
 		return
 	}
 
-	// 2. Rate-limit per client_id (spec §5e). Keyed in Valkey after body parse.
 	if allowed, err := h.rateLimitCheck(r.Context(), clientID); err != nil {
 		slog.Warn("token: rate limit check failed (allowing)", "error", err)
 	} else if !allowed {
@@ -150,7 +137,6 @@ func (h *OIDCTokenHandler) handleAuthorizationCode(w http.ResponseWriter, r *htt
 		return
 	}
 
-	// 3. Client authentication. Failure → 401 invalid_client + best-effort audit.
 	ok, err := h.clientStore.VerifySecret(r.Context(), h.pool, clientID, clientSecret)
 	if err != nil || !ok {
 		h.writeBestEffortAudit(r, store.AuditEntry{
@@ -166,12 +152,10 @@ func (h *OIDCTokenHandler) handleAuthorizationCode(w http.ResponseWriter, r *htt
 	}
 	client, err := h.clientStore.GetByID(r.Context(), h.pool, clientID)
 	if err != nil {
-		// Shouldn't happen — VerifySecret just succeeded. Defensive path.
 		writeTokenError(w, http.StatusUnauthorized, "invalid_client", "Client not found.")
 		return
 	}
 
-	// 4. Consume the authorization code atomically.
 	codeHash := sha256hex([]byte(code))
 	tx, err := h.pool.Begin(r.Context())
 	if err != nil {
@@ -182,7 +166,7 @@ func (h *OIDCTokenHandler) handleAuthorizationCode(w http.ResponseWriter, r *htt
 
 	row, consumeErr := h.codeStore.ConsumeOnce(r.Context(), tx, codeHash)
 	if errors.Is(consumeErr, store.ErrAuthCodeAlreadyUsed) {
-		// Roll back BEFORE taking the replay path — replay opens its own tx.
+		// Replay path opens its own tx — roll back the current one first.
 		_ = tx.Rollback(r.Context())
 		h.handleCodeReplay(r, w, codeHash)
 		return
@@ -193,29 +177,25 @@ func (h *OIDCTokenHandler) handleAuthorizationCode(w http.ResponseWriter, r *htt
 		return
 	}
 
-	// 5. Verify code ↔ client binding.
 	if row.ClientID != client.ID {
-		// Theft indicator: code was issued for a different client. Burn via ConsumeOnce, reject.
+		// Theft indicator — code was issued for a different client. Burned by ConsumeOnce above.
 		_ = tx.Commit(r.Context())
 		writeTokenError(w, http.StatusBadRequest, "invalid_grant", "Code / client mismatch.")
 		return
 	}
 
-	// 6. Verify redirect_uri matches the one stored on the code.
 	if row.RedirectURI != redirectURI {
 		_ = tx.Commit(r.Context())
 		writeTokenError(w, http.StatusBadRequest, "invalid_grant", "redirect_uri mismatch.")
 		return
 	}
 
-	// 7. Verify PKCE.
 	if !oidc.VerifyPKCE(row.CodeChallenge, codeVerifier) {
 		_ = tx.Commit(r.Context())
 		writeTokenError(w, http.StatusBadRequest, "invalid_grant", "PKCE verifier mismatch.")
 		return
 	}
 
-	// 8. Re-fetch user + status check.
 	user, err := h.userStore.GetByID(r.Context(), tx, row.UserID)
 	if err != nil {
 		_ = tx.Commit(r.Context())
@@ -223,7 +203,6 @@ func (h *OIDCTokenHandler) handleAuthorizationCode(w http.ResponseWriter, r *htt
 		return
 	}
 	if user.Status != "active" {
-		// Audit user_disabled inside the same tx as the burned code.
 		if auditErr := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
 			EventType:  "oidc.code.user_disabled",
 			ActorID:    &user.ID,
@@ -245,8 +224,8 @@ func (h *OIDCTokenHandler) handleAuthorizationCode(w http.ResponseWriter, r *htt
 		return
 	}
 
-	// 8.5 Sprint 5: re-validate grant type — admin may have removed
-	// authorization_code from allowed_grant_types via PATCH /api/clients/:id.
+	// Re-validate grant type — admin PATCH may have removed
+	// authorization_code from allowed_grant_types.
 	allowsAuthCode := false
 	for _, g := range client.AllowedGrantTypes {
 		if g == "authorization_code" {
@@ -260,9 +239,6 @@ func (h *OIDCTokenHandler) handleAuthorizationCode(w http.ResponseWriter, r *htt
 		return
 	}
 
-	// 8.6 Sprint 5: re-validate granted scopes against current client config. An
-	// admin PATCH between /authorize and /token exchange can narrow allowed_scopes;
-	// issue the AT with the intersection, or reject if empty.
 	narrowedCodeScopes, err := intersectScopesAgainstClient(row.Scopes, client.AllowedScopes)
 	if err != nil {
 		_ = tx.Commit(r.Context())
@@ -270,7 +246,6 @@ func (h *OIDCTokenHandler) handleAuthorizationCode(w http.ResponseWriter, r *htt
 		return
 	}
 
-	// 9. Load active signing key + decrypt private key.
 	activeKey, err := h.signingKeyStore.GetActive(r.Context(), tx)
 	if err != nil {
 		slog.Error("token: GetActive signing key", "error", err)
@@ -284,7 +259,6 @@ func (h *OIDCTokenHandler) handleAuthorizationCode(w http.ResponseWriter, r *htt
 		return
 	}
 
-	// 10. Build + sign access and ID tokens.
 	now := time.Now().UTC()
 	scopes := oidc.Scopes(narrowedCodeScopes)
 	jtiAccess := uuid.NewString()
@@ -296,10 +270,8 @@ func (h *OIDCTokenHandler) handleAuthorizationCode(w http.ResponseWriter, r *htt
 		return
 	}
 
-	// auth_time approximation: the code's ExpiresAt is "created_at + 60s", so
-	// ExpiresAt - 60s ≈ the moment the user authenticated and the code was
-	// minted at /authorize. Good enough for v1; a precise value would require
-	// reading the session at /authorize time and plumbing it through.
+	// auth_time approximation: code was minted 60s before ExpiresAt. Precise
+	// value requires plumbing session data from /authorize (not in v1).
 	authTime := row.ExpiresAt.Add(-authCodeTTL)
 	nonce := ""
 	if row.Nonce != nil {
@@ -314,7 +286,6 @@ func (h *OIDCTokenHandler) handleAuthorizationCode(w http.ResponseWriter, r *htt
 		return
 	}
 
-	// 11. Mint refresh token iff offline_access in scopes.
 	var refreshTokenStr string
 	if scopes.Has("offline_access") {
 		tok, err := h.refreshStore.Create(r.Context(), oidc.RefreshPayload{
@@ -333,7 +304,6 @@ func (h *OIDCTokenHandler) handleAuthorizationCode(w http.ResponseWriter, r *htt
 		refreshTokenStr = tok
 	}
 
-	// 12. Audit oidc.code.exchanged in the same tx as the code consume.
 	if err := h.auditStore.Log(r.Context(), tx, store.AuditEntry{
 		EventType:  "oidc.code.exchanged",
 		ActorID:    &user.ID,
@@ -362,7 +332,6 @@ func (h *OIDCTokenHandler) handleAuthorizationCode(w http.ResponseWriter, r *htt
 		return
 	}
 
-	// 13. Respond.
 	resp := tokenResponse{
 		AccessToken:  accessTok,
 		TokenType:    "Bearer",
@@ -375,18 +344,16 @@ func (h *OIDCTokenHandler) handleAuthorizationCode(w http.ResponseWriter, r *htt
 }
 
 // handleCodeReplay revokes the refresh-token family tied to the already-used
-// code and audits oidc.code.replay_detected. Per OAuth 2.1 §4.1.3.
+// code (OAuth 2.1 §4.1.3) and audits oidc.code.replay_detected.
 func (h *OIDCTokenHandler) handleCodeReplay(r *http.Request, w http.ResponseWriter, codeHash string) {
 	familyID, err := h.codeStore.LookupFamilyByCodeHash(r.Context(), h.pool, codeHash)
 	if err != nil {
-		// Can't look up family — code hash unknown entirely. Still return invalid_grant.
 		slog.Error("token: LookupFamilyByCodeHash on replay", "error", err)
 		writeTokenError(w, http.StatusBadRequest, "invalid_grant", "Code already used.")
 		return
 	}
 	if err := h.refreshStore.RevokeFamily(r.Context(), familyID.String()); err != nil {
 		slog.Error("token: RevokeFamily on replay", "error", err)
-		// Continue — we still want the audit row even if Valkey revoke failed.
 	}
 
 	tx, err := h.pool.Begin(r.Context())
@@ -411,8 +378,7 @@ func (h *OIDCTokenHandler) handleCodeReplay(r *http.Request, w http.ResponseWrit
 	writeTokenError(w, http.StatusBadRequest, "invalid_grant", "Code already used.")
 }
 
-// rateLimitCheck increments ratelimit:oidc:token:<client_id> in a fixed
-// 60-second window. Returns (true, nil) to proceed, (false, nil) if over cap.
+// rateLimitCheck: fixed 60-second window per client_id.
 func (h *OIDCTokenHandler) rateLimitCheck(ctx context.Context, clientID string) (bool, error) {
 	key := "ratelimit:oidc:token:" + clientID
 	count, err := h.valkey.Incr(ctx, key).Result()
@@ -420,14 +386,11 @@ func (h *OIDCTokenHandler) rateLimitCheck(ctx context.Context, clientID string) 
 		return true, err
 	}
 	if count == 1 {
-		// First request in this window — set TTL.
 		_ = h.valkey.Expire(ctx, key, time.Minute).Err()
 	}
 	return count <= h.tokenRateLimit, nil
 }
 
-// writeBestEffortAudit persists an audit row in its own tx. Failure is logged
-// but does not block the caller. Matches the pattern used by /authorize.
 func (h *OIDCTokenHandler) writeBestEffortAudit(r *http.Request, entry store.AuditEntry) {
 	tx, err := h.pool.Begin(r.Context())
 	if err != nil {
@@ -444,9 +407,10 @@ func (h *OIDCTokenHandler) writeBestEffortAudit(r *http.Request, entry store.Aud
 	}
 }
 
-// handleRefreshToken implements the refresh_token grant per OAuth 2.1 §6 +
-// spec §6c. Every successful rotation uses the same family_id and preserves
-// the absolute expiry from the original code exchange (spec §5f).
+// handleRefreshToken: OAuth 2.1 §6 rotate-on-every-use. Each rotation
+// shares the original family_id and preserves absolute expiry from the
+// initial code exchange — passing oldPayload.Expires means TTL = exp-now,
+// NOT now+24h.
 func (h *OIDCTokenHandler) handleRefreshToken(w http.ResponseWriter, r *http.Request) {
 	clientID := r.PostForm.Get("client_id")
 	clientSecret := r.PostForm.Get("client_secret")
@@ -461,7 +425,6 @@ func (h *OIDCTokenHandler) handleRefreshToken(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// 1. Rate-limit per client_id (same bucket as auth_code grant, spec §5e).
 	if allowed, err := h.rateLimitCheck(r.Context(), clientID); err != nil {
 		slog.Warn("token refresh: rate limit check failed (allowing)", "error", err)
 	} else if !allowed {
@@ -469,7 +432,6 @@ func (h *OIDCTokenHandler) handleRefreshToken(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// 2. Client authentication.
 	ok, err := h.clientStore.VerifySecret(r.Context(), h.pool, clientID, clientSecret)
 	if err != nil || !ok {
 		h.writeBestEffortAudit(r, store.AuditEntry{
@@ -489,17 +451,14 @@ func (h *OIDCTokenHandler) handleRefreshToken(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// 3. Consume presented refresh token. Dispatch on sentinel errors.
 	oldPayload, consumeErr := h.refreshStore.Consume(r.Context(), presentedRefresh)
 	if errors.Is(consumeErr, oidc.ErrRefreshUnknownOrExpired) {
-		// No family to revoke — we can't even identify the token.
 		writeTokenError(w, http.StatusBadRequest, "invalid_grant", "Refresh token invalid or expired.")
 		return
 	}
 	if errors.Is(consumeErr, oidc.ErrRefreshReuseDetected) {
 		// OAuth 2.1 §4.13: presented token was already rotated — revoke the
-		// entire family and audit the event (best-effort tx is acceptable; the
-		// Valkey revoke is the authoritative guard, not the audit row).
+		// entire family. Valkey revoke is the authoritative guard.
 		if oldPayload != nil {
 			if err := h.refreshStore.RevokeFamily(r.Context(), oldPayload.FamilyID); err != nil {
 				slog.Error("token refresh: RevokeFamily on reuse", "error", err)
@@ -524,14 +483,11 @@ func (h *OIDCTokenHandler) handleRefreshToken(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// 4. Verify client binding — the refresh payload must belong to the caller.
 	if oldPayload.ClientID != client.ID.String() {
 		writeTokenError(w, http.StatusBadRequest, "invalid_grant", "Refresh / client mismatch.")
 		return
 	}
 
-	// Sprint 5: re-validate grant type — admin may have removed refresh_token
-	// from allowed_grant_types via PATCH /api/clients/:id.
 	allowsRefresh := false
 	for _, g := range client.AllowedGrantTypes {
 		if g == "refresh_token" {
@@ -544,17 +500,12 @@ func (h *OIDCTokenHandler) handleRefreshToken(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// Sprint 5: re-validate granted scopes against current client config. An
-	// admin PATCH between refresh issuance and refresh use can narrow
-	// allowed_scopes; issue the new AT with the intersection, or reject if
-	// empty.
 	narrowedScopes, err := intersectScopesAgainstClient(oldPayload.Scopes, client.AllowedScopes)
 	if err != nil {
 		writeTokenError(w, http.StatusBadRequest, "invalid_scope", "requested scopes no longer allowed for this client")
 		return
 	}
 
-	// 5. Re-fetch user + status check.
 	userUUID, err := uuid.Parse(oldPayload.UserID)
 	if err != nil {
 		writeTokenError(w, http.StatusBadRequest, "invalid_grant", "Refresh payload malformed.")
@@ -584,11 +535,10 @@ func (h *OIDCTokenHandler) handleRefreshToken(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// 6-pre. revoke_before: reject if the refresh was issued before the user
-	// mutation cutoff (spec §5g). We anchor on the refresh's CreatedAt (not
-	// the access token's iat) because the refresh is what we're rotating; any
-	// access token derived from it inherits the same stale provenance. Fail-open
-	// on transport errors — a Valkey blip must not revoke all active sessions.
+	// revoke_before: reject if the refresh was issued before the cutoff.
+	// Anchored on the refresh's CreatedAt; access tokens derived from it
+	// inherit the same provenance. Fail-open on transport errors — a Valkey
+	// blip must not revoke all active sessions.
 	rbCutoff, rbErr := revokebefore.Get(r.Context(), h.valkey, user.ID.String())
 	if rbErr == nil && oldPayload.CreatedAt < rbCutoff.Unix() {
 		if rerr := h.refreshStore.RevokeFamily(r.Context(), oldPayload.FamilyID); rerr != nil {
@@ -616,7 +566,6 @@ func (h *OIDCTokenHandler) handleRefreshToken(w http.ResponseWriter, r *http.Req
 		slog.Warn("token refresh: revoke_before Get failed (allowing)", "error", rbErr)
 	}
 
-	// 6. Load active signing key.
 	activeKey, err := h.signingKeyStore.GetActive(r.Context(), h.pool)
 	if err != nil {
 		slog.Error("token refresh: GetActive", "error", err)
@@ -630,7 +579,6 @@ func (h *OIDCTokenHandler) handleRefreshToken(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// 7. Sign new access + id tokens.
 	now := time.Now().UTC()
 	scopes := oidc.Scopes(narrowedScopes)
 	jtiAccess := uuid.NewString()
@@ -642,8 +590,8 @@ func (h *OIDCTokenHandler) handleRefreshToken(w http.ResponseWriter, r *http.Req
 		writeTokenError(w, http.StatusInternalServerError, "server_error", "Signing failed.")
 		return
 	}
-	// auth_time is not re-derivable at refresh time; use the refresh's CreatedAt
-	// as a floor (it was set at code-exchange time).
+	// auth_time is not re-derivable at refresh time; use refresh's CreatedAt
+	// as a floor.
 	authTime := time.Unix(oldPayload.CreatedAt, 0).UTC()
 	idClaims := oidc.BuildIDClaims(user, client.ID.String(), h.publicURL, jtiID, "", scopes, authTime, now)
 	idTok, err := oidc.SignIDToken(idClaims, activeKey.ID.String(), privPEM)
@@ -653,41 +601,29 @@ func (h *OIDCTokenHandler) handleRefreshToken(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// 8. Mint rotated refresh. Same family_id; absolute expiry preserved from
-	//    original code exchange (spec §5f — Create takes an absolute unix timestamp
-	//    and computes TTL = exp - now, so passing oldPayload.Expires enforces the
-	//    24h ceiling without resetting it on each rotation).
 	newRefresh, err := h.refreshStore.Create(r.Context(), oidc.RefreshPayload{
 		UserID:    user.ID.String(),
 		ClientID:  client.ID.String(),
 		Scopes:    narrowedScopes,
 		FamilyID:  oldPayload.FamilyID,
 		CreatedAt: now.Unix(),
-		Expires:   oldPayload.Expires, // absolute, not now+24h
+		Expires:   oldPayload.Expires, // absolute; preserves 24h ceiling
 	})
 	if err != nil {
-		// Create returns an error when exp is already in the past. The old token
-		// is still consumable (used=false hasn't been flipped) so the RP gets a
-		// clear "expired" signal rather than losing their session silently.
 		slog.Warn("token refresh: Create rotated refresh failed", "error", err)
 		writeTokenError(w, http.StatusBadRequest, "invalid_grant", "Refresh token expired.")
 		return
 	}
 
-	// 9. MarkUsed the old token. Ordering rationale: Create runs first so the RP
-	//    always gets usable tokens even if MarkUsed fails (RP can still use the new
-	//    refresh). If MarkUsed fails and the RP re-presents the old token, Consume
-	//    returns used=false again — a duplicate rotation window exists, but the
-	//    family_id linkage means a future reuse attack on *either* copy still
-	//    triggers RevokeFamily. This is preferable to denying the user their tokens
-	//    by aborting the response on a MarkUsed failure.
+	// MarkUsed ordering: Create runs first so the RP always gets usable
+	// tokens even if MarkUsed fails. A duplicate rotation window exists if
+	// MarkUsed fails, but family_id linkage means a future reuse attack on
+	// either copy still triggers RevokeFamily. Preferable to aborting the
+	// response on a MarkUsed failure.
 	if err := h.refreshStore.MarkUsed(r.Context(), presentedRefresh); err != nil {
 		slog.Error("token refresh: MarkUsed old token", "error", err, "family_id", oldPayload.FamilyID) //nolint:gosec // G706: slog structured logging is not susceptible to log injection
-		// Continue — new tokens are already minted; MarkUsed failure is logged,
-		// not returned.
 	}
 
-	// 10. Audit oidc.token.refreshed inside a tx (state-change audit rule).
 	tx, err := h.pool.Begin(r.Context())
 	if err != nil {
 		slog.Error("token refresh: audit begin", "error", err)
@@ -721,7 +657,6 @@ func (h *OIDCTokenHandler) handleRefreshToken(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// 11. Respond with rotated tokens.
 	writeJSON(w, http.StatusOK, tokenResponse{
 		AccessToken:  accessTok,
 		TokenType:    "Bearer",
@@ -732,8 +667,6 @@ func (h *OIDCTokenHandler) handleRefreshToken(w http.ResponseWriter, r *http.Req
 	})
 }
 
-// uuidPtr parses s into a *uuid.UUID, returning nil on parse failure.
-// Used to populate optional ActorID fields from string payloads.
 func uuidPtr(s string) *uuid.UUID {
 	u, err := uuid.Parse(s)
 	if err != nil {
@@ -742,8 +675,7 @@ func uuidPtr(s string) *uuid.UUID {
 	return &u
 }
 
-// writeTokenError writes an RFC 6749 §5.2 error response. The caller must
-// have already set Cache-Control: no-store (Handle does this at entry).
+// writeTokenError writes an RFC 6749 §5.2 error response.
 func writeTokenError(w http.ResponseWriter, status int, oauthErr, description string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)

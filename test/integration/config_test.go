@@ -10,42 +10,42 @@ import (
 	"github.com/abdo75/Schlass/internal/store"
 )
 
-func TestConfigServiceNullHandling(t *testing.T) {
+func TestInstanceConfigNullHandling(t *testing.T) {
 	env := NewTestEnv(t)
 	ctx := context.Background()
 
 	configStore := store.NewConfigStore()
 	encKey := []byte("test-encryption-key-32-bytes!!!!")
-	configService := config.NewConfigService(configStore, encKey)
+	instanceConfig := config.NewInstanceConfig(configStore, encKey)
 
 	// smtp_password is seeded as JSON null — should return empty string, not error
-	val, err := configService.GetEncryptedValue(ctx, env.Pool, "smtp_password")
+	val, err := instanceConfig.EncryptedValue(ctx, env.Pool, "smtp_password")
 	if err != nil {
-		t.Fatalf("GetEncryptedValue for null value should not error: %v", err)
+		t.Fatalf("EncryptedValue for null value should not error: %v", err)
 	}
 	if val != "" {
 		t.Fatalf("expected empty string for null config value, got %q", val)
 	}
 }
 
-func TestConfigServiceEncryptionRoundTrip(t *testing.T) {
+func TestInstanceConfigEncryptionRoundTrip(t *testing.T) {
 	env := NewTestEnv(t)
 	ctx := context.Background()
 
 	configStore := store.NewConfigStore()
 	encKey := []byte("test-encryption-key-32-bytes!!!!")
-	configService := config.NewConfigService(configStore, encKey)
+	instanceConfig := config.NewInstanceConfig(configStore, encKey)
 
 	// Set an encrypted value
-	err := configService.SetEncryptedValue(ctx, env.Pool, "smtp_password", "my-secret-smtp-pass")
+	err := instanceConfig.SetEncryptedValue(ctx, env.Pool, "smtp_password", "my-secret-smtp-pass")
 	if err != nil {
 		t.Fatalf("SetEncryptedValue failed: %v", err)
 	}
 
 	// Read it back — should decrypt to the original
-	val, err := configService.GetEncryptedValue(ctx, env.Pool, "smtp_password")
+	val, err := instanceConfig.EncryptedValue(ctx, env.Pool, "smtp_password")
 	if err != nil {
-		t.Fatalf("GetEncryptedValue failed: %v", err)
+		t.Fatalf("EncryptedValue failed: %v", err)
 	}
 	if val != "my-secret-smtp-pass" {
 		t.Fatalf("expected 'my-secret-smtp-pass', got %q", val)
@@ -61,17 +61,17 @@ func TestConfigServiceEncryptionRoundTrip(t *testing.T) {
 	}
 }
 
-func TestConfigServicePasswordPolicy(t *testing.T) {
+func TestInstanceConfigPasswordPolicy(t *testing.T) {
 	env := NewTestEnv(t)
 	ctx := context.Background()
 
 	configStore := store.NewConfigStore()
 	encKey := []byte("test-encryption-key-32-bytes!!!!")
-	configService := config.NewConfigService(configStore, encKey)
+	instanceConfig := config.NewInstanceConfig(configStore, encKey)
 
-	policy, err := configService.GetPasswordPolicy(ctx, env.Pool)
+	policy, err := instanceConfig.PasswordPolicy(ctx, env.Pool)
 	if err != nil {
-		t.Fatalf("GetPasswordPolicy failed: %v", err)
+		t.Fatalf("PasswordPolicy failed: %v", err)
 	}
 
 	// Verify defaults from seed data

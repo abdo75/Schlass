@@ -12,12 +12,8 @@ import (
 	"github.com/abdo75/Schlass/internal/store"
 )
 
-// OIDCUserInfoHandler serves GET /userinfo. Behind middleware.BearerAuth,
-// so the user + parsed access-token claims are already in the request
-// context by the time Handle runs.
-//
-// Response shape: plain JSON (not a JWT). OIDC Core §5.3 allows either;
-// we choose JSON since no RP library we target requires signed userinfo.
+// OIDCUserInfoHandler serves GET /userinfo behind middleware.BearerAuth.
+// Response is plain JSON (not a JWT) — OIDC Core §5.3 allows either.
 type OIDCUserInfoHandler struct {
 	pool       *pgxpool.Pool
 	auditStore AuditLogger
@@ -30,7 +26,6 @@ func NewOIDCUserInfoHandler(pool *pgxpool.Pool, auditStore AuditLogger) *OIDCUse
 func (h *OIDCUserInfoHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	user, ok := middleware.CurrentUser(r.Context())
 	if !ok {
-		// Middleware wiring bug — BearerAuth should have gated this route.
 		slog.Error("userinfo: no user in context (middleware wiring bug)")
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 		return
@@ -45,10 +40,7 @@ func (h *OIDCUserInfoHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	scopes := oidc.Scopes(strings.Fields(claims.Scope))
 	body := oidc.BuildUserInfoClaims(user, scopes)
 
-	// Best-effort audit — high-volume event (every token-holding request).
-	// Never blocks the response on audit failure. Matches the documented
-	// exception pattern in CLAUDE.md / spec §K.
-	// Already logged inside writeBestEffortAudit on failure; swallow here.
+	// Best-effort audit — high-volume event, must not block the response.
 	_ = h.writeBestEffortAudit(r, store.AuditEntry{
 		EventType:  "oidc.userinfo.accessed",
 		ActorID:    &user.ID,
@@ -66,8 +58,6 @@ func (h *OIDCUserInfoHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, body)
 }
 
-// writeBestEffortAudit persists an audit row in its own tx. Failure is logged
-// but does not block the caller. Mirrors the pattern used by /token and /authorize.
 func (h *OIDCUserInfoHandler) writeBestEffortAudit(r *http.Request, entry store.AuditEntry) error {
 	tx, err := h.pool.Begin(r.Context())
 	if err != nil {

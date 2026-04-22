@@ -11,9 +11,6 @@ import (
 	"github.com/abdo75/Schlass/internal/store"
 )
 
-// OIDCDiscoveryHandler serves the two OIDC well-known endpoints:
-//   - GET /.well-known/openid-configuration  (discovery metadata)
-//   - GET /.well-known/jwks.json             (public signing keys)
 type OIDCDiscoveryHandler struct {
 	publicURL       string
 	pool            *pgxpool.Pool

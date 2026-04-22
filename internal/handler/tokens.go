@@ -6,9 +6,6 @@ import (
 	"fmt"
 )
 
-// generateRandomToken returns a base64url-encoded random string of n bytes.
-// Used for enrollment and challenge tokens — short-lived session-analogue
-// values that live only in Valkey.
 func generateRandomToken(n int) (string, error) {
 	b := make([]byte, n)
 	if _, err := rand.Read(b); err != nil {

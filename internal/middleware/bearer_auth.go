@@ -17,34 +17,22 @@ import (
 	"github.com/abdo75/Schlass/internal/store"
 )
 
-// bearerClaimsCtxKey stores the parsed access-token claims alongside the user.
-// Separate from userCtxKey so BearerAuth is self-contained and cannot be
-// confused with the opaque-session Auth middleware.
 type bearerClaimsCtxKey struct{}
 
-// bearerClockSkew is the tolerance applied to exp / nbf checks. ±30 seconds
-// matches spec §5h — accommodates modest NTP drift without weakening expiry
-// meaning.
+// ±30s tolerance on exp/nbf — spec §5h; accommodates NTP drift.
 const bearerClockSkew = 30 * time.Second
 
-// BearerAuthDeps is a small struct so BuildRouter can construct the middleware
-// with clearly-named dependencies.
 type BearerAuthDeps struct {
 	Pool            *pgxpool.Pool
 	UserStore       *store.UserStore
 	SigningKeyStore *store.SigningKeyStore
-	Valkey          *redis.Client // for revoke_before check (spec §5g)
-	Issuer          string        // SCHLASS_PUBLIC_URL with no trailing slash
+	Valkey          *redis.Client
+	Issuer          string
 }
 
-// BearerAuth validates a Bearer JWT against the published signing keys and
-// injects the authenticated user + parsed claims into the request context.
-// Used by /userinfo.
-//
-// On any failure, emits 401 with WWW-Authenticate: Bearer error=... per RFC
-// 6750 §3.1. Deliberately minimal in observability — /userinfo's best-effort
-// oidc.userinfo.accessed audit row is written by the handler, not here, so
-// this middleware can stay free of audit-store / tx concerns.
+// BearerAuth — 401 + WWW-Authenticate: Bearer per RFC 6750 §3.1 on any
+// failure. Best-effort oidc.userinfo.accessed audit is emitted by the
+// handler, not here, so this middleware stays free of audit/tx concerns.
 func BearerAuth(d BearerAuthDeps) func(http.Handler) http.Handler {
 	if d.SigningKeyStore == nil {
 		d.SigningKeyStore = store.NewSigningKeyStore()
@@ -57,8 +45,6 @@ func BearerAuth(d BearerAuthDeps) func(http.Handler) http.Handler {
 				return
 			}
 
-			// kid → public PEM resolver from the store. Called once per request
-			// and caches nothing (the publishable set is small; DB hit is cheap).
 			lookup := func(kid string) ([]byte, error) {
 				keys, err := d.SigningKeyStore.ListPublishable(r.Context(), d.Pool)
 				if err != nil {
@@ -78,7 +64,6 @@ func BearerAuth(d BearerAuthDeps) func(http.Handler) http.Handler {
 				return
 			}
 
-			// Policy validation (spec §5h).
 			now := time.Now().Unix()
 			if claims.Issuer != d.Issuer {
 				writeBearerError(w, http.StatusUnauthorized, "invalid_token", "issuer mismatch")
@@ -97,7 +82,6 @@ func BearerAuth(d BearerAuthDeps) func(http.Handler) http.Handler {
 				return
 			}
 
-			// User status check.
 			userID, err := uuid.Parse(claims.Subject)
 			if err != nil {
 				writeBearerError(w, http.StatusUnauthorized, "invalid_token", "subject not a UUID")
@@ -118,8 +102,7 @@ func BearerAuth(d BearerAuthDeps) func(http.Handler) http.Handler {
 				return
 			}
 
-			// revoke_before: reject access tokens issued before the user
-			// mutation cutoff (spec §5g). Fail-open on transport errors —
+			// revoke_before (spec §5g). Fail-open on transport errors —
 			// degraded Valkey must not log out all active users.
 			if d.Valkey != nil {
 				cutoff, rbErr := revokebefore.Get(r.Context(), d.Valkey, user.ID.String())
@@ -132,10 +115,9 @@ func BearerAuth(d BearerAuthDeps) func(http.Handler) http.Handler {
 				}
 			}
 
-			// Per-client revoke_before: DELETE /api/clients/:id writes this so
-			// outstanding ATs for a deleted client die immediately. Parallel
-			// to the user cutoff above. Fail-open on transport errors — matches
-			// the user-cutoff policy.
+			// Per-client revoke_before — DELETE /api/clients/:id writes this
+			// so outstanding ATs for a deleted client die immediately.
+			// Fail-open policy matches user cutoff.
 			if d.Valkey != nil && claims.Audience != "" {
 				clientCutoff, cbErr := revokebefore.ClientGet(r.Context(), d.Valkey, claims.Audience)
 				if cbErr == nil && claims.IssuedAt < clientCutoff.Unix() {
@@ -154,16 +136,11 @@ func BearerAuth(d BearerAuthDeps) func(http.Handler) http.Handler {
 	}
 }
 
-// CurrentBearerClaims returns the parsed access-token claims from the request
-// context. Returns (nil, false) if the request did not pass through
-// BearerAuth. /userinfo uses this to know which scopes to emit.
 func CurrentBearerClaims(ctx context.Context) (*oidc.AccessTokenClaims, bool) {
 	c, ok := ctx.Value(bearerClaimsCtxKey{}).(*oidc.AccessTokenClaims)
 	return c, ok
 }
 
-// extractBearerToken parses an "Authorization: Bearer ..." header. Returns the
-// raw token or empty string if absent/malformed. Case-insensitive on the scheme.
 func extractBearerToken(header string) string {
 	if header == "" {
 		return ""
@@ -175,10 +152,8 @@ func extractBearerToken(header string) string {
 	return strings.TrimSpace(parts[1])
 }
 
-// writeBearerError responds with an OAuth 2.0 bearer error per RFC 6750 §3.1.
+// writeBearerError — RFC 6750 §3.1. description must not contain quotes or backslashes.
 func writeBearerError(w http.ResponseWriter, status int, oauthErr, description string) {
-	// Build the WWW-Authenticate challenge. Quote the fields as the spec
-	// requires; description may not contain quotes or backslashes.
 	w.Header().Set("WWW-Authenticate", fmt.Sprintf(`Bearer error=%q, error_description=%q`, oauthErr, description))
 	writeAuthError(w, status, strings.ToUpper(oauthErr), description)
 }

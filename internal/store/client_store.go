@@ -13,7 +13,6 @@ import (
 	"github.com/abdo75/Schlass/internal/database"
 )
 
-// Client mirrors the clients row, including the Sprint 5 metadata columns.
 type Client struct {
 	ID                      uuid.UUID
 	Name                    string
@@ -32,12 +31,10 @@ type Client struct {
 	UpdatedAt               time.Time
 }
 
-// ErrClientNotFound is returned by GetByID on unknown OR disabled clients —
-// disabled clients must be indistinguishable from unknown ones to callers
-// (enumeration defense).
+// ErrClientNotFound collapses unknown + disabled — disabled clients must be
+// indistinguishable from unknown ones at GetByID (enumeration defense).
 var ErrClientNotFound = errors.New("client: not found")
 
-// ClientStore holds no state; it is a method namespace for client SQL operations.
 type ClientStore struct{}
 
 func NewClientStore() *ClientStore { return &ClientStore{} }
@@ -58,9 +55,8 @@ func scanClient(row pgx.Row) (*Client, error) {
 	return &c, err
 }
 
-// GetByID — OIDC-safe: active clients only. Used by /authorize and /token.
-// Returns ErrClientNotFound for disabled, unknown, or malformed-UUID inputs
-// (enumeration defense).
+// GetByID: active clients only (used by /authorize and /token). Disabled +
+// unknown + bad-UUID all collapse to ErrClientNotFound.
 func (s *ClientStore) GetByID(ctx context.Context, q database.Querier, id string) (*Client, error) {
 	uid, err := uuid.Parse(id)
 	if err != nil {
@@ -77,8 +73,7 @@ func (s *ClientStore) GetByID(ctx context.Context, q database.Querier, id string
 	return c, nil
 }
 
-// GetByIDAny — admin: returns client regardless of status. Used by the admin
-// /api/clients/:id endpoint which must surface disabled clients.
+// GetByIDAny: admin path — returns client regardless of status.
 func (s *ClientStore) GetByIDAny(ctx context.Context, q database.Querier, id string) (*Client, error) {
 	uid, err := uuid.Parse(id)
 	if err != nil {
@@ -95,8 +90,8 @@ func (s *ClientStore) GetByIDAny(ctx context.Context, q database.Querier, id str
 	return c, nil
 }
 
-// GetByIDForUpdate — admin: returns client under a row lock. Serializes
-// concurrent PATCHes on the same client. Must be called inside a tx.
+// GetByIDForUpdate serializes concurrent PATCHes on the same client.
+// Must be called inside a tx.
 func (s *ClientStore) GetByIDForUpdate(ctx context.Context, q database.Querier, id string) (*Client, error) {
 	uid, err := uuid.Parse(id)
 	if err != nil {
@@ -113,13 +108,11 @@ func (s *ClientStore) GetByIDForUpdate(ctx context.Context, q database.Querier, 
 	return c, nil
 }
 
-// VerifySecret returns true if the plaintext matches the current secret OR
-// the previous secret while the overlap window is still open. The ~30ms
-// Argon2id cost difference between current-match (1 op) and previous-match
-// (2 ops) is an accepted timing side-channel — consistent with the Sprint 2
-// enumeration-timing precedent documented in CLAUDE.md. The only information
-// leaked is "rotation happened recently", which the attacker already infers
-// from possessing the old secret.
+// VerifySecret tries current, then previous (if overlap window open). The
+// ~30ms Argon2id cost difference between current-match and previous-match
+// is accepted as timing side-channel — consistent with Sprint 2 enumeration
+// precedent. Only info leaked is "rotation happened recently", which the
+// attacker infers from possessing the old secret anyway.
 func (s *ClientStore) VerifySecret(ctx context.Context, q database.Querier, id, secret string) (bool, error) {
 	c, err := s.GetByID(ctx, q, id)
 	if err != nil {
@@ -146,8 +139,7 @@ func (s *ClientStore) VerifySecret(ctx context.Context, q database.Querier, id, 
 	return false, nil
 }
 
-// List returns clients filtered by status. status must be one of
-// "active", "disabled", "all". Ordered by created_at DESC.
+// List — status: "active" | "disabled" | "all". Ordered by created_at DESC.
 func (s *ClientStore) List(ctx context.Context, q database.Querier, status string) ([]*Client, error) {
 	var rows pgx.Rows
 	var err error
@@ -178,8 +170,8 @@ func (s *ClientStore) List(ctx context.Context, q database.Querier, status strin
 	return out, rows.Err()
 }
 
-// ValidateRedirectURI — exact-string match, case-sensitive, scheme-sensitive,
-// no wildcards.
+// ValidateRedirectURI: exact-string match, case- and scheme-sensitive, no
+// wildcards.
 func (s *ClientStore) ValidateRedirectURI(c *Client, presented string) bool {
 	for _, r := range c.RedirectURIs {
 		if r == presented {
@@ -189,8 +181,7 @@ func (s *ClientStore) ValidateRedirectURI(c *Client, presented string) bool {
 	return false
 }
 
-// CreateClientParams is the insert payload. SecretHash must be an Argon2id
-// hash; the caller is responsible for hashing before calling.
+// CreateClientParams.SecretHash must already be Argon2id-hashed.
 type CreateClientParams struct {
 	Name                    string
 	ClientType              string
@@ -202,7 +193,6 @@ type CreateClientParams struct {
 	CreatedByUserID         *uuid.UUID
 }
 
-// Create inserts a new client row and returns the full record.
 func (s *ClientStore) Create(ctx context.Context, q database.Querier, p CreateClientParams) (*Client, error) {
 	row := q.QueryRow(ctx, `
 		INSERT INTO clients (
@@ -223,7 +213,7 @@ func (s *ClientStore) Create(ctx context.Context, q database.Querier, p CreateCl
 	return c, nil
 }
 
-// UpdateClientPatch is a partial patch. Nil fields are not updated.
+// UpdateClientPatch — nil fields not updated.
 type UpdateClientPatch struct {
 	Name              *string
 	RedirectURIs      *[]string
@@ -231,14 +221,13 @@ type UpdateClientPatch struct {
 	AllowedGrantTypes *[]string
 }
 
-// UpdateFields applies the patch and returns the updated client. Only non-nil
-// fields in the patch are written. updated_at is bumped on every call.
+// UpdateFields — COALESCE keeps SQL flat; nil args = no change.
+// updated_at bumped on every call.
 func (s *ClientStore) UpdateFields(ctx context.Context, q database.Querier, id string, p UpdateClientPatch) (*Client, error) {
 	uid, err := uuid.Parse(id)
 	if err != nil {
 		return nil, ErrClientNotFound
 	}
-	// COALESCE keeps the SQL flat — nil args mean "no change".
 	row := q.QueryRow(ctx, `
 		UPDATE clients SET
 			name                = COALESCE($2, name),
@@ -260,9 +249,8 @@ func (s *ClientStore) UpdateFields(ctx context.Context, q database.Querier, id s
 	return c, nil
 }
 
-// RotateSecret moves the current secret_hash into the previous slot with a
-// TTL, and writes newHash as the current secret. Any existing previous secret
-// is discarded.
+// RotateSecret: current → previous slot with TTL, newHash → current. Any
+// existing previous is discarded.
 func (s *ClientStore) RotateSecret(ctx context.Context, q database.Querier, id, newHash string, overlapTTL time.Duration) (*Client, error) {
 	uid, err := uuid.Parse(id)
 	if err != nil {
@@ -289,8 +277,7 @@ func (s *ClientStore) RotateSecret(ctx context.Context, q database.Querier, id, 
 	return c, nil
 }
 
-// Disable sets the client status to 'disabled' and stamps disabled_at.
-// Returns ErrClientNotFound if the client does not exist or is already disabled.
+// Disable: ErrClientNotFound if unknown or already disabled.
 func (s *ClientStore) Disable(ctx context.Context, q database.Querier, id string) error {
 	uid, err := uuid.Parse(id)
 	if err != nil {
@@ -310,8 +297,7 @@ func (s *ClientStore) Disable(ctx context.Context, q database.Querier, id string
 	return nil
 }
 
-// Enable clears the disabled state and restores the client to 'active'.
-// Returns ErrClientNotFound if the client does not exist or is already active.
+// Enable: ErrClientNotFound if unknown or already active.
 func (s *ClientStore) Enable(ctx context.Context, q database.Querier, id string) error {
 	uid, err := uuid.Parse(id)
 	if err != nil {
@@ -331,10 +317,8 @@ func (s *ClientStore) Enable(ctx context.Context, q database.Querier, id string)
 	return nil
 }
 
-// Delete hard-removes the client row. Authorization codes for this client
-// are cascaded via the FK in migration 000017. Valkey refresh tokens for
-// this client should be revoked post-commit by the caller via
-// revokebefore.ClientSetNow.
+// Delete hard-removes. Auth codes cascade via FK (migration 000017).
+// Caller post-commits revokebefore.ClientSetNow for outstanding refresh tokens.
 func (s *ClientStore) Delete(ctx context.Context, q database.Querier, id string) error {
 	uid, err := uuid.Parse(id)
 	if err != nil {

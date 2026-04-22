@@ -22,8 +22,10 @@ import (
 )
 
 func main() {
+	// Send all logs to stdout as JSON
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 
+	// Load env vars
 	cfg, err := config.Load()
 	if err != nil {
 		slog.Error("failed to load config", "error", err)
@@ -32,12 +34,14 @@ func main() {
 
 	ctx := context.Background()
 
+	// Apply any pending schema changes.
 	slog.Info("running database migrations")
 	if err := database.RunMigrations(cfg.MigrationsDatabaseURL); err != nil {
 		slog.Error("migrations failed", "error", err)
 		os.Exit(1)
 	}
 
+	// Open a pool of reusable connections to the DB.
 	pool, err := database.NewPool(ctx, cfg.DatabaseURL)
 	if err != nil {
 		slog.Error("failed to connect to database", "error", err)
@@ -45,6 +49,7 @@ func main() {
 	}
 	defer pool.Close()
 
+	// Connect to Valkey (in-memory store)
 	valkeyClient, err := valkey.NewClient(ctx, cfg.ValkeyURL)
 	if err != nil {
 		slog.Error("failed to connect to Valkey", "error", err)
@@ -52,54 +57,55 @@ func main() {
 	}
 	defer func() { _ = valkeyClient.Close() }() // error on Close is non-actionable during shutdown
 
+	// Build the store objects that handlers use to read and write each table.
 	configStore := store.NewConfigStore()
 	userStore := store.NewUserStore()
 	auditStore := store.NewAuditStore()
 	recoveryCodeStore := store.NewRecoveryCodeStore()
-	configService := config.NewConfigService(configStore, cfg.EncryptionKey)
+	instanceConfig := config.NewInstanceConfig(configStore, cfg.EncryptionKey)
 
+	// Make sure a signing key exists so we can issue OIDC tokens. Generates one on first boot.
 	slog.Info("bootstrapping signing key")
 	if err := oidc.BootstrapSigningKey(ctx, pool, auditStore, cfg.EncryptionKey); err != nil {
 		slog.Error("signing-key bootstrap failed", "error", err)
 		os.Exit(1)
 	}
 
+	// Clean up old signing keys that are past their grace window.
 	retireCutoff := time.Now().Add(-(15*time.Minute + 24*time.Hour + 30*time.Second))
 	if err := oidc.RetireSweep(ctx, pool, auditStore, retireCutoff); err != nil {
 		slog.Warn("signing-key retire sweep failed", "error", err)
 		// Non-fatal — orphan retiring keys just stay listed.
 	}
 
-	// Developer-mode OIDC client seeding. No-op unless SCHLASS_DEV=1 AND
-	// SCHLASS_PUBLIC_URL is http. Idempotent against the seed-client name.
+	// Create a test OIDC client when running in dev mode. Skipped in prod.
 	if err := bootstrap.SeedDevClient(ctx, pool, os.Getenv("SCHLASS_DEV"), os.Getenv("SCHLASS_DEV_SECRET"), cfg.SchlassPublicURL); err != nil {
 		slog.Error("dev-seed failed", "error", err)
 		os.Exit(1)
 	}
 
+	// Parse the public URL once so handlers can reuse it.
 	publicURL, err := url.Parse(cfg.SchlassPublicURL)
 	if err != nil {
 		slog.Error("failed to parse SCHLASS_PUBLIC_URL", "error", err)
 		os.Exit(1)
 	}
 
+	// Wire up the admin endpoints that manage OIDC clients (create, rotate secret, delete, etc).
 	clientStore := store.NewClientStore()
 	clientsHandler := handler.NewClientsHandler(pool, valkeyClient, clientStore, auditStore, publicURL)
 
-	// Construct the HIBP breach-corpus checker when the feature is enabled.
-	// nil is the safe default — every handler treats nil as "check disabled".
+	// Optional: set up the "have I been pwned" check that blocks known breached passwords.
+	// Left as nil if the feature is turned off.
 	var hibpChecker *crypto.HIBPChecker
 	if cfg.HIBPEnabled {
-		hibpTimeout := time.Duration(cfg.HIBPTimeoutMS) * time.Millisecond
-		if hibpTimeout == 0 {
-			hibpTimeout = 1500 * time.Millisecond
-		}
 		hibpChecker = &crypto.HIBPChecker{
 			Endpoint:   cfg.HIBPEndpoint,
-			HTTPClient: &http.Client{Timeout: hibpTimeout},
+			HTTPClient: &http.Client{Timeout: time.Duration(cfg.HIBPTimeoutMS) * time.Millisecond},
 		}
 	}
 
+	// Build the router: every URL the app responds to, wired to its handler.
 	h, err := server.BuildRouter(server.RouterDeps{
 		Cfg:                   cfg,
 		Pool:                  pool,
@@ -108,12 +114,13 @@ func main() {
 		UserStore:             userStore,
 		RecoveryCodeStore:     recoveryCodeStore,
 		AuditStore:            auditStore,
-		ConfigService:         configService,
+		InstanceConfig:        instanceConfig,
 		LoginRateLimit:         cfg.LoginRateLimit,
 		MfaChallengeRateLimit:  cfg.MfaChallengeRateLimit,
 		PasswordResetRateLimit: cfg.PasswordResetRateLimit,
 		AuthorizeRateLimit:     cfg.AuthorizeRateLimit,
 		UserinfoRateLimit:      cfg.UserinfoRateLimit,
+		TokenRateLimit:         cfg.TokenRateLimit,
 		ClientsHandler:         clientsHandler,
 		HIBPChecker:            hibpChecker,
 	})
@@ -122,6 +129,7 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Configure the HTTP server: port to listen on, and how long a single request is allowed to take.
 	httpServer := &http.Server{
 		Addr:         ":" + cfg.Port,
 		Handler:      h,
@@ -130,12 +138,14 @@ func main() {
 		IdleTimeout:  60 * time.Second,
 	}
 
+	// Start the server in the background so we can keep listening for shutdown signals down below.
 	errChan := make(chan error, 1)
 	go func() {
 		slog.Info("server starting", "port", cfg.Port)
 		errChan <- httpServer.ListenAndServe()
 	}()
 
+	// Block here until either the OS asks us to stop (Ctrl-C, docker stop) or the server itself crashes.
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
@@ -146,6 +156,7 @@ func main() {
 		slog.Error("server error", "error", err)
 	}
 
+	// Stop accepting new requests and give in-flight ones up to 30s to finish before forcing exit.
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 

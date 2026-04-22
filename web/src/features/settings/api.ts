@@ -26,7 +26,7 @@ export interface EmailSettings {
   smtp_from: string;
 }
 
-export interface SettingsSnapshot {
+export interface Settings {
   general: GeneralSettings;
   security: SecuritySettings;
   tokens: TokenSettings;
@@ -34,7 +34,7 @@ export interface SettingsSnapshot {
 }
 
 export function getSettings() {
-  return apiFetch<SettingsSnapshot>("/api/settings");
+  return apiFetch<Settings>("/api/settings");
 }
 
 export function patchGeneral(body: Partial<GeneralSettings>) {

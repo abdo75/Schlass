@@ -5,7 +5,7 @@ Each entry names a control, what it defends, and the file(s) implementing it. Pa
 ## Cryptography
 
 - **Password hashing (Argon2id)** — Argon2id at 19 MiB, 2 iterations, parallelism 1, with per-password random salt and PHC-encoded output. Defends against offline cracking of stolen hashes. `internal/crypto/password.go`
-- **Encryption at rest for sensitive config** — AES-256-GCM with a 32-byte key from `SCHLASS_ENCRYPTION_KEY`, used for `smtp_password` and per-user `totp_secret_encrypted` columns. Defends against database-dump disclosure of secrets. `internal/crypto/encryption.go`, `internal/config/config_service.go`
+- **Encryption at rest for sensitive config** — AES-256-GCM with a 32-byte key from `SCHLASS_ENCRYPTION_KEY`, used for `smtp_password` and per-user `totp_secret_encrypted` columns. Defends against database-dump disclosure of secrets. `internal/crypto/encryption.go`, `internal/config/instance_config.go`
 - **TOTP secret generation** — 160-bit secret (20 random bytes from `crypto/rand`), base32-encoded without padding per RFC 6238. Algorithm: SHA1, 6 digits, 30-second period. Stored AES-256-GCM encrypted in `users.totp_secret_encrypted`; decrypted only at challenge time. `internal/crypto/totp.go`
 - **Recovery code generation** — 10 single-use codes per enrollment, format `XXXX-XXXX` from a 57-character base58-minus-ambiguous alphabet (~46 bits per code). Hashed with Argon2id (same policy as passwords); plaintext returned once and never stored. `internal/crypto/recovery_codes.go`
 
@@ -76,5 +76,5 @@ Admins never type passwords when creating or resetting users. The server generat
 
 ## Defaults
 
-- **MFA required by default** — new instances ship with `mfa_required = true` in `instance_config`. `internal/config/config_service.go`
+- **MFA required by default** — new instances ship with `mfa_required = true` in `instance_config`. `internal/config/instance_config.go`
 - **Password policy** — minimum 12 characters, at least one uppercase letter, at least one digit, enforced on every password write path. `internal/model/validation.go`

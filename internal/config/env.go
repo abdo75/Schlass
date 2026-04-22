@@ -11,53 +11,59 @@ import (
 	"github.com/joho/godotenv"
 )
 
-type Config struct {
-	DatabaseURL           string
-	MigrationsDatabaseURL string
-	ValkeyURL             string
-	EncryptionKey         []byte
-	Port                  string
-	SchlassPublicURL      string
-	// LoginRateLimit overrides the per-IP /api/login cap per minute. Zero
-	// means "use the secure default" (5/min). Intended for E2E test runs
-	// that need to burst past the default without disabling the limiter.
-	LoginRateLimit int64
-	// MfaChallengeRateLimit overrides the per-IP /api/mfa/challenge cap per
-	// minute. Zero means "use the secure default" (5/min). Intended for E2E
-	// test runs that need to burst past the default.
-	MfaChallengeRateLimit int64
-	// PasswordResetRateLimit overrides per-IP /api/password-reset/request
-	// cap per minute. Zero = 5/min default.
+// Override via the matching SCHLASS_* env var.
+const (
+	defaultPort             = "3000"
+	defaultSchlassPublicURL = "http://localhost:3000"
+	defaultHIBPEnabled      = true
+	defaultHIBPEndpoint     = "https://api.pwnedpasswords.com/range"
+	defaultHIBPTimeoutMS    = 1500
+)
+
+// Rate-limit defaults (per IP per minute).
+// int64 so they drop into the struct literal without a cast.
+const (
+	defaultLoginRateLimit         int64 = 5
+	defaultMfaChallengeRateLimit  int64 = 5
+	defaultPasswordResetRateLimit int64 = 5
+	defaultAuthorizeRateLimit     int64 = 60
+	defaultUserinfoRateLimit      int64 = 60
+	defaultTokenRateLimit         int64 = 60 // per client_id per minute
+)
+
+type Env struct {
+	DatabaseURL            string
+	MigrationsDatabaseURL  string
+	ValkeyURL              string
+	EncryptionKey          []byte
+	Port                   string
+	SchlassPublicURL       string
+	LoginRateLimit         int64
+	MfaChallengeRateLimit  int64
 	PasswordResetRateLimit int64
-	// AuthorizeRateLimit overrides the per-IP GET /authorize cap per minute.
-	// Zero means "use the secure default" (60/min). Intended for E2E test
-	// runs that need to burst past the default.
-	AuthorizeRateLimit int64
-	// UserinfoRateLimit overrides the per-IP GET /userinfo cap per minute.
-	// Zero means "use the secure default" (60/min). Intended for E2E test
-	// runs that need to burst past the default.
-	UserinfoRateLimit int64
-	// HIBPEnabled toggles the Have I Been Pwned breach-corpus check on
-	// user-supplied passwords (setup, change-password, self-reset). Zero
-	// / unset = true (on by default). Set SCHLASS_HIBP_ENABLED=false to
-	// disable — intended for offline dev + integration tests.
-	HIBPEnabled bool
-	// HIBPEndpoint overrides the range-API base URL. Empty = production
-	// https://api.pwnedpasswords.com/range. Tests set this to a httptest
-	// server URL so they don't touch the real HIBP service.
-	HIBPEndpoint string
-	// HIBPTimeoutMS bounds the per-request HIBP HTTP call. Zero = 1500ms
-	// (crypto.HIBPChecker default). Integration tests may lower it to
-	// keep the suite fast when the stub is explicitly slow.
-	HIBPTimeoutMS int
+	AuthorizeRateLimit     int64
+	UserinfoRateLimit      int64
+	TokenRateLimit         int64
+	HIBPEnabled            bool
+	HIBPEndpoint           string
+	HIBPTimeoutMS          int
 }
 
-func Load() (*Config, error) {
-	_ = godotenv.Load() // .env file is optional; ignore if not present
+func Load() (*Env, error) {
+	_ = godotenv.Load() // Loads .env file if present
 
-	cfg := &Config{
-		Port:             "3000",
-		SchlassPublicURL: "http://localhost:3000",
+	cfg := &Env{
+		Port:                   defaultPort,
+		SchlassPublicURL:       defaultSchlassPublicURL,
+		LoginRateLimit:         defaultLoginRateLimit,
+		MfaChallengeRateLimit:  defaultMfaChallengeRateLimit,
+		PasswordResetRateLimit: defaultPasswordResetRateLimit,
+		AuthorizeRateLimit:     defaultAuthorizeRateLimit,
+		UserinfoRateLimit:      defaultUserinfoRateLimit,
+		TokenRateLimit:         defaultTokenRateLimit,
+		HIBPEnabled:            defaultHIBPEnabled,
+		HIBPEndpoint:           defaultHIBPEndpoint,
+		HIBPTimeoutMS:          defaultHIBPTimeoutMS,
 	}
 
 	var missing []string
@@ -153,7 +159,14 @@ func Load() (*Config, error) {
 		cfg.UserinfoRateLimit = parsed
 	}
 
-	cfg.HIBPEnabled = true
+	if raw := os.Getenv("SCHLASS_TOKEN_RATE_LIMIT"); raw != "" {
+		parsed, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || parsed < 0 {
+			return nil, fmt.Errorf("SCHLASS_TOKEN_RATE_LIMIT must be a non-negative integer, got %q", raw)
+		}
+		cfg.TokenRateLimit = parsed
+	}
+
 	if raw := os.Getenv("SCHLASS_HIBP_ENABLED"); raw != "" {
 		switch strings.ToLower(strings.TrimSpace(raw)) {
 		case "false", "0", "off", "no":

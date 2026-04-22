@@ -17,15 +17,9 @@ var loopbackHosts = map[string]struct{}{
 }
 
 // ValidateRedirectURIInput enforces scheme + no-fragment + no-wildcard +
-// length + loopback-exception rules. Used by client create + update handlers.
-//
-// Rules (all fail-closed):
-//   - len ≤ 2048
-//   - url.Parse succeeds
-//   - no whitespace, no control chars
-//   - no fragment (#...)
-//   - no wildcard characters (* in host or path)
-//   - scheme = https, OR scheme = http AND host ∈ loopback set
+// length + loopback-exception rules. All rules fail closed: len ≤ 2048,
+// url.Parse succeeds, no whitespace, no fragment, no wildcard chars, and
+// scheme = https OR scheme = http AND host ∈ loopback set.
 func ValidateRedirectURIInput(raw string) error {
 	if raw == "" {
 		return fmt.Errorf("redirect uri cannot be empty")

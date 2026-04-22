@@ -18,11 +18,10 @@ type RateLimiter struct {
 	prefix string
 	limit  int64
 	window time.Duration
-	// FailClosed toggles behavior on Valkey error. false (default)
-	// passes the request through, preserving availability under a
-	// Valkey blip. true responds 503 — appropriate for security-
-	// critical routes (login, MFA challenge, password-reset) where
-	// an outage must not remove the brute-force guard.
+	// FailClosed=true → 503 on Valkey error. Appropriate for security-
+	// critical routes (login, MFA challenge, password-reset) where an
+	// outage must not remove the brute-force guard. Default false passes
+	// the request through to preserve availability.
 	FailClosed bool
 }
 

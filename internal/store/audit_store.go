@@ -30,11 +30,10 @@ func NewAuditStore() *AuditStore {
 }
 
 func (s *AuditStore) Log(ctx context.Context, q database.Querier, entry AuditEntry) error {
-	// Merge the request correlation ID into metadata so audit rows can be
-	// joined against the structured access log by correlation_id. The value
-	// is populated by middleware.RequestLogging; in contexts that bypass
-	// that middleware (CLI tools, tests that fabricate a context), the ID is
-	// empty and we omit the key rather than write a misleading "".
+	// Merge correlation_id from request context so audit rows can be joined
+	// against the access log. Empty in contexts that bypass RequestLogging
+	// (CLI tools, fabricated test contexts) — omit the key rather than
+	// write a misleading empty string.
 	metadata := entry.Metadata
 	if cid := requestcontext.CorrelationID(ctx); cid != "" {
 		merged := make(map[string]any, len(metadata)+1)
@@ -54,8 +53,8 @@ func (s *AuditStore) Log(ctx context.Context, q database.Querier, entry AuditEnt
 		}
 	}
 
-	// ip_address is INET (nullable). Pass nil when empty so pgx does not
-	// attempt to cast "" to inet, which Postgres rejects with 22P02.
+	// ip_address is INET + nullable — pass nil when empty; pgx would
+	// otherwise cast "" to inet and Postgres rejects with 22P02.
 	var ipAddress *string
 	if entry.IPAddress != "" {
 		ipAddress = &entry.IPAddress
@@ -80,12 +79,10 @@ func (s *AuditStore) Log(ctx context.Context, q database.Querier, entry AuditEnt
 	return nil
 }
 
-// PseudonymizeUser replaces actor_email with 'deleted:<uuid>' on every
-// audit_logs row where actor_id = userID. Dispatches to the SECURITY
-// DEFINER function created in migration 000018; schlass_app has no direct
-// UPDATE on audit_logs, only EXECUTE on this function. Returns rows
-// affected. Called inside the DELETE /api/users/:id tx as the GDPR
-// Art. 17(3)(b) compliance path. See CLAUDE.md Audit Log Tamper Protection.
+// PseudonymizeUser dispatches to the audit_log_pseudonymize_user
+// SECURITY DEFINER function (migration 000018) — the single sanctioned
+// mutation on audit_logs. schlass_app has no direct UPDATE on the table,
+// only EXECUTE on this function. GDPR Art. 17(3)(b) compliance path.
 func (s *AuditStore) PseudonymizeUser(ctx context.Context, q database.Querier, userID uuid.UUID) (int, error) {
 	var rows int
 	if err := q.QueryRow(ctx, `SELECT audit_log_pseudonymize_user($1)`, userID).Scan(&rows); err != nil {

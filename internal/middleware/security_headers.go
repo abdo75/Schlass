@@ -5,13 +5,8 @@ import (
 	"strings"
 )
 
-// resetPaths is the allowlist of paths that must set the stricter
-// Referrer-Policy: no-referrer. Reset tokens travel in the URL path
-// on GET /reset-password/:token (SPA route) and in POST bodies on the
-// /api/password-reset/* endpoints; in both cases a Referer leak would
-// expose the token. The SPA /forgot-password is included for
-// consistency (POST-over-fetch today, but a staged phishing page
-// linking from the form would still leak the referer).
+// resetPaths carry reset tokens (in path for SPA, in POST body for API).
+// Stricter Referrer-Policy prevents leaking tokens via Referer header.
 var resetPaths = []string{
 	"/reset-password/",
 	"/forgot-password",

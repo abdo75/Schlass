@@ -1,9 +1,3 @@
-// Package mail is Schlass's SMTP sender. Loads config from instance_config
-// via ConfigService on construction; templates are embedded via go:embed.
-//
-// Used by:
-//   - POST /api/settings/email/test (TestConnection)
-//   - Sprint 6b M6 password-reset handler (SendPasswordReset — added in M6)
 package mail
 
 import (
@@ -27,8 +21,6 @@ import (
 //go:embed templates/*.tmpl
 var templatesFS embed.FS
 
-// ErrSMTPConfigIncomplete indicates required SMTP fields (host/port/from)
-// are unset. Handler translates to HTTP 400 SMTP_CONFIG_INCOMPLETE.
 var ErrSMTPConfigIncomplete = errors.New("smtp config incomplete")
 
 type Sender struct {
@@ -41,18 +33,15 @@ type Sender struct {
 	textTpl  *texttemplate.Template
 }
 
-// NewSenderFromConfig builds a Sender using the saved SMTP config.
-// Returns ErrSMTPConfigIncomplete if required fields (host/port/from) are
-// unset.
-func NewSenderFromConfig(ctx context.Context, cfg *config.ConfigService, q database.Querier) (*Sender, error) {
-	snap, err := cfg.GetSettingsSnapshot(ctx, q)
+func NewSenderFromConfig(ctx context.Context, cfg *config.InstanceConfig, q database.Querier) (*Sender, error) {
+	snap, err := cfg.Settings(ctx, q)
 	if err != nil {
 		return nil, fmt.Errorf("settings snapshot: %w", err)
 	}
 	if snap.Email.SMTPHost == "" || snap.Email.SMTPPort == 0 || snap.Email.SMTPFrom == "" {
 		return nil, ErrSMTPConfigIncomplete
 	}
-	pw, err := cfg.GetEncryptedValue(ctx, q, "smtp_password")
+	pw, err := cfg.EncryptedValue(ctx, q, "smtp_password")
 	if err != nil {
 		return nil, fmt.Errorf("decrypt smtp_password: %w", err)
 	}
@@ -75,8 +64,6 @@ func NewSenderFromConfig(ctx context.Context, cfg *config.ConfigService, q datab
 	}, nil
 }
 
-// TestConnection sends a fixed "test connection" email to the `to` address.
-// Used by POST /api/settings/email/test.
 func (s *Sender) TestConnection(ctx context.Context, to, instanceName string) error {
 	data := map[string]any{
 		"InstanceName": instanceName,
@@ -93,11 +80,6 @@ func (s *Sender) TestConnection(ctx context.Context, to, instanceName string) er
 	return s.send(ctx, to, subject, html.Bytes(), text.Bytes())
 }
 
-// SendPasswordReset emails a reset link to `to`. token is the plaintext
-// 32-byte base64url token; publicURL is SCHLASS_PUBLIC_URL; the final
-// URL is {publicURL}/reset-password/{token}. Email local-part (the bit
-// before @) is used as the "Hi <name>" greeting since users.name does
-// not exist in v1.
 func (s *Sender) SendPasswordReset(ctx context.Context, to, token, instanceName, publicURL string) error {
 	localPart := to
 	if idx := strings.IndexByte(to, '@'); idx > 0 {
@@ -120,10 +102,6 @@ func (s *Sender) SendPasswordReset(ctx context.Context, to, token, instanceName,
 	return s.send(ctx, to, subject, html.Bytes(), text.Bytes())
 }
 
-// SendPasswordChanged emails a post-reset notification to `to`. OWASP
-// "out-of-band notification" — the user must hear about a successful
-// password change on a channel they control so a silent takeover is
-// visible. Called post-commit from PostConfirm (fire-and-forget).
 func (s *Sender) SendPasswordChanged(ctx context.Context, to, instanceName string) error {
 	localPart := to
 	if idx := strings.IndexByte(to, '@'); idx > 0 {
@@ -144,9 +122,6 @@ func (s *Sender) SendPasswordChanged(ctx context.Context, to, instanceName strin
 	return s.send(ctx, to, subject, html.Bytes(), text.Bytes())
 }
 
-// send assembles a multipart/alternative MIME message and dispatches via
-// STARTTLS when the server advertises it. Unencrypted delivery permitted
-// for localhost dev (MailHog, testcontainers).
 func (s *Sender) send(ctx context.Context, to, subject string, html, text []byte) error {
 	addr := fmt.Sprintf("%s:%d", s.host, s.port)
 	boundary := "schlass-" + time.Now().Format("20060102150405.000")

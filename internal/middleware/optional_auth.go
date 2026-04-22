@@ -13,26 +13,12 @@ import (
 	"github.com/abdo75/Schlass/internal/store"
 )
 
-// OptionalAuth is like Auth but never rejects on missing session cookie:
-// unauthenticated requests pass through with no user in ctx. Sessions that
-// are present but invalid (session store error, orphan user, disabled user)
-// ARE still revoked with the same `session.revoked` best-effort audit as
-// Auth — they just don't 401 at the end, they pass through unauthenticated.
-//
-// Consumed by the /authorize handler which must distinguish "no session →
-// redirect to /login" from "session present → issue a code". Disabled users
-// arriving with a stale cookie get cleaned up on the way through so
-// /authorize sees them as unauthenticated and redirects them to re-auth;
-// the session.revoked audit row preserves the compliance trail.
-//
-// Session store transport errors (not ErrNotFound — genuine Valkey failure)
-// also cause pass-through rather than 503. The /authorize handler has no
-// business returning 503 because Valkey is blipping; it can still either
-// redirect the user to /login (if they had no session) or serve them as
-// anonymous and let them re-enter the site. An ERROR-level slog records it.
-//
-// The session.revoked audit rows emitted here carry metadata.mw="optional"
-// so they can be distinguished from the same event in the Auth middleware.
+// OptionalAuth passes through on missing/invalid cookie; still revokes
+// orphan/disabled-user sessions on the way through (best-effort audit as
+// in Auth, with metadata.mw="optional" to distinguish). Session store
+// transport errors pass through (not 503) — /authorize can still redirect
+// to /login or serve anonymously. Consumed by /authorize to distinguish
+// "no session → /login" from "session present → issue code".
 func OptionalAuth(
 	sessionStore session.Store,
 	userStore *store.UserStore,
@@ -117,9 +103,6 @@ func OptionalAuth(
 	}
 }
 
-// clearSessionCookie emits a Set-Cookie that deletes the client's
-// schlass_session cookie. Used when OptionalAuth detects an invalid or
-// revoked session — the browser should not keep trying to present it.
 func clearSessionCookie(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     "schlass_session",

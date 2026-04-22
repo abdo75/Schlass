@@ -21,19 +21,10 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 	})
 }
 
-// isSecureURL returns true iff publicURL starts with "https://". Used by
-// handler constructors to derive the Secure flag on Set-Cookie headers so
-// cookies are not sent over plaintext connections in production.
 func isSecureURL(publicURL string) bool {
 	return strings.HasPrefix(publicURL, "https://")
 }
 
-// setSessionCookie writes the schlass_session cookie to w. Used by both
-// AuthHandler (PostLogin, PostChangePassword) and MfaHandler
-// (PostEnrollmentComplete) so the production cookie attributes stay in one
-// place: HttpOnly, SameSite=Lax, Path=/, 24h Max-Age, and the Secure flag
-// toggled by the public URL scheme.
-//
 // SameSite=Lax (not Strict) is required because /authorize is an entry
 // point for cross-site top-level navigations from relying parties
 // (Grafana, oauth2-proxy, …). Strict would block the session cookie on

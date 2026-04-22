@@ -23,7 +23,7 @@ func RunMigrations(databaseURL string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create migrator: %w", err)
 	}
-	defer func() { _, _ = m.Close() }() // Close returns (source error, database error); both are non-actionable on cleanup
+	defer func() { _, _ = m.Close() }()
 
 	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
 		return fmt.Errorf("migration failed: %w", err)
@@ -45,7 +45,7 @@ func RunMigrationsDown(databaseURL string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create migrator: %w", err)
 	}
-	defer func() { _, _ = m.Close() }() // Close returns (source error, database error); both are non-actionable on cleanup
+	defer func() { _, _ = m.Close() }()
 
 	if err := m.Down(); err != nil && err != migrate.ErrNoChange {
 		return fmt.Errorf("migration down failed: %w", err)

@@ -35,10 +35,10 @@ func adminPatch(t *testing.T, env *TestEnv, cookie *http.Cookie, path string, bo
 	return rec
 }
 
-// TestGetSettings_ReturnsSnapshot checks that the one-shot GET returns every
+// TestSettings_ReturnsSnapshot checks that the one-shot GET returns every
 // domain, exposes the SMTP password only via the _set boolean, and never
 // leaks the underlying ciphertext or plaintext.
-func TestGetSettings_ReturnsSnapshot(t *testing.T) {
+func TestSettings_ReturnsSnapshot(t *testing.T) {
 	env := NewTestEnv(t)
 	defer env.Close()
 
@@ -324,11 +324,11 @@ func TestPatchTokens_Validation_OutOfRange(t *testing.T) {
 	}
 }
 
-// newConfigServiceForEnv constructs a ConfigService using the same encryption
+// newInstanceConfigForEnv constructs a InstanceConfig using the same encryption
 // key the test router was built with, so tests can decrypt values that the
 // PATCH handler wrote. Equivalent to the wiring inside env.BuildDeps().
-func newConfigServiceForEnv(env *TestEnv) *config.ConfigService {
-	return config.NewConfigService(store.NewConfigStore(), env.Cfg.EncryptionKey)
+func newInstanceConfigForEnv(env *TestEnv) *config.InstanceConfig {
+	return config.NewInstanceConfig(store.NewConfigStore(), env.Cfg.EncryptionKey)
 }
 
 // TestPatchEmail_KeepCurrentPasswordOnEmpty is the load-bearing compliance
@@ -369,8 +369,8 @@ func TestPatchEmail_KeepCurrentPasswordOnEmpty(t *testing.T) {
 	// Password should still decrypt to secret-v1.
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	svc := newConfigServiceForEnv(env)
-	pw, err := svc.GetEncryptedValue(ctx, env.Pool, "smtp_password")
+	svc := newInstanceConfigForEnv(env)
+	pw, err := svc.EncryptedValue(ctx, env.Pool, "smtp_password")
 	if err != nil {
 		t.Fatalf("decrypt password: %v", err)
 	}
@@ -407,7 +407,7 @@ func TestPatchEmail_KeepCurrentPasswordOnEmpty(t *testing.T) {
 // TestPatchEmail_ReplacePassword covers the non-empty password path: a
 // subsequent PATCH with a new plaintext re-encrypts and replaces the stored
 // value. The old value is gone; the new value round-trips through
-// GetEncryptedValue.
+// EncryptedValue.
 func TestPatchEmail_ReplacePassword(t *testing.T) {
 	env := NewTestEnv(t)
 	defer env.Close()
@@ -437,8 +437,8 @@ func TestPatchEmail_ReplacePassword(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	svc := newConfigServiceForEnv(env)
-	pw, err := svc.GetEncryptedValue(ctx, env.Pool, "smtp_password")
+	svc := newInstanceConfigForEnv(env)
+	pw, err := svc.EncryptedValue(ctx, env.Pool, "smtp_password")
 	if err != nil {
 		t.Fatalf("decrypt password: %v", err)
 	}

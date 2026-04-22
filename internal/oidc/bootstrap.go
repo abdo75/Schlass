@@ -13,19 +13,14 @@ import (
 	"github.com/abdo75/Schlass/internal/store"
 )
 
-// AuditLogger is the narrow interface bootstrap needs — matches handler.AuditLogger
-// so *store.AuditStore satisfies it.
+// AuditLogger narrow interface — matches handler.AuditLogger so
+// *store.AuditStore satisfies it.
 type AuditLogger interface {
 	Log(ctx context.Context, q database.Querier, entry store.AuditEntry) error
 }
 
-// BootstrapSigningKey generates an active RSA signing key if none exists.
-// Idempotent: subsequent calls are no-ops when an active key is already
-// present. Writes oidc.signing_key.generated audit inside the same tx as the
-// INSERT (system actor; actor_email empty).
-//
-// Called from main.go after RunMigrations. Failure is fatal — refuse to serve
-// without a signing key.
+// BootstrapSigningKey is idempotent (no-op when an active key exists).
+// Failure is fatal — refuse to serve without a signing key.
 func BootstrapSigningKey(
 	ctx context.Context,
 	pool *pgxpool.Pool,
@@ -71,10 +66,9 @@ func BootstrapSigningKey(
 	return tx.Commit(ctx)
 }
 
-// RetireSweep transitions retiring keys older than cutoff to status=retired.
-// Called at startup and immediately after every rotate. cutoff must be at
-// least accessTTL + refreshTTL + clockSkew in the past — otherwise tokens
-// signed by the key could still be in flight when we stop publishing it.
+// RetireSweep: cutoff must be at least AT-TTL + refresh-TTL + clock-skew in
+// the past, otherwise tokens signed by the key could still be in flight
+// when we stop publishing it.
 func RetireSweep(
 	ctx context.Context,
 	pool *pgxpool.Pool,
