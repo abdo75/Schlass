@@ -29,6 +29,8 @@ const (
 	defaultAuthorizeRateLimit     int64 = 60
 	defaultUserinfoRateLimit      int64 = 60
 	defaultTokenRateLimit         int64 = 60 // per client_id per minute
+
+	defaultSweeperIntervalSecs int = 86400 // 24h; 0 disables
 )
 
 type Env struct {
@@ -47,6 +49,7 @@ type Env struct {
 	HIBPEnabled            bool
 	HIBPEndpoint           string
 	HIBPTimeoutMS          int
+	SweeperIntervalSecs    int
 }
 
 func Load() (*Env, error) {
@@ -64,6 +67,7 @@ func Load() (*Env, error) {
 		HIBPEnabled:            defaultHIBPEnabled,
 		HIBPEndpoint:           defaultHIBPEndpoint,
 		HIBPTimeoutMS:          defaultHIBPTimeoutMS,
+		SweeperIntervalSecs:    defaultSweeperIntervalSecs,
 	}
 
 	var missing []string
@@ -186,6 +190,14 @@ func Load() (*Env, error) {
 			return nil, fmt.Errorf("SCHLASS_HIBP_TIMEOUT_MS must be a non-negative integer, got %q", raw)
 		}
 		cfg.HIBPTimeoutMS = parsed
+	}
+
+	if raw := os.Getenv("SCHLASS_SWEEPER_INTERVAL_SECS"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 0 {
+			return nil, fmt.Errorf("SCHLASS_SWEEPER_INTERVAL_SECS must be a non-negative integer, got %q", raw)
+		}
+		cfg.SweeperIntervalSecs = parsed
 	}
 
 	return cfg, nil

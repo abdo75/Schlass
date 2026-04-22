@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/abdo75/Schlass/internal/crypto"
 	"github.com/abdo75/Schlass/internal/store"
 )
 
@@ -64,7 +65,11 @@ func TestPasswordResetRequest_PriorTokensInvalidated(t *testing.T) {
 	defer env.Close()
 
 	uid := env.DirectCreateUser(t, "cycle@example.com", "user")
-	ts := store.NewPasswordResetTokenStore()
+	pepper, perr := crypto.DeriveTokenPepper(env.Cfg.EncryptionKey)
+	if perr != nil {
+		t.Fatalf("derive pepper: %v", perr)
+	}
+	ts := store.NewPasswordResetTokenStore(pepper)
 
 	var raw [32]byte
 	_, _ = rand.Read(raw[:])

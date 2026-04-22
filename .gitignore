@@ -35,8 +35,11 @@ go.work.sum
 .claude
 superpowers
 .superpowers
-/docs/superpowers/
-/docs/
+# Working artifacts (specs, plans, mockups) stay local.
+# Allowlist operator-facing runbooks that must ship with the repo.
+/docs/*
+!/docs/operator/
+!/docs/operator/**
 
 # Git worktrees (isolated workspaces for feature branches)
 .worktrees/

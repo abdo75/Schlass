@@ -429,7 +429,11 @@ func (e *TestEnv) InsertResetToken(t *testing.T, userID uuid.UUID, ttl time.Dura
 		t.Fatalf("InsertResetToken: rand: %v", err)
 	}
 	plaintext := base64.RawURLEncoding.EncodeToString(raw[:])
-	ts := store.NewPasswordResetTokenStore()
+	pepper, err := crypto.DeriveTokenPepper(e.Cfg.EncryptionKey)
+	if err != nil {
+		t.Fatalf("InsertResetToken: derive pepper: %v", err)
+	}
+	ts := store.NewPasswordResetTokenStore(pepper)
 	if _, err := ts.Insert(context.Background(), e.Pool, userID, plaintext, ttl, netip.Addr{}); err != nil {
 		t.Fatalf("InsertResetToken: insert: %v", err)
 	}

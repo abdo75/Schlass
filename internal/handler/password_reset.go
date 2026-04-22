@@ -115,6 +115,27 @@ func (h *PasswordResetHandler) PostRequest(w http.ResponseWriter, r *http.Reques
 	// and a reset email would leak account-status signal.
 	matched := err == nil && user != nil && user.Status == "active"
 
+	// super_admin cannot self-reset via email (NIS2 phishing-resistant MFA
+	// mandate; TOTP does not satisfy, so we block the flow entirely and
+	// require operator CLI recovery). Route through the unmatched path so
+	// the 200-with-empty-body contract + enumeration timing stay intact;
+	// admin-specific audit row distinguishes forensically.
+	if matched && user.Role == "super_admin" {
+		matched = false
+		if auditErr := h.auditStore.Log(r.Context(), h.pool, store.AuditEntry{
+			EventType:  "password_reset.admin_blocked",
+			ActorID:    &user.ID,
+			ActorEmail: user.Email,
+			TargetType: "user",
+			TargetID:   user.ID.String(),
+			IPAddress:  ipStr,
+			Outcome:    "success",
+			Metadata:   map[string]any{"reason": "super_admin_cannot_self_reset"},
+		}); auditErr != nil {
+			slog.Error("password_reset.admin_blocked audit", "error", auditErr)
+		}
+	}
+
 	if !matched {
 		// Audit is the only signal that someone probed for this email. 200
 		// contract is absolute; audit failure does not alter the response.

@@ -73,6 +73,25 @@ export function ForgotPasswordPage() {
             {t("password_reset.forgot.description")}
           </CardDescription>
         </CardHeader>
+        <div className="mx-8 mb-[18px] grid grid-cols-[16px_1fr] items-start gap-[10px] rounded-lg border border-[oklch(0.86_0.08_80)] bg-[oklch(0.97_0.03_80)] p-3 px-3.5">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="mt-0.5 h-4 w-4 text-[oklch(0.35_0.14_55)]"
+            aria-hidden
+          >
+            <path d="M12 9v4" />
+            <path d="M12 17h.01" />
+            <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
+          </svg>
+          <p className="text-[12.5px] leading-[1.55] text-[oklch(0.35_0.14_55)]">
+            {t("password_reset.forgot.admin_banner")}
+          </p>
+        </div>
         <CardContent className="px-8 pb-0">
           <form onSubmit={(e) => { void handleSubmit(e); }} className="flex flex-col gap-[18px]">
             <div className="flex flex-col gap-2">
@@ -98,6 +117,17 @@ export function ForgotPasswordPage() {
           <Link to="/login" className="text-primary font-medium hover:underline">
             {t("password_reset.forgot.back_to_login")}
           </Link>
+        </div>
+        <div className="border-t border-border px-8 pb-6 pt-4 text-center text-[12px] leading-[1.55] text-muted-foreground">
+          <div>{t("password_reset.forgot.recovery_prompt")}</div>
+          <a
+            href="https://github.com/abdo75/Schlass/blob/main/docs/operator/recovery.md"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-1 inline-block font-medium text-primary hover:underline"
+          >
+            {t("password_reset.forgot.recovery_link")}
+          </a>
         </div>
       </Card>
     </AuthLayout>

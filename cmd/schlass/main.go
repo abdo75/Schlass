@@ -16,6 +16,8 @@ import (
 	"github.com/abdo75/Schlass/internal/database"
 	"github.com/abdo75/Schlass/internal/handler"
 	"github.com/abdo75/Schlass/internal/oidc"
+	"github.com/abdo75/Schlass/internal/recovery"
+	"github.com/abdo75/Schlass/internal/scheduler"
 	"github.com/abdo75/Schlass/internal/server"
 	"github.com/abdo75/Schlass/internal/store"
 	"github.com/abdo75/Schlass/internal/valkey"
@@ -24,6 +26,16 @@ import (
 func main() {
 	// Send all logs to stdout as JSON
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
+
+	// Subcommand dispatch. Single-shot CLI utilities exit before the
+	// HTTP server boot path runs.
+	if len(os.Args) > 1 && os.Args[1] == "recovery-reset" {
+		if err := recovery.Run(os.Args[2:]); err != nil {
+			slog.Error("recovery-reset failed", "error", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	// Load env vars
 	cfg, err := config.Load()
@@ -77,6 +89,10 @@ func main() {
 		slog.Warn("signing-key retire sweep failed", "error", err)
 		// Non-fatal — orphan retiring keys just stay listed.
 	}
+
+	// Nightly cleanup of expired reset tokens + auth codes. Bound to ctx so
+	// graceful shutdown cancels cleanly. 0 interval disables.
+	go scheduler.StartSweeper(ctx, pool, time.Duration(cfg.SweeperIntervalSecs)*time.Second, auditStore)
 
 	// Create a test OIDC client when running in dev mode. Skipped in prod.
 	if err := bootstrap.SeedDevClient(ctx, pool, os.Getenv("SCHLASS_DEV"), os.Getenv("SCHLASS_DEV_SECRET"), cfg.SchlassPublicURL); err != nil {

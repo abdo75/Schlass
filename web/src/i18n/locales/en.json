@@ -333,7 +333,10 @@
       "submitting": "Sending…",
       "back_to_login": "← Back to sign in",
       "sent_title": "Check your email",
-      "sent_body": "If an account exists for <1>{{email}}</1>, a password reset link has been sent. The link expires in 30 minutes."
+      "sent_body": "If an account exists for <1>{{email}}</1>, a password reset link has been sent. The link expires in 30 minutes.",
+      "admin_banner": "Administrator accounts can't reset by email. Contact another admin.",
+      "recovery_prompt": "Single-admin instance with no backup?",
+      "recovery_link": "Operator recovery guide →"
     },
     "reset": {
       "loading_title": "Checking reset link…",
@@ -363,8 +366,15 @@
     "de": "Deutsch"
   },
   "user_menu": {
-    "theme": { "heading": "Theme", "light": "Light", "dark": "Dark", "system": "System" },
-    "language": { "heading": "Language" },
+    "theme": {
+      "heading": "Theme",
+      "light": "Light",
+      "dark": "Dark",
+      "system": "System"
+    },
+    "language": {
+      "heading": "Language"
+    },
     "my_account": "My account",
     "admin_panel": "Admin panel",
     "sign_out": "Sign out"

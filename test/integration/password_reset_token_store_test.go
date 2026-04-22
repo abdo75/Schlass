@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/abdo75/Schlass/internal/crypto"
 	"github.com/abdo75/Schlass/internal/store"
 )
 
@@ -17,7 +18,11 @@ func TestInvalidateOutstandingForUser_MarksUnusedUsed(t *testing.T) {
 	defer env.Close()
 
 	uid := env.DirectCreateUser(t, "invalidate@example.com", "user")
-	ts := store.NewPasswordResetTokenStore()
+	pepper, perr := crypto.DeriveTokenPepper(env.Cfg.EncryptionKey)
+	if perr != nil {
+		t.Fatalf("derive pepper: %v", perr)
+	}
+	ts := store.NewPasswordResetTokenStore(pepper)
 
 	var raw [32]byte
 	_, _ = rand.Read(raw[:])
@@ -49,7 +54,11 @@ func TestInvalidateOutstandingForUser_SkipsAlreadyUsed(t *testing.T) {
 	defer env.Close()
 
 	uid := env.DirectCreateUser(t, "skip-used@example.com", "user")
-	ts := store.NewPasswordResetTokenStore()
+	pepper, perr := crypto.DeriveTokenPepper(env.Cfg.EncryptionKey)
+	if perr != nil {
+		t.Fatalf("derive pepper: %v", perr)
+	}
+	ts := store.NewPasswordResetTokenStore(pepper)
 
 	var raw [32]byte
 	_, _ = rand.Read(raw[:])

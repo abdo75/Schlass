@@ -333,7 +333,10 @@
       "submitting": "Senden…",
       "back_to_login": "← Zurück zur Anmeldung",
       "sent_title": "Prüfen Sie Ihre E-Mails",
-      "sent_body": "Falls ein Konto für <1>{{email}}</1> existiert, wurde ein Link zum Zurücksetzen versendet. Der Link läuft in 30 Minuten ab."
+      "sent_body": "Falls ein Konto für <1>{{email}}</1> existiert, wurde ein Link zum Zurücksetzen versendet. Der Link läuft in 30 Minuten ab.",
+      "admin_banner": "Administratorkonten können nicht per E-Mail zurückgesetzt werden. Wenden Sie sich an einen anderen Administrator.",
+      "recovery_prompt": "Einzel-Admin-Instanz ohne Backup?",
+      "recovery_link": "Betreiber-Wiederherstellungsanleitung →"
     },
     "reset": {
       "loading_title": "Link wird geprüft…",
@@ -363,8 +366,15 @@
     "de": "Deutsch"
   },
   "user_menu": {
-    "theme": { "heading": "Design", "light": "Hell", "dark": "Dunkel", "system": "System" },
-    "language": { "heading": "Sprache" },
+    "theme": {
+      "heading": "Design",
+      "light": "Hell",
+      "dark": "Dunkel",
+      "system": "System"
+    },
+    "language": {
+      "heading": "Sprache"
+    },
     "my_account": "Mein Konto",
     "admin_panel": "Admin-Bereich",
     "sign_out": "Abmelden"
