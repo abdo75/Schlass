@@ -10,8 +10,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/abdo75/Schlass/internal/middleware"
-	"github.com/abdo75/Schlass/internal/revokebefore"
+	"github.com/abdo75/Schlass/internal/authserver"
+	"github.com/abdo75/Schlass/internal/session"
 )
 
 // newBearerProbeWithValkey builds a BearerAuth-wrapped probe that includes the
@@ -21,7 +21,7 @@ func newBearerProbeWithValkey(t *testing.T, env *TestEnv) http.Handler {
 	probe := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	mw := middleware.BearerAuth(middleware.BearerAuthDeps{
+	mw := authserver.BearerAuth(authserver.BearerAuthDeps{
 		Pool:      env.Pool,
 		UserStore: env.UserStore,
 		Issuer:    env.Cfg.SchlassPublicURL,
@@ -56,7 +56,7 @@ func TestBearerAuth_ClientRevokeBefore(t *testing.T) {
 
 	// Set the client cutoff — this pushes all existing ATs for this client
 	// into the "stale" bucket.
-	if err := revokebefore.ClientSetNow(ctx, env.ValkeyClient, clientID); err != nil {
+	if err := session.RevokeBeforeClientSetNow(ctx, env.ValkeyClient, clientID); err != nil {
 		t.Fatalf("ClientSetNow: %v", err)
 	}
 

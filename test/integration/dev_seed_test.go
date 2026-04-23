@@ -5,8 +5,8 @@ package integration
 import (
 	"testing"
 
-	"github.com/abdo75/Schlass/internal/bootstrap"
 	"github.com/abdo75/Schlass/internal/crypto"
+	"github.com/abdo75/Schlass/internal/server"
 )
 
 // cryptoVerify is a thin shim so the dev-seed test can assert a hash
@@ -22,7 +22,7 @@ func TestSeedDevClient_Happy(t *testing.T) {
 	env := NewTestEnv(t)
 	defer env.Close()
 
-	if err := bootstrap.SeedDevClient(t.Context(), env.Pool, "1", "", "http://localhost:3000"); err != nil {
+	if err := server.SeedDevClient(t.Context(), env.Pool, "1", "", "http://localhost:3000"); err != nil {
 		t.Fatalf("SeedDevClient: %v", err)
 	}
 
@@ -36,7 +36,7 @@ func TestSeedDevClient_Happy(t *testing.T) {
 	}
 
 	// Second invocation is a no-op.
-	if err := bootstrap.SeedDevClient(t.Context(), env.Pool, "1", "", "http://localhost:3000"); err != nil {
+	if err := server.SeedDevClient(t.Context(), env.Pool, "1", "", "http://localhost:3000"); err != nil {
 		t.Fatalf("second SeedDevClient: %v", err)
 	}
 	if err := env.Pool.QueryRow(t.Context(),
@@ -80,7 +80,7 @@ func TestSeedDevClient_SecretOverride(t *testing.T) {
 	defer env.Close()
 
 	const knownSecret = "e2e-known-plaintext-secret"
-	if err := bootstrap.SeedDevClient(t.Context(), env.Pool, "1", knownSecret, "http://localhost:3000"); err != nil {
+	if err := server.SeedDevClient(t.Context(), env.Pool, "1", knownSecret, "http://localhost:3000"); err != nil {
 		t.Fatalf("SeedDevClient: %v", err)
 	}
 	var hash string
@@ -102,7 +102,7 @@ func TestSeedDevClient_SkipsWhenDevUnset(t *testing.T) {
 	env := NewTestEnv(t)
 	defer env.Close()
 
-	if err := bootstrap.SeedDevClient(t.Context(), env.Pool, "", "", "http://localhost:3000"); err != nil {
+	if err := server.SeedDevClient(t.Context(), env.Pool, "", "", "http://localhost:3000"); err != nil {
 		t.Fatalf("SeedDevClient: %v", err)
 	}
 	var count int
@@ -120,7 +120,7 @@ func TestSeedDevClient_RefusesHTTPS(t *testing.T) {
 	env := NewTestEnv(t)
 	defer env.Close()
 
-	if err := bootstrap.SeedDevClient(t.Context(), env.Pool, "1", "", "https://idp.example.com"); err != nil {
+	if err := server.SeedDevClient(t.Context(), env.Pool, "1", "", "https://idp.example.com"); err != nil {
 		t.Fatalf("SeedDevClient: %v", err)
 	}
 	var count int

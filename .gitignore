@@ -63,3 +63,4 @@ web/test-results/
 # Manual UAT scaffolding — local-only third-party RP compose files,
 # baked-in client credentials, not part of the shipping artifact.
 /uat/.superpowers/
+.codex

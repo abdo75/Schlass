@@ -8,12 +8,12 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/abdo75/Schlass/internal/handler"
+	"github.com/abdo75/Schlass/internal/server"
 )
 
 func TestHealthCheckHealthy(t *testing.T) {
 	env := NewTestEnv(t)
-	h := handler.NewHealthHandler(env.Pool, env.ValkeyClient)
+	h := server.NewHealthHandler(env.Pool, env.ValkeyClient)
 
 	req := httptest.NewRequestWithContext(t.Context(), "GET", "/api/health", nil)
 	rec := httptest.NewRecorder()
@@ -47,7 +47,7 @@ func TestHealthCheckUnhealthyWhenValkeyDown(t *testing.T) {
 		t.Fatalf("failed to close valkey client: %v", err)
 	}
 
-	h := handler.NewHealthHandler(env.Pool, env.ValkeyClient)
+	h := server.NewHealthHandler(env.Pool, env.ValkeyClient)
 
 	req := httptest.NewRequestWithContext(t.Context(), "GET", "/api/health", nil)
 	rec := httptest.NewRecorder()

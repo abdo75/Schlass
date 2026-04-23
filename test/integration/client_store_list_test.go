@@ -6,7 +6,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/abdo75/Schlass/internal/store"
+	"github.com/abdo75/Schlass/internal/clients"
 )
 
 func TestClientStore_List(t *testing.T) {
@@ -29,7 +29,7 @@ func TestClientStore_List(t *testing.T) {
 	seed("b", "active")
 	seed("c", "disabled")
 
-	s := store.NewClientStore()
+	s := clients.NewStore()
 
 	active, err := s.List(ctx, env.Pool, "active")
 	if err != nil {

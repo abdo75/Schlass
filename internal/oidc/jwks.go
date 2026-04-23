@@ -3,8 +3,6 @@ package oidc
 import (
 	"encoding/base64"
 	"math/big"
-
-	"github.com/abdo75/Schlass/internal/store"
 )
 
 type JWK struct {
@@ -20,25 +18,21 @@ type JWKSet struct {
 	Keys []JWK `json:"keys"`
 }
 
-// BuildJWKSet converts publishable signing keys (active + retiring) to JWKS.
-// JWT kid header must match the JWK kid so verifiers pick the right key.
-func BuildJWKSet(keys []*store.SigningKey) (JWKSet, error) {
-	out := JWKSet{Keys: make([]JWK, 0, len(keys))}
-	for _, k := range keys {
-		pub, err := ParsePublicPEM(k.PublicKeyPEM)
-		if err != nil {
-			return JWKSet{}, err
-		}
-		out.Keys = append(out.Keys, JWK{
-			Kty: "RSA",
-			Use: "sig",
-			Alg: "RS256",
-			Kid: k.ID.String(),
-			N:   b64url(pub.N),
-			E:   b64url(big.NewInt(int64(pub.E))),
-		})
+// PublicPEMToJWK converts one RSA public key PEM + kid to a JWK entry.
+// Caller owns JWK set assembly (see signingkeys.BuildJWKSet).
+func PublicPEMToJWK(kid string, publicPEM []byte) (JWK, error) {
+	pub, err := ParsePublicPEM(publicPEM)
+	if err != nil {
+		return JWK{}, err
 	}
-	return out, nil
+	return JWK{
+		Kty: "RSA",
+		Use: "sig",
+		Alg: "RS256",
+		Kid: kid,
+		N:   b64url(pub.N),
+		E:   b64url(big.NewInt(int64(pub.E))),
+	}, nil
 }
 
 func b64url(i *big.Int) string {

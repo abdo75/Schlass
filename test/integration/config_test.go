@@ -6,17 +6,16 @@ import (
 	"context"
 	"testing"
 
-	"github.com/abdo75/Schlass/internal/config"
-	"github.com/abdo75/Schlass/internal/store"
+	"github.com/abdo75/Schlass/internal/instanceconfig"
 )
 
 func TestInstanceConfigNullHandling(t *testing.T) {
 	env := NewTestEnv(t)
 	ctx := context.Background()
 
-	configStore := store.NewConfigStore()
+	configStore := instanceconfig.NewStore()
 	encKey := []byte("test-encryption-key-32-bytes!!!!")
-	instanceConfig := config.NewInstanceConfig(configStore, encKey)
+	instanceConfig := instanceconfig.NewService(configStore, encKey)
 
 	// smtp_password is seeded as JSON null — should return empty string, not error
 	val, err := instanceConfig.EncryptedValue(ctx, env.Pool, "smtp_password")
@@ -32,9 +31,9 @@ func TestInstanceConfigEncryptionRoundTrip(t *testing.T) {
 	env := NewTestEnv(t)
 	ctx := context.Background()
 
-	configStore := store.NewConfigStore()
+	configStore := instanceconfig.NewStore()
 	encKey := []byte("test-encryption-key-32-bytes!!!!")
-	instanceConfig := config.NewInstanceConfig(configStore, encKey)
+	instanceConfig := instanceconfig.NewService(configStore, encKey)
 
 	// Set an encrypted value
 	err := instanceConfig.SetEncryptedValue(ctx, env.Pool, "smtp_password", "my-secret-smtp-pass")
@@ -65,9 +64,9 @@ func TestInstanceConfigPasswordPolicy(t *testing.T) {
 	env := NewTestEnv(t)
 	ctx := context.Background()
 
-	configStore := store.NewConfigStore()
+	configStore := instanceconfig.NewStore()
 	encKey := []byte("test-encryption-key-32-bytes!!!!")
-	instanceConfig := config.NewInstanceConfig(configStore, encKey)
+	instanceConfig := instanceconfig.NewService(configStore, encKey)
 
 	policy, err := instanceConfig.PasswordPolicy(ctx, env.Pool)
 	if err != nil {

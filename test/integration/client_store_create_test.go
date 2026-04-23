@@ -8,7 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/abdo75/Schlass/internal/store"
+	"github.com/abdo75/Schlass/internal/clients"
 )
 
 func TestClientStore_Create(t *testing.T) {
@@ -26,8 +26,8 @@ func TestClientStore_Create(t *testing.T) {
 		t.Fatalf("seed user: %v", err)
 	}
 
-	s := store.NewClientStore()
-	c, err := s.Create(ctx, env.Pool, store.CreateClientParams{
+	s := clients.NewStore()
+	c, err := s.Create(ctx, env.Pool, clients.CreateClientParams{
 		Name:                    "customer-portal",
 		ClientType:              "confidential",
 		SecretHash:              "argon2-hash",

@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/abdo75/Schlass/internal/auth"
 	"github.com/abdo75/Schlass/internal/crypto"
-	"github.com/abdo75/Schlass/internal/store"
 )
 
 // TestPasswordResetRequest_DisabledUser_NoToken (H5) — disabled user,
@@ -69,7 +69,7 @@ func TestPasswordResetRequest_PriorTokensInvalidated(t *testing.T) {
 	if perr != nil {
 		t.Fatalf("derive pepper: %v", perr)
 	}
-	ts := store.NewPasswordResetTokenStore(pepper)
+	ts := auth.NewTokenStore(pepper)
 
 	var raw [32]byte
 	_, _ = rand.Read(raw[:])

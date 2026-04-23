@@ -10,21 +10,22 @@ import (
 	"testing"
 	"time"
 
-	"github.com/abdo75/Schlass/internal/config"
-	"github.com/abdo75/Schlass/internal/handler"
+	"github.com/abdo75/Schlass/internal/audit"
+	"github.com/abdo75/Schlass/internal/instanceconfig"
 	"github.com/abdo75/Schlass/internal/middleware"
-	"github.com/abdo75/Schlass/internal/store"
+	"github.com/abdo75/Schlass/internal/server"
+	"github.com/abdo75/Schlass/internal/users"
 )
 
 func setupRouter(env *TestEnv) http.Handler {
-	configStore := store.NewConfigStore()
-	userStore := store.NewUserStore()
-	auditStore := store.NewAuditStore()
+	configStore := instanceconfig.NewStore()
+	userStore := users.NewStore()
+	auditStore := audit.NewStore()
 	encKey := []byte("test-encryption-key-32-bytes!!!!")
-	instanceConfig := config.NewInstanceConfig(configStore, encKey)
+	instanceConfig := instanceconfig.NewService(configStore, encKey)
 
-	setupHandler := handler.NewSetupHandler(env.Pool, instanceConfig, configStore, userStore, auditStore, nil)
-	healthHandler := handler.NewHealthHandler(env.Pool, env.ValkeyClient)
+	setupHandler := server.NewSetupHandler(env.Pool, instanceConfig, configStore, userStore, auditStore, nil)
+	healthHandler := server.NewHealthHandler(env.Pool, env.ValkeyClient)
 	setupRL := middleware.NewRateLimiter(env.ValkeyClient, "ratelimit:test:setup", 5, time.Minute)
 
 	mux := http.NewServeMux()
@@ -244,12 +245,12 @@ func TestSetupRejectsMissingFields(t *testing.T) {
 
 func TestSetupRateLimiting(t *testing.T) {
 	env := NewTestEnv(t)
-	configStore := store.NewConfigStore()
-	userStore := store.NewUserStore()
-	auditStore := store.NewAuditStore()
+	configStore := instanceconfig.NewStore()
+	userStore := users.NewStore()
+	auditStore := audit.NewStore()
 	encKey := []byte("test-encryption-key-32-bytes!!!!")
-	instanceConfig := config.NewInstanceConfig(configStore, encKey)
-	setupHandler := handler.NewSetupHandler(env.Pool, instanceConfig, configStore, userStore, auditStore, nil)
+	instanceConfig := instanceconfig.NewService(configStore, encKey)
+	setupHandler := server.NewSetupHandler(env.Pool, instanceConfig, configStore, userStore, auditStore, nil)
 
 	rl := middleware.NewRateLimiter(env.ValkeyClient, "ratelimit:test:rl", 3, time.Minute)
 	h := rl.Middleware(http.HandlerFunc(setupHandler.GetSetup))

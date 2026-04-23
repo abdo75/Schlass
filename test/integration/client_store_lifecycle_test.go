@@ -7,15 +7,15 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/abdo75/Schlass/internal/store"
+	"github.com/abdo75/Schlass/internal/clients"
 )
 
 func TestClientStore_DisableEnableDelete(t *testing.T) {
 	env := NewTestEnv(t)
 	ctx := context.Background()
-	s := store.NewClientStore()
+	s := clients.NewStore()
 
-	c, err := s.Create(ctx, env.Pool, store.CreateClientParams{
+	c, err := s.Create(ctx, env.Pool, clients.CreateClientParams{
 		Name: "l", ClientType: "confidential", SecretHash: "h",
 		RedirectURIs:            []string{"https://x/cb"},
 		AllowedGrantTypes:       []string{"authorization_code"},
@@ -55,7 +55,7 @@ func TestClientStore_DisableEnableDelete(t *testing.T) {
 		t.Fatalf("delete: %v", err)
 	}
 	_, err = s.GetByIDAny(ctx, env.Pool, c.ID.String())
-	if !errors.Is(err, store.ErrClientNotFound) {
+	if !errors.Is(err, clients.ErrClientNotFound) {
 		t.Errorf("after delete: err = %v, want ErrClientNotFound", err)
 	}
 }

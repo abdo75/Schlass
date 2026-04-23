@@ -7,8 +7,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-
-	"github.com/abdo75/Schlass/internal/requestcontext"
 )
 
 type responseWriter struct {
@@ -26,7 +24,7 @@ func RequestLogging(next http.Handler) http.Handler {
 		start := time.Now()
 		id := uuid.New().String()
 
-		ctx := requestcontext.WithCorrelationID(r.Context(), id)
+		ctx := WithCorrelationID(r.Context(), id)
 		r = r.WithContext(ctx)
 
 		rw := &responseWriter{ResponseWriter: w, status: http.StatusOK}

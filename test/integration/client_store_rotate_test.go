@@ -7,15 +7,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/abdo75/Schlass/internal/store"
+	"github.com/abdo75/Schlass/internal/clients"
 )
 
 func TestClientStore_RotateSecret_OverlapWindow(t *testing.T) {
 	env := NewTestEnv(t)
 	ctx := context.Background()
 
-	s := store.NewClientStore()
-	c, err := s.Create(ctx, env.Pool, store.CreateClientParams{
+	s := clients.NewStore()
+	c, err := s.Create(ctx, env.Pool, clients.CreateClientParams{
 		Name: "r", ClientType: "confidential", SecretHash: "old-hash",
 		RedirectURIs:            []string{"https://x/cb"},
 		AllowedGrantTypes:       []string{"authorization_code"},

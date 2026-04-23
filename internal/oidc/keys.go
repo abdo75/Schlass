@@ -15,10 +15,10 @@ import (
 
 // 2048 is the NIST floor for new deployments and matches our 15-minute AT
 // TTL — even if 2048 were cracked later, our tokens have long expired.
-const rsaKeyBits = 2048
+const RSAKeyBits = 2048
 
 func GenerateKeyPair() (publicPEM, privatePEM []byte, err error) {
-	priv, err := rsa.GenerateKey(rand.Reader, rsaKeyBits)
+	priv, err := rsa.GenerateKey(rand.Reader, RSAKeyBits)
 	if err != nil {
 		return nil, nil, fmt.Errorf("oidc: rsa generate: %w", err)
 	}

@@ -12,7 +12,7 @@ import (
 	"testing"
 
 	"github.com/abdo75/Schlass/internal/crypto"
-	"github.com/abdo75/Schlass/internal/store"
+	"github.com/abdo75/Schlass/internal/users"
 )
 
 // changePassword is a small helper that POSTs /api/change-password with the
@@ -192,7 +192,7 @@ func TestChangePassword_FromForcedFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("hash temp password: %v", err)
 	}
-	us := store.NewUserStore()
+	us := users.NewStore()
 	if _, err := us.Create(context.Background(), env.Pool, "user@example.com", hash, "super_admin", true); err != nil {
 		t.Fatalf("seed forced user: %v", err)
 	}

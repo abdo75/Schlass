@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/abdo75/Schlass/internal/oidc"
-	"github.com/abdo75/Schlass/internal/store"
+	"github.com/abdo75/Schlass/internal/audit"
+	signingkeys "github.com/abdo75/Schlass/internal/signingkeys"
 )
 
 func TestRetireSweep_RetiresOldRetiringKeys(t *testing.T) {
@@ -16,7 +16,7 @@ func TestRetireSweep_RetiresOldRetiringKeys(t *testing.T) {
 	defer env.Cleanup()
 	ctx := context.Background()
 
-	s := store.NewSigningKeyStore()
+	s := signingkeys.NewStore()
 	oldID, _ := s.Insert(ctx, env.Pool, []byte("pub-old"), []byte("enc-old"), "retiring")
 	freshID, _ := s.Insert(ctx, env.Pool, []byte("pub-fresh"), []byte("enc-fresh"), "retiring")
 
@@ -24,7 +24,7 @@ func TestRetireSweep_RetiresOldRetiringKeys(t *testing.T) {
 	_, _ = env.Pool.Exec(ctx, `UPDATE signing_keys SET rotated_at = now() WHERE id=$1`, freshID)
 
 	cutoff := time.Now().Add(-(15*time.Minute + 24*time.Hour + 30*time.Second))
-	if err := oidc.RetireSweep(ctx, env.Pool, store.NewAuditStore(), cutoff); err != nil {
+	if err := signingkeys.RetireSweep(ctx, env.Pool, audit.NewStore(), cutoff); err != nil {
 		t.Fatalf("sweep: %v", err)
 	}
 

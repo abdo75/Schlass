@@ -14,8 +14,8 @@ import (
 	texttemplate "text/template"
 	"time"
 
-	"github.com/abdo75/Schlass/internal/config"
 	"github.com/abdo75/Schlass/internal/database"
+	"github.com/abdo75/Schlass/internal/instanceconfig"
 )
 
 //go:embed templates/*.tmpl
@@ -33,7 +33,7 @@ type Sender struct {
 	textTpl  *texttemplate.Template
 }
 
-func NewSenderFromConfig(ctx context.Context, cfg *config.InstanceConfig, q database.Querier) (*Sender, error) {
+func NewSenderFromConfig(ctx context.Context, cfg *instanceconfig.Service, q database.Querier) (*Sender, error) {
 	snap, err := cfg.Settings(ctx, q)
 	if err != nil {
 		return nil, fmt.Errorf("settings snapshot: %w", err)

@@ -14,9 +14,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/abdo75/Schlass/internal/audit"
+	signingkeys "github.com/abdo75/Schlass/internal/signingkeys"
 	"github.com/abdo75/Schlass/internal/oidc"
 	"github.com/abdo75/Schlass/internal/server"
-	"github.com/abdo75/Schlass/internal/store"
 )
 
 // ---- helpers local to this file ----
@@ -35,10 +36,10 @@ func seedTokenClient(t *testing.T, env *TestEnv, redirectURI string, allowedScop
 // test environment's encryption key (32 zero bytes).
 func bootstrapKey(t *testing.T, env *TestEnv) {
 	t.Helper()
-	if err := oidc.BootstrapSigningKey(
+	if err := signingkeys.Bootstrap(
 		context.Background(),
 		env.Pool,
-		store.NewAuditStore(),
+		audit.NewStore(),
 		env.Cfg.EncryptionKey,
 	); err != nil {
 		t.Fatalf("bootstrapKey: %v", err)
@@ -212,7 +213,7 @@ func TestToken_AuthCodeHappyPath_IssuesAccessAndIDTokens(t *testing.T) {
 	}
 
 	// Verify access token signature against the JWKS.
-	keyStore := store.NewSigningKeyStore()
+	keyStore := signingkeys.NewStore()
 	keys, err := keyStore.ListPublishable(context.Background(), env.Pool)
 	if err != nil || len(keys) == 0 {
 		t.Fatalf("list publishable keys: %v", err)
@@ -374,7 +375,6 @@ func TestToken_UnknownGrantType_400UnsupportedGrantType(t *testing.T) {
 	rec := doTokenRequest(t, env, params)
 	assertTokenError(t, rec, http.StatusBadRequest, "unsupported_grant_type")
 }
-
 
 func TestToken_ReusedCode_RevokeFamily_400InvalidGrant(t *testing.T) {
 	env := NewTestEnv(t)
@@ -593,4 +593,3 @@ func TestToken_RateLimitExceeded_429(t *testing.T) {
 	}
 	assertTokenError(t, last, http.StatusTooManyRequests, "invalid_request")
 }
-

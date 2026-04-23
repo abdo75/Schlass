@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/abdo75/Schlass/internal/store"
+	"github.com/abdo75/Schlass/internal/users"
 	"github.com/google/uuid"
 )
 
@@ -15,7 +15,7 @@ func TestUserStore_GetByEmail_GetByID(t *testing.T) {
 	ctx := context.Background()
 	env := NewTestEnv(t)
 
-	us := store.NewUserStore()
+	us := users.NewStore()
 	id, err := us.Create(ctx, env.Pool, "alice@example.com", "$argon2id$dummy", "super_admin", false)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
@@ -41,7 +41,7 @@ func TestUserStore_GetByEmail_GetByID(t *testing.T) {
 	}
 
 	_, err = us.GetByEmail(ctx, env.Pool, "nobody@example.com")
-	if err != store.ErrUserNotFound {
+	if err != users.ErrUserNotFound {
 		t.Fatalf("expected ErrUserNotFound, got %v", err)
 	}
 }
@@ -50,7 +50,7 @@ func TestUserStore_IncrementFailedLogins_Lockout(t *testing.T) {
 	ctx := context.Background()
 	env := NewTestEnv(t)
 
-	us := store.NewUserStore()
+	us := users.NewStore()
 	id, _ := us.Create(ctx, env.Pool, "bob@example.com", "$argon2id$dummy", "super_admin", false)
 
 	// Threshold 3, duration 60 seconds
@@ -81,12 +81,12 @@ func TestUserStore_IncrementFailedLogins_Lockout(t *testing.T) {
 
 	// Fourth attempt while locked — must return ErrAlreadyLocked and NOT increment
 	count, locked, err = us.IncrementFailedLogins(ctx, env.Pool, id, 3, 60)
-	if err != store.ErrAlreadyLocked {
+	if err != users.ErrAlreadyLocked {
 		t.Fatalf("expected ErrAlreadyLocked, got %v (count=%d locked=%v)", err, count, locked)
 	}
 
 	// Reset fails while still locked (race guard)
-	if err := us.ResetFailedLogins(ctx, env.Pool, id); err != store.ErrAlreadyLocked {
+	if err := us.ResetFailedLogins(ctx, env.Pool, id); err != users.ErrAlreadyLocked {
 		t.Fatalf("expected ErrAlreadyLocked from ResetFailedLogins on locked row, got %v", err)
 	}
 
@@ -111,7 +111,7 @@ func TestUserStore_IncrementFailedLogins_Lockout(t *testing.T) {
 func TestUserStore_List_PaginationAndSearch(t *testing.T) {
 	ctx := context.Background()
 	env := NewTestEnv(t)
-	us := store.NewUserStore()
+	us := users.NewStore()
 
 	// Seed 5 users.
 	for _, email := range []string{"alice@example.com", "bob@example.com", "carol@example.com", "dave@example.com", "erin@example.com"} {
@@ -121,7 +121,7 @@ func TestUserStore_List_PaginationAndSearch(t *testing.T) {
 	}
 
 	// Page 1, limit 3
-	page, err := us.List(ctx, env.Pool, store.ListUsersParams{Limit: 3, Offset: 0})
+	page, err := us.List(ctx, env.Pool, users.ListUsersParams{Limit: 3, Offset: 0})
 	if err != nil {
 		t.Fatalf("List page 1: %v", err)
 	}
@@ -133,13 +133,13 @@ func TestUserStore_List_PaginationAndSearch(t *testing.T) {
 	}
 
 	// Page 2, limit 3
-	page2, _ := us.List(ctx, env.Pool, store.ListUsersParams{Limit: 3, Offset: 3})
+	page2, _ := us.List(ctx, env.Pool, users.ListUsersParams{Limit: 3, Offset: 3})
 	if len(page2.Users) != 2 {
 		t.Fatalf("page 2 users: got %d want 2", len(page2.Users))
 	}
 
 	// Search matches partial email (case-insensitive)
-	search, _ := us.List(ctx, env.Pool, store.ListUsersParams{Limit: 50, Offset: 0, EmailSearch: "ALI"})
+	search, _ := us.List(ctx, env.Pool, users.ListUsersParams{Limit: 50, Offset: 0, EmailSearch: "ALI"})
 	if len(search.Users) != 1 || search.Users[0].Email != "alice@example.com" {
 		t.Fatalf("search result: got %+v", search.Users)
 	}
@@ -148,7 +148,7 @@ func TestUserStore_List_PaginationAndSearch(t *testing.T) {
 func TestUserStore_Update(t *testing.T) {
 	ctx := context.Background()
 	env := NewTestEnv(t)
-	us := store.NewUserStore()
+	us := users.NewStore()
 
 	id, _ := us.Create(ctx, env.Pool, "old@example.com", "$argon2id$dummy", "user", false)
 
@@ -167,7 +167,7 @@ func TestUserStore_Update(t *testing.T) {
 func TestUserStore_SetStatus(t *testing.T) {
 	ctx := context.Background()
 	env := NewTestEnv(t)
-	us := store.NewUserStore()
+	us := users.NewStore()
 
 	id, _ := us.Create(ctx, env.Pool, "user@example.com", "$argon2id$dummy", "user", false)
 	if err := us.SetStatus(ctx, env.Pool, id, "disabled"); err != nil {
@@ -188,7 +188,7 @@ func TestUserStore_SetStatus(t *testing.T) {
 func TestUserStore_Delete(t *testing.T) {
 	ctx := context.Background()
 	env := NewTestEnv(t)
-	us := store.NewUserStore()
+	us := users.NewStore()
 
 	id, _ := us.Create(ctx, env.Pool, "gone@example.com", "$argon2id$dummy", "user", false)
 
@@ -197,7 +197,7 @@ func TestUserStore_Delete(t *testing.T) {
 	}
 
 	_, err := us.GetByID(ctx, env.Pool, id)
-	if err != store.ErrUserNotFound {
+	if err != users.ErrUserNotFound {
 		t.Fatalf("expected ErrUserNotFound after delete, got %v", err)
 	}
 }
@@ -205,7 +205,7 @@ func TestUserStore_Delete(t *testing.T) {
 func TestUserStore_SetPasswordHash(t *testing.T) {
 	ctx := context.Background()
 	env := NewTestEnv(t)
-	us := store.NewUserStore()
+	us := users.NewStore()
 
 	id, _ := us.Create(ctx, env.Pool, "pwchange@example.com", "$argon2id$old", "user", false)
 
@@ -231,11 +231,11 @@ func TestUserStore_SetPasswordHash(t *testing.T) {
 func TestUserStore_Update_UserNotFound(t *testing.T) {
 	ctx := context.Background()
 	env := NewTestEnv(t)
-	us := store.NewUserStore()
+	us := users.NewStore()
 
 	nonexistent := uuid.New()
 	err := us.Update(ctx, env.Pool, nonexistent, "whatever@example.com", "user")
-	if err != store.ErrUserNotFound {
+	if err != users.ErrUserNotFound {
 		t.Fatalf("expected ErrUserNotFound, got %v", err)
 	}
 }
@@ -243,7 +243,7 @@ func TestUserStore_Update_UserNotFound(t *testing.T) {
 func TestUserStore_List_EmailSearchEscapesMetacharacters(t *testing.T) {
 	ctx := context.Background()
 	env := NewTestEnv(t)
-	us := store.NewUserStore()
+	us := users.NewStore()
 
 	// Seed three users whose emails contain metacharacters literally
 	if _, err := us.Create(ctx, env.Pool, "alice%match@example.com", "$argon2id$dummy", "user", false); err != nil {
@@ -257,7 +257,7 @@ func TestUserStore_List_EmailSearchEscapesMetacharacters(t *testing.T) {
 	}
 
 	// Searching for literal "%" should only match alice (not bob or carol)
-	result, err := us.List(ctx, env.Pool, store.ListUsersParams{Limit: 50, Offset: 0, EmailSearch: "%match"})
+	result, err := us.List(ctx, env.Pool, users.ListUsersParams{Limit: 50, Offset: 0, EmailSearch: "%match"})
 	if err != nil {
 		t.Fatalf("List with %% search: %v", err)
 	}
@@ -269,7 +269,7 @@ func TestUserStore_List_EmailSearchEscapesMetacharacters(t *testing.T) {
 	}
 
 	// Searching for literal "_" should only match bob
-	result2, err := us.List(ctx, env.Pool, store.ListUsersParams{Limit: 50, Offset: 0, EmailSearch: "_match"})
+	result2, err := us.List(ctx, env.Pool, users.ListUsersParams{Limit: 50, Offset: 0, EmailSearch: "_match"})
 	if err != nil {
 		t.Fatalf("List with _ search: %v", err)
 	}

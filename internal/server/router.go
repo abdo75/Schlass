@@ -10,28 +10,35 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
+	"github.com/abdo75/Schlass/internal/audit"
+	"github.com/abdo75/Schlass/internal/auth"
+	
+	"github.com/abdo75/Schlass/internal/authserver"
+	authsigningkeys "github.com/abdo75/Schlass/internal/signingkeys"
+	"github.com/abdo75/Schlass/internal/clients"
 	"github.com/abdo75/Schlass/internal/config"
 	"github.com/abdo75/Schlass/internal/crypto"
-	"github.com/abdo75/Schlass/internal/handler"
+	"github.com/abdo75/Schlass/internal/instanceconfig"
 	"github.com/abdo75/Schlass/internal/middleware"
 	"github.com/abdo75/Schlass/internal/session"
-	"github.com/abdo75/Schlass/internal/store"
+	"github.com/abdo75/Schlass/internal/settings"
+	"github.com/abdo75/Schlass/internal/users"
 	"github.com/abdo75/Schlass/internal/web"
 )
 
-// RouterDeps — AuditStore is handler.AuditLogger (not *store.AuditStore) so
+// RouterDeps — AuditStore is audit.PseudonymizingLogger (not *store.AuditStore) so
 // integration tests can inject a fake that errors on Log to exercise the
 // "audit write failure rolls back login tx" contract.
 type RouterDeps struct {
 	Cfg               *config.Env
 	Pool              *pgxpool.Pool
 	ValkeyClient      *redis.Client
-	ConfigStore       *store.ConfigStore
-	UserStore         *store.UserStore
-	RecoveryCodeStore *store.RecoveryCodeStore
-	AuditStore        handler.AuditLogger
-	InstanceConfig    *config.InstanceConfig
-	ClientsHandler    *handler.ClientsHandler
+	ConfigStore       *instanceconfig.Store
+	UserStore         *users.Store
+	RecoveryCodeStore *auth.RecoveryCodeStore
+	AuditStore        audit.PseudonymizingLogger
+	InstanceConfig    *instanceconfig.Service
+	ClientsHandler    *clients.Handler
 
 	LoginRateLimit         int64
 	MfaChallengeRateLimit  int64
@@ -47,22 +54,22 @@ type RouterDeps struct {
 func BuildRouter(d RouterDeps) (http.Handler, error) {
 	sessionStore := session.NewValkeyStore(d.ValkeyClient, 24*time.Hour)
 
-	healthHandler := handler.NewHealthHandler(d.Pool, d.ValkeyClient)
-	setupHandler := handler.NewSetupHandler(d.Pool, d.InstanceConfig, d.ConfigStore, d.UserStore, d.AuditStore, d.HIBPChecker)
-	authHandler, err := handler.NewAuthHandler(
+	healthHandler := NewHealthHandler(d.Pool, d.ValkeyClient)
+	setupHandler := NewSetupHandler(d.Pool, d.InstanceConfig, d.ConfigStore, d.UserStore, d.AuditStore, d.HIBPChecker)
+	authHandler, err := auth.NewHandler(
 		d.Pool, d.ValkeyClient, sessionStore, d.UserStore, d.RecoveryCodeStore, d.AuditStore, d.ConfigStore, d.InstanceConfig, d.Cfg.SchlassPublicURL, d.HIBPChecker,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	authMW := middleware.Auth(sessionStore, d.UserStore, d.AuditStore, d.Pool)
+	authMW := auth.Middleware(sessionStore, d.UserStore, d.AuditStore, d.Pool)
 
-	usersHandler := handler.NewUsersHandler(d.Pool, d.ValkeyClient, d.UserStore, d.AuditStore, sessionStore, d.InstanceConfig, d.RecoveryCodeStore)
-	adminSigningKeysHandler := handler.NewAdminSigningKeysHandler(d.Pool, d.AuditStore, d.Cfg.EncryptionKey)
-	settingsHandler := handler.NewSettingsHandler(d.Pool, d.InstanceConfig, d.AuditStore, d.Cfg.EncryptionKey)
+	usersHandler := users.NewHandler(d.Pool, d.ValkeyClient, d.UserStore, d.AuditStore, sessionStore, d.InstanceConfig, d.RecoveryCodeStore)
+	adminSigningKeysHandler := authsigningkeys.NewHandler(d.Pool, d.AuditStore, d.Cfg.EncryptionKey)
+	settingsHandler := settings.NewHandler(d.Pool, d.InstanceConfig, d.AuditStore, d.Cfg.EncryptionKey)
 
-	mfaHandler := handler.NewMfaHandler(
+	mfaHandler := auth.NewMFAHandler(
 		d.Pool, d.ValkeyClient, d.UserStore, d.RecoveryCodeStore,
 		d.AuditStore, sessionStore, d.InstanceConfig, d.ConfigStore,
 		d.Cfg.EncryptionKey,
@@ -70,7 +77,7 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 	)
 
 	gated := func(perm string, h http.Handler) http.Handler {
-		return authMW(middleware.RequirePermission(perm)(h))
+		return authMW(users.RequirePermission(perm)(h))
 	}
 
 	// Setup tied to login cap so E2E raising login doesn't hit tiny setup defaults.
@@ -146,7 +153,7 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 	mux.Handle("POST /api/settings/email/test",
 		gated("settings.write", http.HandlerFunc(settingsHandler.TestEmail)))
 
-	discoveryHandler := handler.NewOIDCDiscoveryHandler(d.Cfg.SchlassPublicURL, d.Pool)
+	discoveryHandler := authserver.NewDiscoveryHandler(d.Cfg.SchlassPublicURL, d.Pool)
 	mux.HandleFunc("GET /.well-known/openid-configuration", discoveryHandler.GetConfiguration)
 	mux.HandleFunc("GET /.well-known/jwks.json", discoveryHandler.GetJWKS)
 
@@ -162,9 +169,9 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
-	passwordResetHandler, err := handler.NewPasswordResetHandler(
+	passwordResetHandler, err := auth.NewPasswordResetHandler(
 		d.Pool, d.ValkeyClient, d.UserStore,
-		store.NewPasswordResetTokenStore(resetPepper),
+		auth.NewTokenStore(resetPepper),
 		d.AuditStore, sessionStore, d.InstanceConfig,
 		d.Cfg.SchlassPublicURL,
 		d.HIBPChecker,
@@ -182,11 +189,11 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 	mux.Handle("POST /api/password-reset/confirm",
 		http.HandlerFunc(passwordResetHandler.PostConfirm))
 
-	authorizeHandler := handler.NewOIDCAuthorizeHandler(d.Pool, sessionStore, d.AuditStore, d.Cfg.SchlassPublicURL)
-	optionalAuth := middleware.OptionalAuth(sessionStore, d.UserStore, d.AuditStore, d.Pool)
+	authorizeHandler := authserver.NewAuthorizeHandler(d.Pool, sessionStore, d.AuditStore, d.Cfg.SchlassPublicURL)
+	optionalAuth := auth.OptionalMiddleware(sessionStore, d.UserStore, d.AuditStore, d.Pool)
 	mux.Handle("GET /authorize", authorizeRL.Middleware(optionalAuth(http.HandlerFunc(authorizeHandler.Handle))))
 
-	tokenHandler := handler.NewOIDCTokenHandler(
+	tokenHandler := authserver.NewTokenHandler(
 		d.Pool, d.ValkeyClient,
 		d.UserStore, d.AuditStore,
 		sessionStore,
@@ -195,8 +202,8 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 	)
 	mux.Handle("POST /token", http.HandlerFunc(tokenHandler.Handle))
 
-	userInfoHandler := handler.NewOIDCUserInfoHandler(d.Pool, d.AuditStore)
-	bearerAuth := middleware.BearerAuth(middleware.BearerAuthDeps{
+	userInfoHandler := authserver.NewUserInfoHandler(d.Pool, d.AuditStore)
+	bearerAuth := authserver.BearerAuth(authserver.BearerAuthDeps{
 		Pool:      d.Pool,
 		UserStore: d.UserStore,
 		Valkey:    d.ValkeyClient,

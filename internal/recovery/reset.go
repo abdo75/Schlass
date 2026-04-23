@@ -18,9 +18,11 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/abdo75/Schlass/internal/audit"
+	"github.com/abdo75/Schlass/internal/auth"
 	"github.com/abdo75/Schlass/internal/config"
 	"github.com/abdo75/Schlass/internal/crypto"
-	"github.com/abdo75/Schlass/internal/store"
+	"github.com/abdo75/Schlass/internal/users"
 )
 
 const tokenTTL = time.Hour
@@ -63,20 +65,20 @@ func Run(args []string) error {
 func Execute(ctx context.Context, pool *pgxpool.Pool, cfg *config.Env, email string, stdout interface {
 	Write(p []byte) (int, error)
 }) error {
-	userStore := store.NewUserStore()
-	user, err := userStore.GetByEmail(ctx, pool, email)
+	userStore := users.NewStore()
+	u, err := userStore.GetByEmail(ctx, pool, email)
 	if err != nil {
 		return fmt.Errorf("recovery-reset: lookup user: %w", err)
 	}
-	if user.Role != "super_admin" {
-		return fmt.Errorf("recovery-reset: target %s is not a super_admin (role=%s); refusing", email, user.Role)
+	if u.Role != "super_admin" {
+		return fmt.Errorf("recovery-reset: target %s is not a super_admin (role=%s); refusing", email, u.Role)
 	}
 
 	pepper, err := crypto.DeriveTokenPepper(cfg.EncryptionKey)
 	if err != nil {
 		return fmt.Errorf("recovery-reset: derive pepper: %w", err)
 	}
-	tokenStore := store.NewPasswordResetTokenStore(pepper)
+	tokenStore := auth.NewTokenStore(pepper)
 
 	var raw [32]byte
 	if _, err := rand.Read(raw[:]); err != nil {
@@ -90,22 +92,22 @@ func Execute(ctx context.Context, pool *pgxpool.Pool, cfg *config.Env, email str
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	tokenID, err := tokenStore.Insert(ctx, tx, user.ID, plaintext, tokenTTL, netip.Addr{})
+	tokenID, err := tokenStore.Insert(ctx, tx, u.ID, plaintext, tokenTTL, netip.Addr{})
 	if err != nil {
 		return fmt.Errorf("recovery-reset: insert token: %w", err)
 	}
 
-	auditStore := store.NewAuditStore()
-	if err := auditStore.Log(ctx, tx, store.AuditEntry{
+	auditStore := audit.NewStore()
+	if err := auditStore.Log(ctx, tx, audit.Entry{
 		EventType:  "password_reset.recovery_issued",
 		ActorEmail: "system:recovery",
 		TargetType: "user",
-		TargetID:   user.ID.String(),
+		TargetID:   u.ID.String(),
 		Outcome:    "success",
 		Metadata: map[string]any{
-			"token_id":   tokenID.String(),
-			"target_email": user.Email,
-			"invoker":    invokerInfo(),
+			"token_id":     tokenID.String(),
+			"target_email": u.Email,
+			"invoker":      invokerInfo(),
 		},
 	}); err != nil {
 		return fmt.Errorf("recovery-reset: audit: %w", err)
