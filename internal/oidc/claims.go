@@ -7,11 +7,6 @@ import (
 	"github.com/abdo75/Schlass/internal/users"
 )
 
-const (
-	AccessTokenTTL = 15 * time.Minute
-	IDTokenTTL     = 15 * time.Minute
-)
-
 type Scopes []string
 
 func (s Scopes) String() string { return strings.Join(s, " ") }
@@ -28,7 +23,7 @@ func (s Scopes) Has(want string) bool {
 // BuildAccessClaims: RFC 9068. issuer = SCHLASS_PUBLIC_URL, aud = client_id.
 func BuildAccessClaims(
 	user *users.User, clientID, issuer, jti string,
-	scopes Scopes, now time.Time,
+	scopes Scopes, now time.Time, ttl time.Duration,
 ) AccessTokenClaims {
 	return AccessTokenClaims{
 		Issuer:    issuer,
@@ -36,7 +31,7 @@ func BuildAccessClaims(
 		Audience:  clientID,
 		IssuedAt:  now.Unix(),
 		NotBefore: now.Unix(),
-		Expires:   now.Add(AccessTokenTTL).Unix(),
+		Expires:   now.Add(ttl).Unix(),
 		JTI:       jti,
 		Scope:     scopes.String(),
 	}
@@ -46,7 +41,7 @@ func BuildAccessClaims(
 // adds preferred_username + updated_at; email scope adds email + verified=true.
 func BuildIDClaims(
 	user *users.User, clientID, issuer, jti, nonce string,
-	scopes Scopes, authTime time.Time, now time.Time,
+	scopes Scopes, authTime time.Time, now time.Time, ttl time.Duration,
 ) IDTokenClaims {
 	c := IDTokenClaims{
 		Issuer:    issuer,
@@ -54,7 +49,7 @@ func BuildIDClaims(
 		Audience:  clientID,
 		IssuedAt:  now.Unix(),
 		NotBefore: now.Unix(),
-		Expires:   now.Add(IDTokenTTL).Unix(),
+		Expires:   now.Add(ttl).Unix(),
 		JTI:       jti,
 		AuthTime:  authTime.Unix(),
 		Nonce:     nonce,

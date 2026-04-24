@@ -32,8 +32,9 @@ func TestScopes_HasAndString(t *testing.T) {
 func TestBuildAccessClaims(t *testing.T) {
 	u := makeUser()
 	now := time.Date(2026, 4, 18, 12, 0, 0, 0, time.UTC)
+	ttl := 17 * time.Minute
 	c := BuildAccessClaims(u, "client-x", "https://id.example.com", "jti-1",
-		Scopes{"openid", "profile"}, now)
+		Scopes{"openid", "profile"}, now, ttl)
 	if c.Subject != "11111111-1111-1111-1111-111111111111" {
 		t.Fatalf("sub=%s", c.Subject)
 	}
@@ -46,7 +47,7 @@ func TestBuildAccessClaims(t *testing.T) {
 	if c.Scope != "openid profile" {
 		t.Fatalf("scope=%q", c.Scope)
 	}
-	if c.Expires-c.IssuedAt != 900 {
+	if c.Expires-c.IssuedAt != int64(ttl.Seconds()) {
 		t.Fatalf("ttl mismatch: %d", c.Expires-c.IssuedAt)
 	}
 }
@@ -55,8 +56,9 @@ func TestBuildIDClaims_AllScopes(t *testing.T) {
 	u := makeUser()
 	now := time.Date(2026, 4, 18, 12, 0, 0, 0, time.UTC)
 	auth := now.Add(-30 * time.Second)
+	ttl := 23 * time.Minute
 	c := BuildIDClaims(u, "client-x", "https://id.example.com", "jti-2", "nonce-xyz",
-		Scopes{"openid", "profile", "email"}, auth, now)
+		Scopes{"openid", "profile", "email"}, auth, now, ttl)
 	if c.Nonce != "nonce-xyz" {
 		t.Fatalf("nonce=%s", c.Nonce)
 	}
@@ -75,12 +77,15 @@ func TestBuildIDClaims_AllScopes(t *testing.T) {
 	if c.AuthTime != auth.Unix() {
 		t.Fatalf("auth_time mismatch")
 	}
+	if c.Expires-c.IssuedAt != int64(ttl.Seconds()) {
+		t.Fatalf("ttl mismatch: %d", c.Expires-c.IssuedAt)
+	}
 }
 
 func TestBuildIDClaims_OpenIDOnly_OmitsProfileAndEmail(t *testing.T) {
 	u := makeUser()
 	now := time.Now().UTC()
-	c := BuildIDClaims(u, "cid", "iss", "jti", "", Scopes{"openid"}, now, now)
+	c := BuildIDClaims(u, "cid", "iss", "jti", "", Scopes{"openid"}, now, now, 15*time.Minute)
 	if c.PreferredUsername != "" {
 		t.Fatalf("preferred_username should be empty for openid-only")
 	}
@@ -95,7 +100,7 @@ func TestBuildIDClaims_OpenIDOnly_OmitsProfileAndEmail(t *testing.T) {
 func TestBuildIDClaims_ProfileOnly(t *testing.T) {
 	u := makeUser()
 	now := time.Now().UTC()
-	c := BuildIDClaims(u, "cid", "iss", "jti", "", Scopes{"openid", "profile"}, now, now)
+	c := BuildIDClaims(u, "cid", "iss", "jti", "", Scopes{"openid", "profile"}, now, now, 15*time.Minute)
 	if c.PreferredUsername != "alice@example.com" {
 		t.Fatalf("preferred_username missing")
 	}
@@ -107,7 +112,7 @@ func TestBuildIDClaims_ProfileOnly(t *testing.T) {
 func TestBuildIDClaims_EmailOnly(t *testing.T) {
 	u := makeUser()
 	now := time.Now().UTC()
-	c := BuildIDClaims(u, "cid", "iss", "jti", "", Scopes{"openid", "email"}, now, now)
+	c := BuildIDClaims(u, "cid", "iss", "jti", "", Scopes{"openid", "email"}, now, now, 15*time.Minute)
 	if c.PreferredUsername != "" {
 		t.Fatalf("preferred_username should be empty for email-only")
 	}

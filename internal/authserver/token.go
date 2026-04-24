@@ -14,7 +14,9 @@ import (
 
 	"github.com/abdo75/Schlass/internal/audit"
 	"github.com/abdo75/Schlass/internal/clients"
+	"github.com/abdo75/Schlass/internal/database"
 	"github.com/abdo75/Schlass/internal/httputil"
+	"github.com/abdo75/Schlass/internal/instanceconfig"
 	"github.com/abdo75/Schlass/internal/oidc"
 	"github.com/abdo75/Schlass/internal/session"
 	authsigningkeys "github.com/abdo75/Schlass/internal/signingkeys"
@@ -51,10 +53,6 @@ type tokenResponse struct {
 	Scope        string `json:"scope,omitempty"`
 }
 
-const (
-	refreshTokenTTL = 24 * time.Hour // absolute, from initial code exchange
-)
-
 // TokenHandler serves POST /token (authorization_code + refresh_token grants).
 type TokenHandler struct {
 	pool            *pgxpool.Pool
@@ -65,6 +63,7 @@ type TokenHandler struct {
 	userStore       *users.Store
 	auditStore      audit.Logger
 	sessionStore    session.Store
+	instanceConfig  *instanceconfig.Service
 	refreshStore    oidc.RefreshStore
 	publicURL       string
 	encryptionKey   []byte
@@ -77,6 +76,7 @@ func NewTokenHandler(
 	userStore *users.Store,
 	auditStore audit.Logger,
 	sessionStore session.Store,
+	instanceConfig *instanceconfig.Service,
 	publicURL string,
 	encryptionKey []byte,
 	tokenRateLimit int64,
@@ -90,6 +90,7 @@ func NewTokenHandler(
 		userStore:       userStore,
 		auditStore:      auditStore,
 		sessionStore:    sessionStore,
+		instanceConfig:  instanceConfig,
 		refreshStore:    oidc.NewRefreshStore(valkey),
 		publicURL:       publicURL,
 		encryptionKey:   encryptionKey,
@@ -353,6 +354,13 @@ func (h *TokenHandler) handleAuthorizationCode(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	accessTTL, refreshTTL, err := h.readTokenTTLs(r.Context(), tx)
+	if err != nil {
+		slog.Error("token: readTokenTTLs", "error", err)
+		writeTokenError(w, http.StatusInternalServerError, "server_error", "Could not read token TTLs.")
+		return
+	}
+
 	activeKey, err := h.signingKeyStore.GetActive(r.Context(), tx)
 	if err != nil {
 		slog.Error("token: GetActive signing key", "error", err)
@@ -369,7 +377,7 @@ func (h *TokenHandler) handleAuthorizationCode(w http.ResponseWriter, r *http.Re
 	now := time.Now().UTC()
 	scopes := oidc.Scopes(narrowedCodeScopes)
 	jtiAccess := uuid.NewString()
-	accessClaims := oidc.BuildAccessClaims(u, client.ID.String(), h.publicURL, jtiAccess, scopes, now)
+	accessClaims := oidc.BuildAccessClaims(u, client.ID.String(), h.publicURL, jtiAccess, scopes, now, accessTTL)
 	accessTok, err := oidc.SignAccessToken(accessClaims, activeKey.ID.String(), privPEM)
 	if err != nil {
 		slog.Error("token: sign access token", "error", err)
@@ -385,7 +393,7 @@ func (h *TokenHandler) handleAuthorizationCode(w http.ResponseWriter, r *http.Re
 		nonce = *row.Nonce
 	}
 	jtiID := uuid.NewString()
-	idClaims := oidc.BuildIDClaims(u, client.ID.String(), h.publicURL, jtiID, nonce, scopes, authTime, now)
+	idClaims := oidc.BuildIDClaims(u, client.ID.String(), h.publicURL, jtiID, nonce, scopes, authTime, now, accessTTL)
 	idTok, err := oidc.SignIDToken(idClaims, activeKey.ID.String(), privPEM)
 	if err != nil {
 		slog.Error("token: sign id token", "error", err)
@@ -401,7 +409,7 @@ func (h *TokenHandler) handleAuthorizationCode(w http.ResponseWriter, r *http.Re
 			Scopes:    narrowedCodeScopes,
 			FamilyID:  row.FamilyID.String(),
 			CreatedAt: now.Unix(),
-			Expires:   now.Add(refreshTokenTTL).Unix(),
+			Expires:   now.Add(refreshTTL).Unix(),
 		})
 		if err != nil {
 			slog.Error("token: refresh create", "error", err)
@@ -442,7 +450,7 @@ func (h *TokenHandler) handleAuthorizationCode(w http.ResponseWriter, r *http.Re
 	resp := tokenResponse{
 		AccessToken:  accessTok,
 		TokenType:    "Bearer",
-		ExpiresIn:    int(oidc.AccessTokenTTL.Seconds()),
+		ExpiresIn:    int(accessTTL.Seconds()),
 		RefreshToken: refreshTokenStr,
 		IDToken:      idTok,
 		Scope:        scopes.String(),
@@ -496,6 +504,18 @@ func (h *TokenHandler) rateLimitCheck(ctx context.Context, clientID string) (boo
 		_ = h.valkey.Expire(ctx, key, time.Minute).Err()
 	}
 	return count <= h.tokenRateLimit, nil
+}
+
+func (h *TokenHandler) readTokenTTLs(ctx context.Context, q database.Querier) (access, refresh time.Duration, err error) {
+	accessSecs, err := h.instanceConfig.AccessTokenTTLSecs(ctx, q)
+	if err != nil {
+		return 0, 0, err
+	}
+	refreshSecs, err := h.instanceConfig.RefreshTokenTTLSecs(ctx, q)
+	if err != nil {
+		return 0, 0, err
+	}
+	return time.Duration(accessSecs) * time.Second, time.Duration(refreshSecs) * time.Second, nil
 }
 
 func (h *TokenHandler) writeBestEffortAudit(r *http.Request, entry audit.Entry) {
@@ -673,6 +693,13 @@ func (h *TokenHandler) handleRefreshToken(w http.ResponseWriter, r *http.Request
 		slog.Warn("token refresh: revoke_before Get failed (allowing)", "error", rbErr)
 	}
 
+	accessTTL, _, err := h.readTokenTTLs(r.Context(), h.pool)
+	if err != nil {
+		slog.Error("token refresh: readTokenTTLs", "error", err)
+		writeTokenError(w, http.StatusInternalServerError, "server_error", "Could not read token TTLs.")
+		return
+	}
+
 	activeKey, err := h.signingKeyStore.GetActive(r.Context(), h.pool)
 	if err != nil {
 		slog.Error("token refresh: GetActive", "error", err)
@@ -690,7 +717,7 @@ func (h *TokenHandler) handleRefreshToken(w http.ResponseWriter, r *http.Request
 	scopes := oidc.Scopes(narrowedScopes)
 	jtiAccess := uuid.NewString()
 	jtiID := uuid.NewString()
-	accessClaims := oidc.BuildAccessClaims(u, client.ID.String(), h.publicURL, jtiAccess, scopes, now)
+	accessClaims := oidc.BuildAccessClaims(u, client.ID.String(), h.publicURL, jtiAccess, scopes, now, accessTTL)
 	accessTok, err := oidc.SignAccessToken(accessClaims, activeKey.ID.String(), privPEM)
 	if err != nil {
 		slog.Error("token refresh: sign access", "error", err)
@@ -700,7 +727,7 @@ func (h *TokenHandler) handleRefreshToken(w http.ResponseWriter, r *http.Request
 	// auth_time is not re-derivable at refresh time; use refresh's CreatedAt
 	// as a floor.
 	authTime := time.Unix(oldPayload.CreatedAt, 0).UTC()
-	idClaims := oidc.BuildIDClaims(u, client.ID.String(), h.publicURL, jtiID, "", scopes, authTime, now)
+	idClaims := oidc.BuildIDClaims(u, client.ID.String(), h.publicURL, jtiID, "", scopes, authTime, now, accessTTL)
 	idTok, err := oidc.SignIDToken(idClaims, activeKey.ID.String(), privPEM)
 	if err != nil {
 		slog.Error("token refresh: sign id", "error", err)
@@ -767,7 +794,7 @@ func (h *TokenHandler) handleRefreshToken(w http.ResponseWriter, r *http.Request
 	httputil.WriteJSON(w, http.StatusOK, tokenResponse{
 		AccessToken:  accessTok,
 		TokenType:    "Bearer",
-		ExpiresIn:    int(oidc.AccessTokenTTL.Seconds()),
+		ExpiresIn:    int(accessTTL.Seconds()),
 		RefreshToken: newRefresh,
 		IDToken:      idTok,
 		Scope:        scopes.String(),

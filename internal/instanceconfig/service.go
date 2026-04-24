@@ -67,6 +67,14 @@ func (s *Service) PasswordPolicy(ctx context.Context, q database.Querier) (valid
 	}, nil
 }
 
+func (s *Service) AccessTokenTTLSecs(ctx context.Context, q database.Querier) (int, error) {
+	return s.store.GetInt(ctx, q, "access_token_ttl_secs")
+}
+
+func (s *Service) RefreshTokenTTLSecs(ctx context.Context, q database.Querier) (int, error) {
+	return s.store.GetInt(ctx, q, "refresh_token_ttl_secs")
+}
+
 func (s *Service) EncryptedValue(ctx context.Context, q database.Querier, key string) (string, error) {
 	isNull, err := s.store.IsNull(ctx, q, key)
 	if err != nil {
