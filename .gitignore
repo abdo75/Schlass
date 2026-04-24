@@ -31,10 +31,12 @@ go.work.sum
 # .idea/
 # .vscode/
 
-# Claude
+# Claude / Codex / assistant memory
 .claude
 superpowers
 .superpowers
+/CLAUDE.md
+/AGENTS.md
 # Working artifacts (specs, mockups) stay local.
 # Allowlist operator-facing runbooks + multi-agent handoff plans.
 # Plan files are created per-feature under docs/plans/ and deleted on merge.
@@ -43,6 +45,8 @@ superpowers
 !/docs/operator/**
 !/docs/plans/
 !/docs/plans/**
+!/docs/architecture.md
+!/docs/security.md
 
 # Git worktrees (isolated workspaces for feature branches)
 .worktrees/
@@ -65,5 +69,6 @@ web/test-results/
 
 # Manual UAT scaffolding — local-only third-party RP compose files,
 # baked-in client credentials, not part of the shipping artifact.
-/uat/.superpowers/
+# Walkthrough lives in docs/operator/oidc-rp-integration.md.
+/uat/
 .codex
