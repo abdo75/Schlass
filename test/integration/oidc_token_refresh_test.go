@@ -12,9 +12,9 @@ import (
 	"strings"
 	"testing"
 
+	signingkeys "github.com/abdo75/Schlass/internal/signingkeys"
 	"github.com/abdo75/Schlass/internal/oidc"
 	"github.com/abdo75/Schlass/internal/server"
-	"github.com/abdo75/Schlass/internal/store"
 )
 
 // ---- helpers local to refresh tests ----
@@ -142,7 +142,7 @@ func TestTokenRefresh_HappyPath_IssuesNewAccessAndRotatesRefresh(t *testing.T) {
 	}
 
 	// Verify new access token parses correctly with a fresh jti.
-	keyStore := store.NewSigningKeyStore()
+	keyStore := signingkeys.NewStore()
 	keys, err := keyStore.ListPublishable(context.Background(), env.Pool)
 	if err != nil || len(keys) == 0 {
 		t.Fatalf("list publishable keys: %v", err)

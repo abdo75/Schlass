@@ -10,8 +10,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/abdo75/Schlass/internal/oidc"
-	"github.com/abdo75/Schlass/internal/store"
+	"github.com/abdo75/Schlass/internal/audit"
+	signingkeys "github.com/abdo75/Schlass/internal/signingkeys"
 )
 
 // adminPost fires POST <path> against the test router with the given admin
@@ -62,7 +62,7 @@ func TestEmergencyRetire_RetiringKey_200(t *testing.T) {
 	ctx := context.Background()
 
 	// Bootstrap the initial active key so rotate has something to retire.
-	if err := oidc.BootstrapSigningKey(ctx, env.Pool, store.NewAuditStore(), env.Cfg.EncryptionKey); err != nil {
+	if err := signingkeys.Bootstrap(ctx, env.Pool, audit.NewStore(), env.Cfg.EncryptionKey); err != nil {
 		t.Fatalf("bootstrap: %v", err)
 	}
 
@@ -141,7 +141,7 @@ func TestEmergencyRetire_ActiveKey_409(t *testing.T) {
 	defer env.Close()
 	ctx := context.Background()
 
-	if err := oidc.BootstrapSigningKey(ctx, env.Pool, store.NewAuditStore(), env.Cfg.EncryptionKey); err != nil {
+	if err := signingkeys.Bootstrap(ctx, env.Pool, audit.NewStore(), env.Cfg.EncryptionKey); err != nil {
 		t.Fatalf("bootstrap: %v", err)
 	}
 

@@ -12,9 +12,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/abdo75/Schlass/internal/middleware"
+	"github.com/abdo75/Schlass/internal/authserver"
+	signingkeys "github.com/abdo75/Schlass/internal/signingkeys"
 	"github.com/abdo75/Schlass/internal/oidc"
-	"github.com/abdo75/Schlass/internal/store"
 )
 
 // seedBearerSigningKey bootstraps a fresh signing key and returns its
@@ -27,7 +27,7 @@ func seedBearerSigningKey(t *testing.T, env *TestEnv) (kid string, privPEM []byt
 		t.Fatalf("gen keypair: %v", err)
 	}
 	wrapped, _ := oidc.WrapPrivateKey(priv, env.Cfg.EncryptionKey)
-	id, err := store.NewSigningKeyStore().Insert(context.Background(), env.Pool, pub, wrapped, "active")
+	id, err := signingkeys.NewStore().Insert(context.Background(), env.Pool, pub, wrapped, "active")
 	if err != nil {
 		t.Fatalf("insert key: %v", err)
 	}
@@ -41,13 +41,13 @@ func seedBearerSigningKey(t *testing.T, env *TestEnv) (kid string, privPEM []byt
 func newBearerProbe(t *testing.T, env *TestEnv) http.Handler {
 	t.Helper()
 	probe := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		claims, _ := middleware.CurrentBearerClaims(r.Context())
+		claims, _ := authserver.CurrentBearerClaims(r.Context())
 		if claims != nil {
 			w.Header().Set("X-Token-Sub", claims.Subject)
 		}
 		w.WriteHeader(http.StatusOK)
 	})
-	mw := middleware.BearerAuth(middleware.BearerAuthDeps{
+	mw := authserver.BearerAuth(authserver.BearerAuthDeps{
 		Pool:      env.Pool,
 		UserStore: env.UserStore,
 		Issuer:    env.Cfg.SchlassPublicURL,

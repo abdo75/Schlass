@@ -9,8 +9,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/abdo75/Schlass/internal/scheduler"
-	"github.com/abdo75/Schlass/internal/store"
+	"github.com/abdo75/Schlass/internal/audit"
+	"github.com/abdo75/Schlass/internal/server"
 )
 
 func TestSweeper_DeletesExpiredResetTokens(t *testing.T) {
@@ -25,7 +25,7 @@ func TestSweeper_DeletesExpiredResetTokens(t *testing.T) {
 	}
 	seedExpiredResetToken(t, env, uid, 0) // not expired
 
-	if err := scheduler.RunSweepOnce(t.Context(), env.Pool, store.NewAuditStore()); err != nil {
+	if err := server.RunSweepOnce(t.Context(), env.Pool, audit.NewStore()); err != nil {
 		t.Fatalf("sweep: %v", err)
 	}
 
@@ -48,7 +48,7 @@ func TestSweeper_AuditRowWithCounts(t *testing.T) {
 	seedExpiredResetToken(t, env, uid, 31*24*time.Hour)
 	seedExpiredResetToken(t, env, uid, 31*24*time.Hour)
 
-	if err := scheduler.RunSweepOnce(t.Context(), env.Pool, store.NewAuditStore()); err != nil {
+	if err := server.RunSweepOnce(t.Context(), env.Pool, audit.NewStore()); err != nil {
 		t.Fatalf("sweep: %v", err)
 	}
 

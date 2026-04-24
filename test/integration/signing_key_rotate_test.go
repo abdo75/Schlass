@@ -10,8 +10,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/abdo75/Schlass/internal/oidc"
-	"github.com/abdo75/Schlass/internal/store"
+	"github.com/abdo75/Schlass/internal/audit"
+	signingkeys "github.com/abdo75/Schlass/internal/signingkeys"
 )
 
 // Bootstrap + rotate through HTTP. Verifies:
@@ -23,10 +23,10 @@ func TestRotateSigningKey_TransitionsActiveToRetiringAndCreatesNew(t *testing.T)
 	ctx := context.Background()
 
 	// Bootstrap a key so there's an active one to rotate FROM.
-	if err := oidc.BootstrapSigningKey(ctx, env.Pool, store.NewAuditStore(), env.Cfg.EncryptionKey); err != nil {
+	if err := signingkeys.Bootstrap(ctx, env.Pool, audit.NewStore(), env.Cfg.EncryptionKey); err != nil {
 		t.Fatalf("bootstrap: %v", err)
 	}
-	before, err := store.NewSigningKeyStore().GetActive(ctx, env.Pool)
+	before, err := signingkeys.NewStore().GetActive(ctx, env.Pool)
 	if err != nil {
 		t.Fatalf("precondition: no active key: %v", err)
 	}
@@ -43,7 +43,7 @@ func TestRotateSigningKey_TransitionsActiveToRetiringAndCreatesNew(t *testing.T)
 		t.Fatalf("status=%d want 204: %s", rec.Code, rec.Body.String())
 	}
 
-	after, err := store.NewSigningKeyStore().GetActive(ctx, env.Pool)
+	after, err := signingkeys.NewStore().GetActive(ctx, env.Pool)
 	if err != nil {
 		t.Fatalf("no active key after rotate: %v", err)
 	}
@@ -51,7 +51,7 @@ func TestRotateSigningKey_TransitionsActiveToRetiringAndCreatesNew(t *testing.T)
 		t.Fatal("rotate did not generate a new active key")
 	}
 
-	pub, _ := store.NewSigningKeyStore().ListPublishable(ctx, env.Pool)
+	pub, _ := signingkeys.NewStore().ListPublishable(ctx, env.Pool)
 	foundRetiring := false
 	for _, k := range pub {
 		if k.ID == before.ID && k.Status == "retiring" {

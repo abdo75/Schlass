@@ -4,7 +4,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/abdo75/Schlass/internal/store"
+	"github.com/abdo75/Schlass/internal/users"
 )
 
 const (
@@ -27,7 +27,7 @@ func (s Scopes) Has(want string) bool {
 
 // BuildAccessClaims: RFC 9068. issuer = SCHLASS_PUBLIC_URL, aud = client_id.
 func BuildAccessClaims(
-	user *store.User, clientID, issuer, jti string,
+	user *users.User, clientID, issuer, jti string,
 	scopes Scopes, now time.Time,
 ) AccessTokenClaims {
 	return AccessTokenClaims{
@@ -45,7 +45,7 @@ func BuildAccessClaims(
 // BuildIDClaims: authTime = session.CreatedAt (spec §5a.6). Profile scope
 // adds preferred_username + updated_at; email scope adds email + verified=true.
 func BuildIDClaims(
-	user *store.User, clientID, issuer, jti, nonce string,
+	user *users.User, clientID, issuer, jti, nonce string,
 	scopes Scopes, authTime time.Time, now time.Time,
 ) IDTokenClaims {
 	c := IDTokenClaims{
@@ -80,7 +80,7 @@ type UserInfoClaims struct {
 	EmailVerified     *bool  `json:"email_verified,omitempty"`
 }
 
-func BuildUserInfoClaims(user *store.User, scopes Scopes) UserInfoClaims {
+func BuildUserInfoClaims(user *users.User, scopes Scopes) UserInfoClaims {
 	c := UserInfoClaims{Sub: user.ID.String()}
 	if scopes.Has("profile") {
 		c.PreferredUsername = user.Email

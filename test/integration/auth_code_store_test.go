@@ -12,7 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/abdo75/Schlass/internal/crypto"
-	"github.com/abdo75/Schlass/internal/store"
+	"github.com/abdo75/Schlass/internal/authserver"
 )
 
 // sha256hex produces the code_hash form expected by AuthCodeStore.
@@ -48,11 +48,11 @@ func TestAuthCodeStore_InsertAndConsumeOnce(t *testing.T) {
 	clientID := seedOIDCClient(t, env, "http://localhost/cb")
 	userID := env.SeedAdmin(t, "u@example.com", "CorrectHorse1Battery")
 
-	s := store.NewAuthCodeStore()
+	s := authserver.NewAuthCodeStore()
 	code := "raw-code-abc"
 	hash := sha256hex(code)
 	familyID := uuid.New()
-	err := s.Insert(ctx, env.Pool, store.AuthCodeRow{
+	err := s.Insert(ctx, env.Pool, authserver.AuthCodeRow{
 		CodeHash:            hash,
 		ClientID:            clientID,
 		UserID:              userID,
@@ -80,7 +80,7 @@ func TestAuthCodeStore_InsertAndConsumeOnce(t *testing.T) {
 	}
 
 	_, err = s.ConsumeOnce(ctx, env.Pool, hash)
-	if err != store.ErrAuthCodeAlreadyUsed {
+	if err != authserver.ErrAuthCodeAlreadyUsed {
 		t.Fatalf("consume 2 err=%v want ErrAuthCodeAlreadyUsed", err)
 	}
 
@@ -99,9 +99,9 @@ func TestAuthCodeStore_ExpiredCodeNotConsumed(t *testing.T) {
 
 	clientID := seedOIDCClient(t, env, "http://localhost/cb")
 	userID := env.SeedAdmin(t, "u2@example.com", "CorrectHorse1Battery")
-	s := store.NewAuthCodeStore()
+	s := authserver.NewAuthCodeStore()
 	hash := sha256hex("expired-code")
-	_ = s.Insert(ctx, env.Pool, store.AuthCodeRow{
+	_ = s.Insert(ctx, env.Pool, authserver.AuthCodeRow{
 		CodeHash:            hash,
 		ClientID:            clientID,
 		UserID:              userID,
@@ -113,16 +113,16 @@ func TestAuthCodeStore_ExpiredCodeNotConsumed(t *testing.T) {
 		FamilyID:            uuid.New(),
 	})
 	_, err := s.ConsumeOnce(ctx, env.Pool, hash)
-	if err != store.ErrAuthCodeAlreadyUsed {
+	if err != authserver.ErrAuthCodeAlreadyUsed {
 		t.Fatalf("expired code should be ErrAuthCodeAlreadyUsed, got %v", err)
 	}
 }
 
 func TestAuthCodeStore_UnknownCodeReturnsErr(t *testing.T) {
 	env := NewTestEnv(t)
-	s := store.NewAuthCodeStore()
+	s := authserver.NewAuthCodeStore()
 	_, err := s.ConsumeOnce(context.Background(), env.Pool, "deadbeef"+sha256hex("unknown"))
-	if err != store.ErrAuthCodeAlreadyUsed {
+	if err != authserver.ErrAuthCodeAlreadyUsed {
 		t.Fatalf("want ErrAuthCodeAlreadyUsed, got %v", err)
 	}
 }
@@ -132,10 +132,10 @@ func TestAuthCodeStore_NonceRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	clientID := seedOIDCClient(t, env, "http://localhost/cb")
 	userID := env.SeedAdmin(t, "u3@example.com", "CorrectHorse1Battery")
-	s := store.NewAuthCodeStore()
+	s := authserver.NewAuthCodeStore()
 	nonce := "xyz-123"
 	hash := sha256hex("code-w-nonce")
-	_ = s.Insert(ctx, env.Pool, store.AuthCodeRow{
+	_ = s.Insert(ctx, env.Pool, authserver.AuthCodeRow{
 		CodeHash:            hash,
 		ClientID:            clientID,
 		UserID:              userID,

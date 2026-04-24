@@ -6,14 +6,14 @@ import (
 	"context"
 	"testing"
 
-	"github.com/abdo75/Schlass/internal/store"
+	"github.com/abdo75/Schlass/internal/clients"
 )
 
 func TestClientStore_UpdateFields_Partial(t *testing.T) {
 	env := NewTestEnv(t)
 	ctx := context.Background()
 
-	c, err := store.NewClientStore().Create(ctx, env.Pool, store.CreateClientParams{
+	c, err := clients.NewStore().Create(ctx, env.Pool, clients.CreateClientParams{
 		Name: "before", ClientType: "confidential", SecretHash: "h",
 		RedirectURIs:            []string{"https://a/cb"},
 		AllowedGrantTypes:       []string{"authorization_code"},
@@ -25,7 +25,7 @@ func TestClientStore_UpdateFields_Partial(t *testing.T) {
 	}
 
 	newName := "after"
-	updated, err := store.NewClientStore().UpdateFields(ctx, env.Pool, c.ID.String(), store.UpdateClientPatch{
+	updated, err := clients.NewStore().UpdateFields(ctx, env.Pool, c.ID.String(), clients.UpdateClientPatch{
 		Name: &newName,
 	})
 	if err != nil {

@@ -6,8 +6,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/abdo75/Schlass/internal/clients"
 	"github.com/abdo75/Schlass/internal/crypto"
-	"github.com/abdo75/Schlass/internal/store"
 )
 
 func TestClientStore_GetByIDAndVerifySecret(t *testing.T) {
@@ -33,7 +33,7 @@ func TestClientStore_GetByIDAndVerifySecret(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 
-	s := store.NewClientStore()
+	s := clients.NewStore()
 	c, err := s.GetByID(ctx, env.Pool, id)
 	if err != nil {
 		t.Fatalf("get: %v", err)
@@ -80,18 +80,18 @@ func TestClientStore_DisabledClientReturnsNotFound(t *testing.T) {
 		RETURNING id
 	`, hash).Scan(&id)
 
-	s := store.NewClientStore()
+	s := clients.NewStore()
 	_, err := s.GetByID(ctx, env.Pool, id)
-	if err != store.ErrClientNotFound {
+	if err != clients.ErrClientNotFound {
 		t.Fatalf("got %v want ErrClientNotFound (enumeration defense)", err)
 	}
 }
 
 func TestClientStore_GetByIDMalformedUUIDReturnsNotFound(t *testing.T) {
 	env := NewTestEnv(t)
-	s := store.NewClientStore()
+	s := clients.NewStore()
 	_, err := s.GetByID(context.Background(), env.Pool, "not-a-uuid")
-	if err != store.ErrClientNotFound {
+	if err != clients.ErrClientNotFound {
 		t.Fatalf("got %v want ErrClientNotFound", err)
 	}
 }

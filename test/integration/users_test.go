@@ -17,7 +17,7 @@ import (
 
 	"github.com/abdo75/Schlass/internal/crypto"
 	"github.com/abdo75/Schlass/internal/session"
-	"github.com/abdo75/Schlass/internal/store"
+	"github.com/abdo75/Schlass/internal/audit"
 )
 
 // mustParseUUID parses a string to uuid.UUID or fails the test.
@@ -1037,7 +1037,7 @@ func TestUsers_Delete_PreservesAuditTrail(t *testing.T) {
 	// Write a login.succeeded audit row with the victim as actor, directly
 	// via the audit store, mirroring the real auth handler's shape.
 	as := env.BuildDeps().AuditStore
-	if err := as.Log(ctx, env.Pool, store.AuditEntry{
+	if err := as.Log(ctx, env.Pool, audit.Entry{
 		EventType:  "login.succeeded",
 		ActorID:    &victimUUID,
 		ActorEmail: "victim@example.com",

@@ -4,12 +4,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/abdo75/Schlass/internal/store"
+	"github.com/abdo75/Schlass/internal/users"
 	"github.com/google/uuid"
 )
 
-func makeUser() *store.User {
-	return &store.User{
+func makeUser() *users.User {
+	return &users.User{
 		ID:        uuid.MustParse("11111111-1111-1111-1111-111111111111"),
 		Email:     "alice@example.com",
 		UpdatedAt: time.Date(2026, 1, 15, 10, 0, 0, 0, time.UTC),

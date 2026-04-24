@@ -12,8 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/abdo75/Schlass/internal/config"
-	"github.com/abdo75/Schlass/internal/store"
+	"github.com/abdo75/Schlass/internal/instanceconfig"
 )
 
 // adminPatch fires PATCH <path> against the test router with the given admin
@@ -327,8 +326,8 @@ func TestPatchTokens_Validation_OutOfRange(t *testing.T) {
 // newInstanceConfigForEnv constructs a InstanceConfig using the same encryption
 // key the test router was built with, so tests can decrypt values that the
 // PATCH handler wrote. Equivalent to the wiring inside env.BuildDeps().
-func newInstanceConfigForEnv(env *TestEnv) *config.InstanceConfig {
-	return config.NewInstanceConfig(store.NewConfigStore(), env.Cfg.EncryptionKey)
+func newInstanceConfigForEnv(env *TestEnv) *instanceconfig.Service {
+	return instanceconfig.NewService(instanceconfig.NewStore(), env.Cfg.EncryptionKey)
 }
 
 // TestPatchEmail_KeepCurrentPasswordOnEmpty is the load-bearing compliance

@@ -10,14 +10,15 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/abdo75/Schlass/internal/middleware"
-	"github.com/abdo75/Schlass/internal/store"
+	"github.com/abdo75/Schlass/internal/audit"
+	"github.com/abdo75/Schlass/internal/auth"
+	"github.com/abdo75/Schlass/internal/users"
 )
 
 // optionalAuthProbeHandler records whether CurrentUser was set by OptionalAuth.
-func optionalAuthProbeHandler(got **store.User) http.Handler {
+func optionalAuthProbeHandler(got **users.User) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		u, _ := middleware.CurrentUser(r.Context())
+		u, _ := auth.CurrentUser(r.Context())
 		*got = u
 		w.WriteHeader(http.StatusOK)
 	})
@@ -25,8 +26,8 @@ func optionalAuthProbeHandler(got **store.User) http.Handler {
 
 func TestOptionalAuth_NoCookiePassesThrough(t *testing.T) {
 	env := NewTestEnv(t)
-	mw := middleware.OptionalAuth(env.SessionStore, env.UserStore, store.NewAuditStore(), env.Pool)
-	var got *store.User
+	mw := auth.OptionalMiddleware(env.SessionStore, env.UserStore, audit.NewStore(), env.Pool)
+	var got *users.User
 	h := mw(optionalAuthProbeHandler(&got))
 
 	req := httptest.NewRequestWithContext(t.Context(), "GET", "/authorize", nil)
@@ -45,8 +46,8 @@ func TestOptionalAuth_ValidSessionInjectsUser(t *testing.T) {
 	env.SeedAdmin(t, "a@example.com", "CorrectHorse1Battery")
 	cookie := env.LoginAsAdmin(t, "a@example.com", "CorrectHorse1Battery")
 
-	mw := middleware.OptionalAuth(env.SessionStore, env.UserStore, store.NewAuditStore(), env.Pool)
-	var got *store.User
+	mw := auth.OptionalMiddleware(env.SessionStore, env.UserStore, audit.NewStore(), env.Pool)
+	var got *users.User
 	h := mw(optionalAuthProbeHandler(&got))
 
 	req := httptest.NewRequestWithContext(t.Context(), "GET", "/authorize", nil)
@@ -74,8 +75,8 @@ func TestOptionalAuth_OrphanSessionRevokes(t *testing.T) {
 	userID := env.GetUserIDByEmail(t, "ghost@example.com")
 	_, _ = env.Pool.Exec(ctx, `DELETE FROM users WHERE id=$1`, userID)
 
-	mw := middleware.OptionalAuth(env.SessionStore, env.UserStore, store.NewAuditStore(), env.Pool)
-	var got *store.User
+	mw := auth.OptionalMiddleware(env.SessionStore, env.UserStore, audit.NewStore(), env.Pool)
+	var got *users.User
 	h := mw(optionalAuthProbeHandler(&got))
 
 	req := httptest.NewRequestWithContext(t.Context(), "GET", "/authorize", nil)
@@ -116,8 +117,8 @@ func TestOptionalAuth_DisabledUserRevokes(t *testing.T) {
 	userID := env.GetUserIDByEmail(t, "d@example.com")
 	_, _ = env.Pool.Exec(ctx, `UPDATE users SET status='disabled' WHERE id=$1`, userID)
 
-	mw := middleware.OptionalAuth(env.SessionStore, env.UserStore, store.NewAuditStore(), env.Pool)
-	var got *store.User
+	mw := auth.OptionalMiddleware(env.SessionStore, env.UserStore, audit.NewStore(), env.Pool)
+	var got *users.User
 	h := mw(optionalAuthProbeHandler(&got))
 
 	req := httptest.NewRequestWithContext(t.Context(), "GET", "/authorize", nil)
@@ -155,8 +156,8 @@ func TestOptionalAuth_InvalidUUIDInSessionPassesThrough(t *testing.T) {
 		`{"user_id":"not-a-uuid","created_at":"2026-01-01T00:00:00Z","last_seen_at":"2026-01-01T00:00:00Z","ip_address":"","user_agent":""}`,
 		0).Err()
 
-	mw := middleware.OptionalAuth(env.SessionStore, env.UserStore, store.NewAuditStore(), env.Pool)
-	var got *store.User
+	mw := auth.OptionalMiddleware(env.SessionStore, env.UserStore, audit.NewStore(), env.Pool)
+	var got *users.User
 	h := mw(optionalAuthProbeHandler(&got))
 
 	req := httptest.NewRequestWithContext(t.Context(), "GET", "/authorize", nil)

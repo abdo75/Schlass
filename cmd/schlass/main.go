@@ -10,16 +10,17 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/abdo75/Schlass/internal/bootstrap"
+	"github.com/abdo75/Schlass/internal/audit"
+	"github.com/abdo75/Schlass/internal/auth"
+	"github.com/abdo75/Schlass/internal/clients"
 	"github.com/abdo75/Schlass/internal/config"
 	"github.com/abdo75/Schlass/internal/crypto"
 	"github.com/abdo75/Schlass/internal/database"
-	"github.com/abdo75/Schlass/internal/handler"
-	"github.com/abdo75/Schlass/internal/oidc"
+	"github.com/abdo75/Schlass/internal/instanceconfig"
 	"github.com/abdo75/Schlass/internal/recovery"
-	"github.com/abdo75/Schlass/internal/scheduler"
 	"github.com/abdo75/Schlass/internal/server"
-	"github.com/abdo75/Schlass/internal/store"
+	"github.com/abdo75/Schlass/internal/signingkeys"
+	"github.com/abdo75/Schlass/internal/users"
 	"github.com/abdo75/Schlass/internal/valkey"
 )
 
@@ -70,32 +71,32 @@ func main() {
 	defer func() { _ = valkeyClient.Close() }() // error on Close is non-actionable during shutdown
 
 	// Build the store objects that handlers use to read and write each table.
-	configStore := store.NewConfigStore()
-	userStore := store.NewUserStore()
-	auditStore := store.NewAuditStore()
-	recoveryCodeStore := store.NewRecoveryCodeStore()
-	instanceConfig := config.NewInstanceConfig(configStore, cfg.EncryptionKey)
+	configStore := instanceconfig.NewStore()
+	userStore := users.NewStore()
+	auditStore := audit.NewStore()
+	recoveryCodeStore := auth.NewRecoveryCodeStore()
+	instanceConfig := instanceconfig.NewService(configStore, cfg.EncryptionKey)
 
 	// Make sure a signing key exists so we can issue OIDC tokens. Generates one on first boot.
 	slog.Info("bootstrapping signing key")
-	if err := oidc.BootstrapSigningKey(ctx, pool, auditStore, cfg.EncryptionKey); err != nil {
+	if err := signingkeys.Bootstrap(ctx, pool, auditStore, cfg.EncryptionKey); err != nil {
 		slog.Error("signing-key bootstrap failed", "error", err)
 		os.Exit(1)
 	}
 
 	// Clean up old signing keys that are past their grace window.
 	retireCutoff := time.Now().Add(-(15*time.Minute + 24*time.Hour + 30*time.Second))
-	if err := oidc.RetireSweep(ctx, pool, auditStore, retireCutoff); err != nil {
+	if err := signingkeys.RetireSweep(ctx, pool, auditStore, retireCutoff); err != nil {
 		slog.Warn("signing-key retire sweep failed", "error", err)
 		// Non-fatal — orphan retiring keys just stay listed.
 	}
 
 	// Nightly cleanup of expired reset tokens + auth codes. Bound to ctx so
 	// graceful shutdown cancels cleanly. 0 interval disables.
-	go scheduler.StartSweeper(ctx, pool, time.Duration(cfg.SweeperIntervalSecs)*time.Second, auditStore)
+	go server.StartSweeper(ctx, pool, time.Duration(cfg.SweeperIntervalSecs)*time.Second, auditStore)
 
 	// Create a test OIDC client when running in dev mode. Skipped in prod.
-	if err := bootstrap.SeedDevClient(ctx, pool, os.Getenv("SCHLASS_DEV"), os.Getenv("SCHLASS_DEV_SECRET"), cfg.SchlassPublicURL); err != nil {
+	if err := server.SeedDevClient(ctx, pool, os.Getenv("SCHLASS_DEV"), os.Getenv("SCHLASS_DEV_SECRET"), cfg.SchlassPublicURL); err != nil {
 		slog.Error("dev-seed failed", "error", err)
 		os.Exit(1)
 	}
@@ -108,8 +109,8 @@ func main() {
 	}
 
 	// Wire up the admin endpoints that manage OIDC clients (create, rotate secret, delete, etc).
-	clientStore := store.NewClientStore()
-	clientsHandler := handler.NewClientsHandler(pool, valkeyClient, clientStore, auditStore, publicURL)
+	clientStore := clients.NewStore()
+	clientsHandler := clients.NewHandler(pool, valkeyClient, clientStore, auditStore, publicURL)
 
 	// Optional: set up the "have I been pwned" check that blocks known breached passwords.
 	// Left as nil if the feature is turned off.
@@ -123,14 +124,14 @@ func main() {
 
 	// Build the router: every URL the app responds to, wired to its handler.
 	h, err := server.BuildRouter(server.RouterDeps{
-		Cfg:                   cfg,
-		Pool:                  pool,
-		ValkeyClient:          valkeyClient,
-		ConfigStore:           configStore,
-		UserStore:             userStore,
-		RecoveryCodeStore:     recoveryCodeStore,
-		AuditStore:            auditStore,
-		InstanceConfig:        instanceConfig,
+		Cfg:                    cfg,
+		Pool:                   pool,
+		ValkeyClient:           valkeyClient,
+		ConfigStore:            configStore,
+		UserStore:              userStore,
+		RecoveryCodeStore:      recoveryCodeStore,
+		AuditStore:             auditStore,
+		InstanceConfig:         instanceConfig,
 		LoginRateLimit:         cfg.LoginRateLimit,
 		MfaChallengeRateLimit:  cfg.MfaChallengeRateLimit,
 		PasswordResetRateLimit: cfg.PasswordResetRateLimit,

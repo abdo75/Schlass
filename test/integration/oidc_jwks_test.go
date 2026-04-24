@@ -9,14 +9,15 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/abdo75/Schlass/internal/audit"
+	signingkeys "github.com/abdo75/Schlass/internal/signingkeys"
 	"github.com/abdo75/Schlass/internal/oidc"
-	"github.com/abdo75/Schlass/internal/store"
 )
 
 func TestJWKS_PublishesBootstrappedActiveKey(t *testing.T) {
 	env := NewTestEnv(t)
 
-	if err := oidc.BootstrapSigningKey(context.Background(), env.Pool, store.NewAuditStore(), env.Cfg.EncryptionKey); err != nil {
+	if err := signingkeys.Bootstrap(context.Background(), env.Pool, audit.NewStore(), env.Cfg.EncryptionKey); err != nil {
 		t.Fatalf("bootstrap: %v", err)
 	}
 
@@ -50,7 +51,7 @@ func TestJWKS_RetiredKeysOmitted(t *testing.T) {
 	env := NewTestEnv(t)
 	ctx := context.Background()
 
-	s := store.NewSigningKeyStore()
+	s := signingkeys.NewStore()
 	// An active + a retired key directly inserted.
 	pubPEM, _, _ := oidc.GenerateKeyPair()
 	activeID, _ := s.Insert(ctx, env.Pool, pubPEM, []byte("enc"), "active")

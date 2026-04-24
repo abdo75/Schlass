@@ -21,13 +21,17 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
+	"github.com/abdo75/Schlass/internal/audit"
+	"github.com/abdo75/Schlass/internal/auth"
+	
+	"github.com/abdo75/Schlass/internal/clients"
 	"github.com/abdo75/Schlass/internal/config"
 	"github.com/abdo75/Schlass/internal/crypto"
 	"github.com/abdo75/Schlass/internal/database"
-	"github.com/abdo75/Schlass/internal/handler"
+	"github.com/abdo75/Schlass/internal/instanceconfig"
 	"github.com/abdo75/Schlass/internal/server"
 	"github.com/abdo75/Schlass/internal/session"
-	"github.com/abdo75/Schlass/internal/store"
+	"github.com/abdo75/Schlass/internal/users"
 )
 
 type TestEnv struct {
@@ -39,8 +43,8 @@ type TestEnv struct {
 	MigrConnString    string
 	Router            http.Handler
 	Cfg               *config.Env
-	UserStore         *store.UserStore
-	RecoveryCodeStore *store.RecoveryCodeStore
+	UserStore         *users.Store
+	RecoveryCodeStore *auth.RecoveryCodeStore
 	SessionStore      session.Store
 }
 
@@ -108,8 +112,8 @@ func NewTestEnv(t *testing.T) *TestEnv {
 		AppConnString:     sharedAppConnString,
 		MigrConnString:    sharedMigrConnString,
 		Cfg:               cfg,
-		UserStore:         store.NewUserStore(),
-		RecoveryCodeStore: store.NewRecoveryCodeStore(),
+		UserStore:         users.NewStore(),
+		RecoveryCodeStore: auth.NewRecoveryCodeStore(),
 		SessionStore:      session.NewValkeyStore(valkeyClient, 24*time.Hour),
 	}
 
@@ -168,20 +172,20 @@ func setupIntegrationEnv(t *testing.T) *TestEnv {
 // Used internally by NewTestEnv and externally by WithFakeAuditStore when it
 // needs to rebuild the router with a swapped dependency.
 func (e *TestEnv) BuildDeps() server.RouterDeps {
-	configStore := store.NewConfigStore()
-	auditStore := store.NewAuditStore()
-	clientStore := store.NewClientStore()
+	configStore := instanceconfig.NewStore()
+	auditStore := audit.NewStore()
+	clientStore := clients.NewStore()
 	publicURL, _ := url.Parse(e.Cfg.SchlassPublicURL) // always valid — set from test constants
-	clientsHandler := handler.NewClientsHandler(e.Pool, e.ValkeyClient, clientStore, auditStore, publicURL)
+	clientsHandler := clients.NewHandler(e.Pool, e.ValkeyClient, clientStore, auditStore, publicURL)
 	return server.RouterDeps{
 		Cfg:               e.Cfg,
 		Pool:              e.Pool,
 		ValkeyClient:      e.ValkeyClient,
 		ConfigStore:       configStore,
-		UserStore:         store.NewUserStore(),
-		RecoveryCodeStore: store.NewRecoveryCodeStore(),
+		UserStore:         users.NewStore(),
+		RecoveryCodeStore: auth.NewRecoveryCodeStore(),
 		AuditStore:        auditStore,
-		InstanceConfig:    config.NewInstanceConfig(configStore, e.Cfg.EncryptionKey),
+		InstanceConfig:    instanceconfig.NewService(configStore, e.Cfg.EncryptionKey),
 		// Tests drive many login attempts from the same virtual client IP
 		// (httptest uses 192.0.2.1 for every request). Raise the login
 		// rate-limit cap so the production 5/min guard doesn't mask the
@@ -221,7 +225,7 @@ func (e *TestEnv) SeedAdmin(t *testing.T, email, password string) uuid.UUID {
 	if err != nil {
 		t.Fatalf("hash password: %v", err)
 	}
-	us := store.NewUserStore()
+	us := users.NewStore()
 	id, err := us.Create(context.Background(), e.Pool, email, hash, "super_admin", false)
 	if err != nil {
 		t.Fatalf("seed admin: %v", err)
@@ -275,25 +279,25 @@ func (e *TestEnv) CaptureLogs(t *testing.T) *bytes.Buffer {
 	return &buf
 }
 
-// failingAuditStore satisfies handler.AuditLogger by returning whatever fn
-// returns on every Log call. Used by WithFakeAuditStore to exercise the
+// failingAuditStore satisfies audit.PseudonymizingLogger by returning whatever
+// fn returns on every Log call. Used by WithFakeAuditStore to exercise the
 // "audit failure rolls back the login tx" contract.
 type failingAuditStore struct {
 	fn func() error
 }
 
-func (f *failingAuditStore) Log(_ context.Context, _ database.Querier, _ store.AuditEntry) error {
+func (f *failingAuditStore) Log(_ context.Context, _ database.Querier, _ audit.Entry) error {
 	return f.fn()
 }
 
-// PseudonymizeUser satisfies handler.AuditLogger. Fake returns 0 rows with
-// no error — tests that drive the pseudonymize path use the real store.
+// PseudonymizeUser satisfies audit.PseudonymizingLogger. Fake returns 0 rows
+// with no error — tests that drive the pseudonymize path use the real store.
 func (f *failingAuditStore) PseudonymizeUser(_ context.Context, _ database.Querier, _ uuid.UUID) (int, error) {
 	return 0, nil
 }
 
-// Compile-time proof that failingAuditStore satisfies handler.AuditLogger.
-var _ handler.AuditLogger = (*failingAuditStore)(nil)
+// Compile-time proof that failingAuditStore satisfies audit.PseudonymizingLogger.
+var _ audit.PseudonymizingLogger = (*failingAuditStore)(nil)
 
 // WithFakeAuditStore rebuilds the router with an audit store whose Log method
 // always returns fn(). The original router is restored via t.Cleanup so the
@@ -345,7 +349,7 @@ func (e *TestEnv) WithBrokenValkey(t *testing.T) {
 	deps := e.BuildDeps()
 	deps.ValkeyClient = redis.NewClient(&redis.Options{
 		Addr:        "127.0.0.1:1", // reserved/unassigned — connection refused
-		MaxRetries:  -1,             // no retries — fail fast
+		MaxRetries:  -1,            // no retries — fail fast
 		DialTimeout: 100 * time.Millisecond,
 	})
 	newRouter, err := server.BuildRouter(deps)
@@ -433,7 +437,7 @@ func (e *TestEnv) InsertResetToken(t *testing.T, userID uuid.UUID, ttl time.Dura
 	if err != nil {
 		t.Fatalf("InsertResetToken: derive pepper: %v", err)
 	}
-	ts := store.NewPasswordResetTokenStore(pepper)
+	ts := auth.NewTokenStore(pepper)
 	if _, err := ts.Insert(context.Background(), e.Pool, userID, plaintext, ttl, netip.Addr{}); err != nil {
 		t.Fatalf("InsertResetToken: insert: %v", err)
 	}

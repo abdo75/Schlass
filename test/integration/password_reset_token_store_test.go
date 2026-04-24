@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/abdo75/Schlass/internal/auth"
 	"github.com/abdo75/Schlass/internal/crypto"
-	"github.com/abdo75/Schlass/internal/store"
 )
 
 func TestInvalidateOutstandingForUser_MarksUnusedUsed(t *testing.T) {
@@ -22,7 +22,7 @@ func TestInvalidateOutstandingForUser_MarksUnusedUsed(t *testing.T) {
 	if perr != nil {
 		t.Fatalf("derive pepper: %v", perr)
 	}
-	ts := store.NewPasswordResetTokenStore(pepper)
+	ts := auth.NewTokenStore(pepper)
 
 	var raw [32]byte
 	_, _ = rand.Read(raw[:])
@@ -58,7 +58,7 @@ func TestInvalidateOutstandingForUser_SkipsAlreadyUsed(t *testing.T) {
 	if perr != nil {
 		t.Fatalf("derive pepper: %v", perr)
 	}
-	ts := store.NewPasswordResetTokenStore(pepper)
+	ts := auth.NewTokenStore(pepper)
 
 	var raw [32]byte
 	_, _ = rand.Read(raw[:])

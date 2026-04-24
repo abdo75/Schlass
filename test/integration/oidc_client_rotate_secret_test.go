@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/abdo75/Schlass/internal/store"
+	"github.com/abdo75/Schlass/internal/clients"
 )
 
 func TestClientRotateSecret_OverlapWindow(t *testing.T) {
@@ -60,7 +60,7 @@ func TestClientRotateSecret_OverlapWindow(t *testing.T) {
 
 	// Both secrets must verify within the overlap window.
 	// VerifySecret calls GetByID (active-only), so the client must be active.
-	s := store.NewClientStore()
+	s := clients.NewStore()
 	okOld, err := s.VerifySecret(ctx, env.Pool, created.ClientID, originalSecret)
 	if err != nil {
 		t.Fatalf("VerifySecret(old): %v", err)

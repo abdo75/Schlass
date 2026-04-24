@@ -7,14 +7,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/abdo75/Schlass/internal/store"
+	signingkeys "github.com/abdo75/Schlass/internal/signingkeys"
 )
 
 func TestSigningKeyStore_InsertAndListPublishable(t *testing.T) {
 	env := NewTestEnv(t)
 	defer env.Cleanup()
 
-	s := store.NewSigningKeyStore()
+	s := signingkeys.NewStore()
 	ctx := context.Background()
 
 	activeID, err := s.Insert(ctx, env.Pool, []byte("---PUB-ACT---"), []byte("enc-act"), "active")
@@ -51,7 +51,7 @@ func TestSigningKeyStore_GetActive(t *testing.T) {
 	env := NewTestEnv(t)
 	defer env.Cleanup()
 
-	s := store.NewSigningKeyStore()
+	s := signingkeys.NewStore()
 	ctx := context.Background()
 
 	if _, err := s.GetActive(ctx, env.Pool); err == nil {
@@ -71,7 +71,7 @@ func TestSigningKeyStore_MarkRetiringSetsRotatedAt(t *testing.T) {
 	env := NewTestEnv(t)
 	defer env.Cleanup()
 
-	s := store.NewSigningKeyStore()
+	s := signingkeys.NewStore()
 	ctx := context.Background()
 	id, _ := s.Insert(ctx, env.Pool, []byte("pub"), []byte("enc"), "active")
 
@@ -80,7 +80,7 @@ func TestSigningKeyStore_MarkRetiringSetsRotatedAt(t *testing.T) {
 		t.Fatalf("mark retiring: %v", err)
 	}
 	keys, _ := s.ListPublishable(ctx, env.Pool)
-	var found *store.SigningKey
+	var found *signingkeys.SigningKey
 	for _, k := range keys {
 		if k.ID == id {
 			found = k
@@ -101,7 +101,7 @@ func TestSigningKeyStore_ListRetirableFiltersByRotatedAt(t *testing.T) {
 	env := NewTestEnv(t)
 	defer env.Cleanup()
 
-	s := store.NewSigningKeyStore()
+	s := signingkeys.NewStore()
 	ctx := context.Background()
 	oldID, _ := s.Insert(ctx, env.Pool, []byte("pub-old"), []byte("enc-old"), "retiring")
 	freshID, _ := s.Insert(ctx, env.Pool, []byte("pub-fresh"), []byte("enc-fresh"), "retiring")
@@ -134,7 +134,7 @@ func TestSigningKeyStore_MarkRetired(t *testing.T) {
 	env := NewTestEnv(t)
 	defer env.Cleanup()
 
-	s := store.NewSigningKeyStore()
+	s := signingkeys.NewStore()
 	ctx := context.Background()
 	id, _ := s.Insert(ctx, env.Pool, []byte("pub"), []byte("enc"), "retiring")
 	if err := s.MarkRetired(ctx, env.Pool, id); err != nil {

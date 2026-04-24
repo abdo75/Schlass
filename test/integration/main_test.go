@@ -18,18 +18,6 @@ import (
 	"github.com/abdo75/Schlass/internal/database"
 )
 
-// Package-level shared-container state populated by TestMain and consumed by
-// NewTestEnv. The old per-test `NewTestEnv` pattern started ~116 containers
-// per `make test-integration` run; the singleton here reduces that to one PG
-// + one Valkey for the whole package.
-var (
-	sharedPGContainer     testcontainers.Container
-	sharedValkeyContainer testcontainers.Container
-	sharedMigrConnString  string
-	sharedAppConnString   string
-	sharedValkeyAddr      string
-)
-
 // TestMain boots one pgContainer + one valkeyContainer, runs the migration
 // chain once, and caches the pristine instance_config rows into an unlogged
 // snapshot table that resetState (in testutil.go) re-applies between tests.

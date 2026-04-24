@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/abdo75/Schlass/internal/revokebefore"
+	"github.com/abdo75/Schlass/internal/session"
 )
 
 func TestRevokeBefore_ClientSetAndGet(t *testing.T) {
@@ -16,14 +16,14 @@ func TestRevokeBefore_ClientSetAndGet(t *testing.T) {
 	ctx := context.Background()
 	clientID := "11111111-2222-3333-4444-555555555555"
 
-	if _, err := revokebefore.ClientGet(ctx, env.ValkeyClient, clientID); !errors.Is(err, revokebefore.ErrNotSet) {
+	if _, err := session.RevokeBeforeClientGet(ctx, env.ValkeyClient, clientID); !errors.Is(err, session.ErrRevokeBeforeNotSet) {
 		t.Errorf("expected ErrNotSet, got %v", err)
 	}
 
-	if err := revokebefore.ClientSetNow(ctx, env.ValkeyClient, clientID); err != nil {
+	if err := session.RevokeBeforeClientSetNow(ctx, env.ValkeyClient, clientID); err != nil {
 		t.Fatalf("set: %v", err)
 	}
-	got, err := revokebefore.ClientGet(ctx, env.ValkeyClient, clientID)
+	got, err := session.RevokeBeforeClientGet(ctx, env.ValkeyClient, clientID)
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}

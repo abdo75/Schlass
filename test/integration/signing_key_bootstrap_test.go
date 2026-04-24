@@ -6,8 +6,9 @@ import (
 	"context"
 	"testing"
 
+	"github.com/abdo75/Schlass/internal/audit"
+	signingkeys "github.com/abdo75/Schlass/internal/signingkeys"
 	"github.com/abdo75/Schlass/internal/oidc"
-	"github.com/abdo75/Schlass/internal/store"
 )
 
 func TestBootstrapSigningKey_GeneratesWhenNoneActive(t *testing.T) {
@@ -15,18 +16,18 @@ func TestBootstrapSigningKey_GeneratesWhenNoneActive(t *testing.T) {
 	defer env.Cleanup()
 	ctx := context.Background()
 
-	s := store.NewSigningKeyStore()
+	s := signingkeys.NewStore()
 	if _, err := s.GetActive(ctx, env.Pool); err == nil {
 		t.Fatal("precondition: expected no active key in fresh DB")
 	}
 
-	auditStore := store.NewAuditStore()
+	auditStore := audit.NewStore()
 	// Use a deterministic 32-byte KEK for this test.
 	kek := make([]byte, 32)
 	for i := range kek {
 		kek[i] = byte(i + 1)
 	}
-	if err := oidc.BootstrapSigningKey(ctx, env.Pool, auditStore, kek); err != nil {
+	if err := signingkeys.Bootstrap(ctx, env.Pool, auditStore, kek); err != nil {
 		t.Fatalf("bootstrap: %v", err)
 	}
 
@@ -39,7 +40,7 @@ func TestBootstrapSigningKey_GeneratesWhenNoneActive(t *testing.T) {
 	}
 
 	// Idempotency: second call is a no-op.
-	if err := oidc.BootstrapSigningKey(ctx, env.Pool, auditStore, kek); err != nil {
+	if err := signingkeys.Bootstrap(ctx, env.Pool, auditStore, kek); err != nil {
 		t.Fatalf("bootstrap 2nd call: %v", err)
 	}
 	keys, _ := s.ListPublishable(ctx, env.Pool)
