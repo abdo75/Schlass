@@ -35,11 +35,14 @@ go.work.sum
 .claude
 superpowers
 .superpowers
-# Working artifacts (specs, plans, mockups) stay local.
-# Allowlist operator-facing runbooks that must ship with the repo.
+# Working artifacts (specs, mockups) stay local.
+# Allowlist operator-facing runbooks + multi-agent handoff plans.
+# Plan files are created per-feature under docs/plans/ and deleted on merge.
 /docs/*
 !/docs/operator/
 !/docs/operator/**
+!/docs/plans/
+!/docs/plans/**
 
 # Git worktrees (isolated workspaces for feature branches)
 .worktrees/

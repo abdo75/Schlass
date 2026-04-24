@@ -13,11 +13,11 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/abdo75/Schlass/internal/audit"
-	authsigningkeys "github.com/abdo75/Schlass/internal/signingkeys"
 	"github.com/abdo75/Schlass/internal/clients"
 	"github.com/abdo75/Schlass/internal/httputil"
 	"github.com/abdo75/Schlass/internal/oidc"
 	"github.com/abdo75/Schlass/internal/session"
+	authsigningkeys "github.com/abdo75/Schlass/internal/signingkeys"
 	"github.com/abdo75/Schlass/internal/users"
 )
 
@@ -183,26 +183,93 @@ func (h *TokenHandler) handleAuthorizationCode(w http.ResponseWriter, r *http.Re
 
 	if row.ClientID != client.ID {
 		// Theft indicator — code was issued for a different client. Burned by ConsumeOnce above.
-		_ = tx.Commit(r.Context())
+		if auditErr := h.auditStore.Log(r.Context(), tx, audit.Entry{
+			EventType:  "oidc.code.client_mismatch",
+			ActorID:    &row.UserID,
+			ActorEmail: "",
+			TargetType: "client",
+			TargetID:   client.ID.String(),
+			ClientID:   &client.ID,
+			IPAddress:  extractClientIP(r),
+			Outcome:    "failure",
+			Metadata:   map[string]any{"family_id": row.FamilyID.String()},
+		}); auditErr != nil {
+			slog.Error("token: client_mismatch audit", "error", auditErr)
+		}
+		if err := tx.Commit(r.Context()); err != nil {
+			writeTokenError(w, http.StatusInternalServerError, "server_error", "Could not commit.")
+			return
+		}
 		writeTokenError(w, http.StatusBadRequest, "invalid_grant", "Code / client mismatch.")
 		return
 	}
 
 	if row.RedirectURI != redirectURI {
-		_ = tx.Commit(r.Context())
+		if auditErr := h.auditStore.Log(r.Context(), tx, audit.Entry{
+			EventType:  "oidc.code.redirect_mismatch",
+			ActorID:    &row.UserID,
+			ActorEmail: "",
+			TargetType: "client",
+			TargetID:   client.ID.String(),
+			ClientID:   &client.ID,
+			IPAddress:  extractClientIP(r),
+			Outcome:    "failure",
+			Metadata:   map[string]any{"family_id": row.FamilyID.String()},
+		}); auditErr != nil {
+			slog.Error("token: redirect_mismatch audit", "error", auditErr)
+		}
+		if err := tx.Commit(r.Context()); err != nil {
+			writeTokenError(w, http.StatusInternalServerError, "server_error", "Could not commit.")
+			return
+		}
 		writeTokenError(w, http.StatusBadRequest, "invalid_grant", "redirect_uri mismatch.")
 		return
 	}
 
 	if !oidc.VerifyPKCE(row.CodeChallenge, codeVerifier) {
-		_ = tx.Commit(r.Context())
+		if auditErr := h.auditStore.Log(r.Context(), tx, audit.Entry{
+			EventType:  "oidc.code.pkce_mismatch",
+			ActorID:    &row.UserID,
+			ActorEmail: "",
+			TargetType: "client",
+			TargetID:   client.ID.String(),
+			ClientID:   &client.ID,
+			IPAddress:  extractClientIP(r),
+			Outcome:    "failure",
+			Metadata:   map[string]any{"family_id": row.FamilyID.String()},
+		}); auditErr != nil {
+			slog.Error("token: pkce_mismatch audit", "error", auditErr)
+		}
+		if err := tx.Commit(r.Context()); err != nil {
+			writeTokenError(w, http.StatusInternalServerError, "server_error", "Could not commit.")
+			return
+		}
 		writeTokenError(w, http.StatusBadRequest, "invalid_grant", "PKCE verifier mismatch.")
 		return
 	}
 
 	u, err := h.userStore.GetByID(r.Context(), tx, row.UserID)
 	if err != nil {
-		_ = tx.Commit(r.Context())
+		if auditErr := h.auditStore.Log(r.Context(), tx, audit.Entry{
+			EventType:  "oidc.code.user_not_found",
+			ActorID:    &row.UserID,
+			ActorEmail: "",
+			TargetType: "client",
+			TargetID:   client.ID.String(),
+			ClientID:   &client.ID,
+			IPAddress:  extractClientIP(r),
+			Outcome:    "failure",
+			Metadata: map[string]any{
+				"family_id": row.FamilyID.String(),
+				"user_id":   row.UserID.String(),
+			},
+		}); auditErr != nil {
+			slog.Error("token: user_not_found audit", "error", auditErr)
+		}
+		if err := tx.Commit(r.Context()); err != nil {
+			writeTokenError(w, http.StatusInternalServerError, "server_error", "Could not commit.")
+			return
+		}
 		writeTokenError(w, http.StatusBadRequest, "invalid_grant", "User not found.")
 		return
 	}
@@ -238,14 +305,50 @@ func (h *TokenHandler) handleAuthorizationCode(w http.ResponseWriter, r *http.Re
 		}
 	}
 	if !allowsAuthCode {
-		_ = tx.Commit(r.Context())
+		if auditErr := h.auditStore.Log(r.Context(), tx, audit.Entry{
+			EventType:  "oidc.code.grant_removed",
+			ActorID:    &u.ID,
+			ActorEmail: u.Email,
+			TargetType: "client",
+			TargetID:   client.ID.String(),
+			ClientID:   &client.ID,
+			IPAddress:  extractClientIP(r),
+			Outcome:    "failure",
+			Metadata:   map[string]any{"family_id": row.FamilyID.String()},
+		}); auditErr != nil {
+			slog.Error("token: grant_removed audit", "error", auditErr)
+		}
+		if err := tx.Commit(r.Context()); err != nil {
+			writeTokenError(w, http.StatusInternalServerError, "server_error", "Could not commit.")
+			return
+		}
 		writeTokenError(w, http.StatusBadRequest, "unauthorized_client", "authorization_code grant no longer allowed for this client")
 		return
 	}
 
 	narrowedCodeScopes, err := intersectScopesAgainstClient(row.Scopes, client.AllowedScopes)
 	if err != nil {
-		_ = tx.Commit(r.Context())
+		if auditErr := h.auditStore.Log(r.Context(), tx, audit.Entry{
+			EventType:  "oidc.code.scope_removed",
+			ActorID:    &u.ID,
+			ActorEmail: u.Email,
+			TargetType: "client",
+			TargetID:   client.ID.String(),
+			ClientID:   &client.ID,
+			IPAddress:  extractClientIP(r),
+			Outcome:    "failure",
+			Metadata: map[string]any{
+				"family_id":        row.FamilyID.String(),
+				"requested_scopes": row.Scopes,
+				"allowed_scopes":   client.AllowedScopes,
+			},
+		}); auditErr != nil {
+			slog.Error("token: scope_removed audit", "error", auditErr)
+		}
+		if err := tx.Commit(r.Context()); err != nil {
+			writeTokenError(w, http.StatusInternalServerError, "server_error", "Could not commit.")
+			return
+		}
 		writeTokenError(w, http.StatusBadRequest, "invalid_scope", "requested scopes no longer allowed for this client")
 		return
 	}
