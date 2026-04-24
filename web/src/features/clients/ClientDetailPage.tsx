@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { AdminPageHeader, AdminPageContent } from "@/components/AdminLayout";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { StatusBadge } from "@/components/ui/status-badge";
+import { StatusBadge } from "@/components/StatusBadge";
 import { CopyButton } from "@/components/ui/CopyButton";
 import { ClientSecretModal } from "@/components/ClientSecretModal";
 import {

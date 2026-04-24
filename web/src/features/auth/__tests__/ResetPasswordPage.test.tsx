@@ -7,13 +7,16 @@ import { confirmPasswordReset, validateResetToken } from "../api";
 import { AuthProvider } from "@/features/auth/AuthContext";
 import * as authApi from "@/features/auth/api";
 
-vi.mock("../api", () => ({
-  requestPasswordReset: vi.fn(),
-  confirmPasswordReset: vi.fn(),
-  validateResetToken: vi.fn(),
-}));
-
-vi.mock("@/features/auth/api");
+vi.mock("../api", async () => {
+  const actual = await vi.importActual<typeof import("../api")>("../api");
+  return {
+    ...actual,
+    requestPasswordReset: vi.fn(),
+    confirmPasswordReset: vi.fn(),
+    validateResetToken: vi.fn(),
+    getMe: vi.fn(),
+  };
+});
 
 function renderWithToken(token: string) {
   return render(

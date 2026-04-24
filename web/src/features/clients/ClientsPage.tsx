@@ -3,7 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { AdminPageHeader, AdminPageContent } from "@/components/AdminLayout";
 import { buttonVariants } from "@/components/ui/button";
-import { StatusBadge } from "@/components/ui/status-badge";
+import { StatusBadge } from "@/components/StatusBadge";
 import { listClients, type ClientDTO } from "./api";
 import { friendlyError } from "./errorDisplay";
 

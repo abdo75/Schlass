@@ -13,14 +13,14 @@ import { UsersPage } from "@/features/users/UsersPage";
 import { UserCreatePage } from "@/features/users/UserCreatePage";
 import { UserDetailPage } from "@/features/users/UserDetailPage";
 import { UserAccountPage } from "@/features/account/UserAccountPage";
-import { AuthorizeErrorPage } from "@/features/oidc/AuthorizeErrorPage";
+import { AuthorizeErrorPage } from "@/features/auth/AuthorizeErrorPage";
 import { ClientsPage } from "@/features/clients/ClientsPage";
 import { ClientCreatePage } from "@/features/clients/ClientCreatePage";
 import { ClientDetailPage } from "@/features/clients/ClientDetailPage";
 import { SigningKeysPage } from "@/features/clients/SigningKeysPage";
 import { SettingsPage } from "@/features/settings/SettingsPage";
-import { ForgotPasswordPage } from "@/features/password-reset/ForgotPasswordPage";
-import { ResetPasswordPage } from "@/features/password-reset/ResetPasswordPage";
+import { ForgotPasswordPage } from "@/features/auth/ForgotPasswordPage";
+import { ResetPasswordPage } from "@/features/auth/ResetPasswordPage";
 
 // GET /api/setup returns 200 when setup is incomplete (with a body) and 404
 // when setup is complete — matches the existing setup handler contract.

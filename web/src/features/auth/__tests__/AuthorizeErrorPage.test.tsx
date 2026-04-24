@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { I18nextProvider } from "react-i18next";
 import i18n from "@/i18n/index";
-import { AuthorizeErrorPage } from "@/features/oidc/AuthorizeErrorPage";
+import { AuthorizeErrorPage } from "@/features/auth/AuthorizeErrorPage";
 
 // AuthLayout depends on useAuth; provide a minimal mock.
 vi.mock("@/features/auth/AuthContext", () => ({

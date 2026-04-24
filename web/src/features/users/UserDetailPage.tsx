@@ -32,8 +32,8 @@ import {
 import { AdminPageHeader, AdminPageContent } from "@/components/AdminLayout";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { TempPasswordModal } from "@/components/TempPasswordModal";
-import { StatusBadge } from "@/components/ui/status-badge";
-import { RoleBadge, type UserRole } from "@/components/ui/role-badge";
+import { StatusBadge } from "@/components/StatusBadge";
+import { RoleBadge, type UserRole } from "@/components/RoleBadge";
 import { useAuth } from "@/features/auth/AuthContext";
 import {
   getUser,

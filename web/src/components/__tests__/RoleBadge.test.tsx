@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
 import "@/i18n";
-import { RoleBadge } from "../role-badge";
+import { RoleBadge } from "../RoleBadge";
 
 describe("RoleBadge", () => {
   it("renders Admin with accent colors", () => {
