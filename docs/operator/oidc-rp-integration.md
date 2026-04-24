@@ -16,8 +16,10 @@ A walkthrough for wiring [Grafana OSS](https://grafana.com/) as a relying party.
    - **Name**: `Grafana`
    - **Type**: `confidential`
    - **Redirect URIs**: `http://localhost:3001/login/generic_oauth`
-   - **Scopes**: `openid`, `profile`, `email`
+   - **Scopes**: `openid`, `profile`, `email`, `offline_access`
    - **Grants**: `authorization_code`, `refresh_token`
+
+   `offline_access` is what gates refresh-token issuance per OIDC Core §11 — omit it and Schlass returns an access token only, so Grafana can't silently refresh.
 3. Submit. The modal shows the client ID + generated secret **once** — copy both. Lost secrets require a rotation.
 
 ## 2. Bring up Grafana
@@ -39,7 +41,7 @@ services:
       GF_AUTH_GENERIC_OAUTH_NAME: Schlass
       GF_AUTH_GENERIC_OAUTH_CLIENT_ID: <paste-client-id>
       GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: <paste-client-secret>
-      GF_AUTH_GENERIC_OAUTH_SCOPES: openid profile email
+      GF_AUTH_GENERIC_OAUTH_SCOPES: openid profile email offline_access
 
       # Browser hits Schlass directly at localhost:3000.
       GF_AUTH_GENERIC_OAUTH_AUTH_URL: http://localhost:3000/authorize

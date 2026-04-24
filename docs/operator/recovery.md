@@ -1,4 +1,4 @@
-# Operator — password recovery for super_admin accounts
+# Password recovery for super_admin accounts
 
 Super_admin accounts **cannot** reset their password via the email flow at `/forgot-password`. This is a deliberate compliance control: ENISA NIS2 (Jun-2025) requires phishing-resistant MFA for privileged accounts, and TOTP + email-delivered reset links are both phishable in real-time.
 

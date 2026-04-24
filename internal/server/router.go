@@ -12,9 +12,8 @@ import (
 
 	"github.com/abdo75/Schlass/internal/audit"
 	"github.com/abdo75/Schlass/internal/auth"
-	
+
 	"github.com/abdo75/Schlass/internal/authserver"
-	authsigningkeys "github.com/abdo75/Schlass/internal/signingkeys"
 	"github.com/abdo75/Schlass/internal/clients"
 	"github.com/abdo75/Schlass/internal/config"
 	"github.com/abdo75/Schlass/internal/crypto"
@@ -22,6 +21,7 @@ import (
 	"github.com/abdo75/Schlass/internal/middleware"
 	"github.com/abdo75/Schlass/internal/session"
 	"github.com/abdo75/Schlass/internal/settings"
+	authsigningkeys "github.com/abdo75/Schlass/internal/signingkeys"
 	"github.com/abdo75/Schlass/internal/users"
 	"github.com/abdo75/Schlass/internal/web"
 )
@@ -197,6 +197,7 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 		d.Pool, d.ValkeyClient,
 		d.UserStore, d.AuditStore,
 		sessionStore,
+		d.InstanceConfig,
 		d.Cfg.SchlassPublicURL, d.Cfg.EncryptionKey,
 		d.TokenRateLimit,
 	)
