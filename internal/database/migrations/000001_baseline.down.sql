@@ -1,0 +1,10 @@
+DROP FUNCTION IF EXISTS audit_log_pseudonymize_user(UUID);
+DROP TABLE IF EXISTS password_reset_tokens;
+DROP TABLE IF EXISTS totp_recovery_codes;
+DROP TABLE IF EXISTS instance_config;
+DROP TABLE IF EXISTS audit_logs;
+DROP TABLE IF EXISTS signing_keys;
+DROP TABLE IF EXISTS authorization_codes;
+DROP TABLE IF EXISTS scopes;
+DROP TABLE IF EXISTS clients;
+DROP TABLE IF EXISTS users;
