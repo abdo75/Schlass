@@ -5,7 +5,14 @@ import { ResetPasswordPage } from "../ResetPasswordPage";
 import { AuthProvider } from "@/features/auth/AuthContext";
 import * as authApi from "@/features/auth/api";
 
-vi.mock("@/features/auth/api");
+// Only getMe is mocked; validateResetToken / confirmPasswordReset go through
+// real apiFetch so fetchMock captures the outbound HTTP call under test.
+vi.mock("@/features/auth/api", async () => {
+  const actual = await vi.importActual<typeof import("@/features/auth/api")>(
+    "@/features/auth/api",
+  );
+  return { ...actual, getMe: vi.fn() };
+});
 
 const fetchMock = vi.fn();
 
