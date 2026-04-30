@@ -1,6 +1,8 @@
 // audit-lint walks Go AST under the package paths supplied on the
-// command line, finds every audit-emit composite literal, and rejects
-// any metadata-map literal whose key matches a name in denylist.txt.
+// command line, finds every audit-emit metadata map literal — both
+// `audit.Event{Metadata: map[string]any{...}}` and the builder form
+// `audit.NewEvent(...).WithMetadata(map[string]any{...})` — and rejects
+// any key that matches a name in denylist.txt.
 //
 // REQ-AUD-011 (M2): metadata is the only freeform extension surface on
 // audit_logs. The schema-level PII closure (drop actor_email, coarsen
@@ -110,44 +112,32 @@ func main() {
 	for _, pkg := range pkgs {
 		for _, file := range pkg.Syntax {
 			ast.Inspect(file, func(n ast.Node) bool {
-				lit, ok := n.(*ast.CompositeLit)
-				if !ok {
-					return true
-				}
-				if !looksLikeAuditEvent(lit) {
-					return true
-				}
-				for _, elt := range lit.Elts {
-					kv, ok := elt.(*ast.KeyValueExpr)
+				switch node := n.(type) {
+				case *ast.CompositeLit:
+					if !looksLikeAuditEvent(node) {
+						return true
+					}
+					mapLit := metadataMapFromEventLiteral(node)
+					if mapLit == nil {
+						return true
+					}
+					violations = append(violations, scanMetadataMap(mapLit, pkg, denied)...)
+				case *ast.CallExpr:
+					sel, ok := node.Fun.(*ast.SelectorExpr)
+					if !ok || sel.Sel == nil || sel.Sel.Name != "WithMetadata" {
+						return true
+					}
+					if len(node.Args) == 0 {
+						return true
+					}
+					mapLit, ok := node.Args[0].(*ast.CompositeLit)
 					if !ok {
-						continue
+						return true
 					}
-					ident, ok := kv.Key.(*ast.Ident)
-					if !ok || ident.Name != "Metadata" {
-						continue
+					if !looksLikeMetadataMap(mapLit) {
+						return true
 					}
-					mapLit, ok := kv.Value.(*ast.CompositeLit)
-					if !ok {
-						continue
-					}
-					for _, el := range mapLit.Elts {
-						mkv, ok := el.(*ast.KeyValueExpr)
-						if !ok {
-							continue
-						}
-						bl, ok := mkv.Key.(*ast.BasicLit)
-						if !ok || bl.Kind != token.STRING {
-							continue
-						}
-						key := strings.Trim(bl.Value, `"`)
-						if _, bad := denied[key]; bad {
-							violations = append(violations, violation{
-								pos: pkg.Fset.Position(bl.Pos()),
-								key: key,
-								in:  pkg.PkgPath,
-							})
-						}
-					}
+					violations = append(violations, scanMetadataMap(mapLit, pkg, denied)...)
 				}
 				return true
 			})
@@ -183,4 +173,84 @@ func looksLikeAuditEvent(lit *ast.CompositeLit) bool {
 		return t.Name == "Event"
 	}
 	return false
+}
+
+// metadataMapFromEventLiteral returns the map literal assigned to the
+// Metadata field of an Event composite literal, or nil if the field is
+// absent / not a literal map. Splits the Event-shape concern out of the
+// inspector so the same scanMetadataMap pass works for both struct
+// literals and the builder's WithMetadata call.
+func metadataMapFromEventLiteral(lit *ast.CompositeLit) *ast.CompositeLit {
+	for _, elt := range lit.Elts {
+		kv, ok := elt.(*ast.KeyValueExpr)
+		if !ok {
+			continue
+		}
+		ident, ok := kv.Key.(*ast.Ident)
+		if !ok || ident.Name != "Metadata" {
+			continue
+		}
+		mapLit, ok := kv.Value.(*ast.CompositeLit)
+		if !ok {
+			continue
+		}
+		return mapLit
+	}
+	return nil
+}
+
+// looksLikeMetadataMap accepts the map literal types we expect to see
+// on the builder's WithMetadata argument: `map[string]any` and
+// `map[string]string`. Without this gate the linter would chase any
+// `WithMetadata(otherFunc())` call and confuse a non-literal arg for a
+// missing-Type literal. Untyped composite literals (Type == nil), which
+// only appear inside an outer map literal context, are also accepted to
+// stay forgiving on rare nested-builder patterns.
+func looksLikeMetadataMap(lit *ast.CompositeLit) bool {
+	if lit.Type == nil {
+		return true
+	}
+	mapType, ok := lit.Type.(*ast.MapType)
+	if !ok {
+		return false
+	}
+	keyIdent, ok := mapType.Key.(*ast.Ident)
+	if !ok || keyIdent.Name != "string" {
+		return false
+	}
+	switch v := mapType.Value.(type) {
+	case *ast.Ident:
+		return v.Name == "any" || v.Name == "string"
+	case *ast.InterfaceType:
+		// `map[string]interface{}` — the pre-Go-1.18 spelling of any.
+		return v.Methods == nil || len(v.Methods.List) == 0
+	}
+	return false
+}
+
+// scanMetadataMap walks one map[string]... literal and emits a
+// violation per denylisted string-literal key. Non-string keys (idents,
+// constants) are intentionally skipped — the linter is a static gate on
+// inline literals, not a type-resolution engine.
+func scanMetadataMap(mapLit *ast.CompositeLit, pkg *packages.Package, denied map[string]struct{}) []violation {
+	var out []violation
+	for _, el := range mapLit.Elts {
+		mkv, ok := el.(*ast.KeyValueExpr)
+		if !ok {
+			continue
+		}
+		bl, ok := mkv.Key.(*ast.BasicLit)
+		if !ok || bl.Kind != token.STRING {
+			continue
+		}
+		key := strings.Trim(bl.Value, `"`)
+		if _, bad := denied[key]; bad {
+			out = append(out, violation{
+				pos: pkg.Fset.Position(bl.Pos()),
+				key: key,
+				in:  pkg.PkgPath,
+			})
+		}
+	}
+	return out
 }

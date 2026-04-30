@@ -165,6 +165,42 @@ func TestAuditPIIClosure_EmitCoarsensV6(t *testing.T) {
 	}
 }
 
+// TestAuditPIIClosure_EmitCoarsensV4InV6 verifies that IPv4-mapped IPv6
+// addresses (the form Go's dual-stack listener serves) are unmapped
+// before coarsening so the /24 v4 mask wins instead of /48 over 128
+// bits (which would zero the host info entirely).
+func TestAuditPIIClosure_EmitCoarsensV4InV6(t *testing.T) {
+	env := NewTestEnv(t)
+	defer env.Cleanup()
+
+	store := audit.NewStoreWithIPMode(audit.IPModeCoarse)
+	tx, err := env.Pool.Begin(context.Background())
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+
+	actorID := uuid.New()
+	if err := store.Emit(context.Background(), tx, audit.Event{
+		EventType: "login.succeeded",
+		Outcome:   "success",
+		ActorID:   &actorID,
+		IPAddress: "::ffff:192.168.5.42",
+	}); err != nil {
+		t.Fatalf("emit: %v", err)
+	}
+
+	var got string
+	if err := tx.QueryRow(context.Background(),
+		`SELECT host(client_ip_coarse) FROM audit_logs WHERE actor_id = $1`, actorID,
+	).Scan(&got); err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if got != "192.168.5.0" {
+		t.Fatalf("v4-in-v6 coarse = %q, want %q (Unmap() should fold this to v4 /24)", got, "192.168.5.0")
+	}
+}
+
 // TestAuditPIIClosure_EmitOffMode_DropsIP verifies IPModeOff stores
 // NULL in client_ip_coarse and client_geo_coarse.
 func TestAuditPIIClosure_EmitOffMode_DropsIP(t *testing.T) {

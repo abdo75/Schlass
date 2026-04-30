@@ -244,13 +244,18 @@ func startsWith(s, prefix string) bool {
 // stores the prefix address with a /32 host that already has the host
 // bits zeroed. Empty input or unparseable input yields an empty string;
 // caller writes NULL to the column in that case.
+//
+// IPv4-mapped IPv6 ("::ffff:192.168.5.42") is unmapped first so a v4
+// address arriving via a dual-stack listener gets the /24 v4 mask, not a
+// /48 over the full 128 bits (which would zero the v4 octets entirely).
 func coarsenIP(raw string) string {
 	addr, err := netip.ParseAddr(raw)
 	if err != nil {
 		return ""
 	}
+	addr = addr.Unmap()
 	bits := 24
-	if addr.Is6() && !addr.Is4In6() {
+	if addr.Is6() {
 		bits = 48
 	}
 	prefix, err := addr.Prefix(bits)

@@ -6,6 +6,9 @@ package instanceconfig
 import (
 	"context"
 	"encoding/base64"
+	"errors"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/abdo75/Schlass/internal/crypto"
 	"github.com/abdo75/Schlass/internal/database"
@@ -74,20 +77,33 @@ func (s *Service) AccessTokenTTLSecs(ctx context.Context, q database.Querier) (i
 // AuditClientIPMode returns the configured value for
 // `audit.client_ip_mode` (REQ-AUD-031, M2). The string is one of
 // "coarse" (default), "country", or "off". Callers translate to the
-// audit.IPMode enum via audit.ParseIPMode at boot time. An empty key
-// (only possible if the M2 migration didn't seed it, e.g. tests
-// pointing at a pre-M2 schema) collapses to "coarse" so coarsening
-// stays the safe default.
+// audit.IPMode enum via audit.ParseIPMode at boot time.
+//
+// A missing key (only possible if the M2 migration didn't seed it,
+// e.g. tests pointing at a pre-M2 schema) or an explicit JSON null
+// collapses to ("coarse", nil) — the documented fallback. Real DB-level
+// failures (pool unreachable, schema drift, permission denied) are
+// returned as ("coarse", err) so the boot path can log them: the
+// caller still gets a usable default but the failure is visible.
 func (s *Service) AuditClientIPMode(ctx context.Context, q database.Querier) (string, error) {
 	isNull, err := s.store.IsNull(ctx, q, "audit.client_ip_mode")
 	if err != nil {
-		return "coarse", nil // missing key falls back to default
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "coarse", nil
+		}
+		return "coarse", err
 	}
 	if isNull {
 		return "coarse", nil
 	}
 	v, err := s.store.GetString(ctx, q, "audit.client_ip_mode")
-	if err != nil || v == "" {
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "coarse", nil
+		}
+		return "coarse", err
+	}
+	if v == "" {
 		return "coarse", nil
 	}
 	return v, nil

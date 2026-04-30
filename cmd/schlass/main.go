@@ -79,7 +79,14 @@ func main() {
 	// Read the IP coarsening mode once at boot. Anything that fails to
 	// parse falls back to IPModeCoarse — same default the migration
 	// seeds, so the only way to land here is a hand-edited row.
-	ipModeRaw, _ := instanceConfig.AuditClientIPMode(ctx, pool)
+	// A non-nil error means a real config-store failure (pool unreachable,
+	// permission denied, schema drift) rather than a missing key — log it
+	// so persistent boot-time outages are visible, but proceed with the
+	// safe default rather than failing boot. Boot resilience > this knob.
+	ipModeRaw, ipModeErr := instanceConfig.AuditClientIPMode(ctx, pool)
+	if ipModeErr != nil {
+		slog.Warn("audit: failed to read client_ip_mode from instance_config, falling back to coarse", "error", ipModeErr)
+	}
 	ipMode, err := audit.ParseIPMode(ipModeRaw)
 	if err != nil {
 		slog.Warn("audit: invalid client_ip_mode in instance_config, falling back to coarse", "got", ipModeRaw, "error", err)

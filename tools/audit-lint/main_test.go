@@ -119,3 +119,30 @@ func TestAuditLint_DirtyFixture_ExitsNonZero(t *testing.T) {
 		t.Errorf("dirty fixture: stderr should reference the offending file\ngot: %s", stderr)
 	}
 }
+
+// Builder-form coverage: NewEvent(...).WithMetadata(map[string]any{...}).Build().
+// The original linter only saw composite literals; missing this path
+// would let M3+ call sites smuggle "password" past the gate.
+
+func TestAuditLint_CleanBuilderFixture_ExitsZero(t *testing.T) {
+	code, stderr := runLint(t, "clean_builder")
+	if code != 0 {
+		t.Errorf("clean_builder fixture: exit code = %d, want 0\nstderr: %s", code, stderr)
+	}
+	if stderr != "" {
+		t.Errorf("clean_builder fixture: stderr should be empty, got %q", stderr)
+	}
+}
+
+func TestAuditLint_DirtyBuilderFixture_ExitsNonZero(t *testing.T) {
+	code, stderr := runLint(t, "dirty_builder")
+	if code == 0 {
+		t.Fatalf("dirty_builder fixture: exit code = 0, want non-zero\nstderr: %s", stderr)
+	}
+	if !strings.Contains(stderr, `metadata key "password"`) {
+		t.Errorf("dirty_builder fixture: stderr missing password violation\ngot: %s", stderr)
+	}
+	if !strings.Contains(stderr, "REQ-AUD-011") {
+		t.Errorf("dirty_builder fixture: stderr should cite REQ-AUD-011\ngot: %s", stderr)
+	}
+}
