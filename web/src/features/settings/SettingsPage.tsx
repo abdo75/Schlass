@@ -5,7 +5,9 @@ import {
   patchGeneral,
   patchSecurity,
   patchTokens,
+  patchAuditLog,
   patchEmail,
+  type AuditLogSettings,
   type PatchEmailBody,
   type Settings,
   type SecuritySettings,
@@ -16,9 +18,10 @@ import { FloatingSaveBar } from "./FloatingSaveBar";
 import { GeneralTab } from "./GeneralTab";
 import { SecurityTab } from "./SecurityTab";
 import { TokensTab } from "./TokensTab";
+import { AuditLogTab } from "./AuditLogTab";
 import { EmailTab, type EmailTabValue } from "./EmailTab";
 
-type TabKey = "general" | "security" | "tokens" | "email";
+type TabKey = "general" | "security" | "tokens" | "audit_log" | "email";
 
 // Per-domain dirty buffers. When a field diverges from the server snapshot
 // it lives here until the user either discards (clears the buffer) or
@@ -29,6 +32,7 @@ interface Buffer {
   general?: { instance_name?: string };
   security?: Partial<SecuritySettings>;
   tokens?: Partial<TokenSettings>;
+  audit_log?: Partial<AuditLogSettings>;
   email?: {
     host?: string;
     port?: number;
@@ -114,6 +118,19 @@ export function SettingsPage() {
     ? { ...snapshot.tokens, ...(buffer.tokens ?? {}) }
     : { access_token_ttl_secs: 900, refresh_token_ttl_secs: 86400 };
 
+  const dirtyAuditLogKeys = useMemo(() => {
+    const s = new Set<keyof AuditLogSettings>();
+    if (snapshot === null || !buffer.audit_log) return s;
+    (Object.keys(buffer.audit_log) as Array<keyof AuditLogSettings>).forEach((k) => {
+      if (buffer.audit_log![k] !== snapshot.audit_log?.[k]) s.add(k);
+    });
+    return s;
+  }, [snapshot, buffer.audit_log]);
+
+  const currentAuditLog: AuditLogSettings = snapshot
+    ? { audit_view_logging_enabled: true, audit_export_max_rows: 50_000, ...(snapshot.audit_log ?? {}), ...(buffer.audit_log ?? {}) }
+    : { audit_view_logging_enabled: true, audit_export_max_rows: 50_000 };
+
   // Email current value = snapshot merged with any buffered overrides.
   // The password field is special: an empty string in the buffer means
   // "keep current" — the bullet placeholder is rendered inside EmailTab
@@ -155,9 +172,10 @@ export function SettingsPage() {
       n++;
     n += dirtySecurityKeys.size;
     n += dirtyTokenKeys.size;
+    n += dirtyAuditLogKeys.size;
     n += dirtyEmailCount;
     return n;
-  }, [snapshot, buffer, dirtySecurityKeys, dirtyTokenKeys, dirtyEmailCount]);
+  }, [snapshot, buffer, dirtySecurityKeys, dirtyTokenKeys, dirtyAuditLogKeys, dirtyEmailCount]);
 
   async function handleSave() {
     if (snapshot === null || dirtyCount === 0) return;
@@ -183,6 +201,13 @@ export function SettingsPage() {
           (payload as Record<string, unknown>)[k] = currentTokens[k];
         });
         await patchTokens(payload);
+      }
+      if (dirtyAuditLogKeys.size > 0) {
+        const payload: Partial<AuditLogSettings> = {};
+        dirtyAuditLogKeys.forEach((k) => {
+          (payload as Record<string, unknown>)[k] = currentAuditLog[k];
+        });
+        await patchAuditLog(payload);
       }
       if (dirtyEmailCount > 0 && buffer.email) {
         const payload: PatchEmailBody = {};
@@ -217,6 +242,7 @@ export function SettingsPage() {
     { key: "general", label: "General" },
     { key: "security", label: "Security" },
     { key: "tokens", label: "Tokens" },
+    { key: "audit_log", label: "Audit log" },
     { key: "email", label: "Email" },
   ];
 
@@ -283,6 +309,13 @@ export function SettingsPage() {
                   value={currentTokens}
                   onChange={(next) => setBuffer((b) => ({ ...b, tokens: next }))}
                   dirtyKeys={dirtyTokenKeys}
+                />
+              )}
+              {activeTab === "audit_log" && (
+                <AuditLogTab
+                  value={currentAuditLog}
+                  onChange={(next) => setBuffer((b) => ({ ...b, audit_log: next }))}
+                  dirtyKeys={dirtyAuditLogKeys}
                 />
               )}
               {activeTab === "email" && (

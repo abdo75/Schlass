@@ -4,7 +4,6 @@ package integration
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -263,19 +262,18 @@ func TestAuthorize_AuthedIssuesCodeAndRedirects(t *testing.T) {
 		t.Fatalf("expected 1 authorization_codes row, got %d", codeCount)
 	}
 
-	// Assert audit row with family_id.
+	// Assert family_id is stamped on the authorization_codes row.
+	// (`oidc.authorize.succeeded` is no longer audited — see authorize.go;
+	// the equivalent forensic data lands on `oidc.code.exchanged` instead.)
 	var familyIDStr string
 	err := env.Pool.QueryRow(context.Background(), `
-		SELECT metadata->>'family_id'
-		FROM audit_logs
-		WHERE event_type = 'oidc.authorize.succeeded'
-		  AND outcome = 'success'
+		SELECT family_id::text FROM authorization_codes LIMIT 1
 	`).Scan(&familyIDStr)
 	if err != nil {
-		t.Fatalf("audit row: %v", err)
+		t.Fatalf("authorization_codes family_id: %v", err)
 	}
 	if familyIDStr == "" {
-		t.Fatal("family_id missing from audit metadata")
+		t.Fatal("family_id missing on authorization_codes row")
 	}
 }
 
@@ -445,54 +443,7 @@ func TestAuthorize_MaxAgeInvalidRejected(t *testing.T) {
 	assertRedirectError(t, rec, redirect, "invalid_request", "s6")
 }
 
-// TestAuthorize_AuditMetadataScopesIsJSONArray verifies scopes are stored
-// as a JSONB array (not a string), and jsonb_array_length works on it.
-func TestAuthorize_AuditMetadataScopesIsJSONArray(t *testing.T) {
-	env := NewTestEnv(t)
-	env.SeedAdmin(t, "admin@example.com", "CorrectHorse42!")
-	cookie := env.LoginAsAdmin(t, "admin@example.com", "CorrectHorse42!")
-
-	const redirect = "https://rp.example.com/cb"
-	clientID := seedAuthorizeClient(t, env, redirect, []string{"openid", "profile"})
-	rawURL := validAuthorizeURL(clientID, redirect)
-	rec := doAuthorize(t, env, rawURL, cookie)
-	if rec.Code != http.StatusFound {
-		t.Fatalf("expected 302 got %d", rec.Code)
-	}
-
-	// Verify scopes is a JSON array with 2 elements.
-	var length int
-	err := env.Pool.QueryRow(context.Background(), `
-		SELECT jsonb_array_length(metadata->'scopes')
-		FROM audit_logs
-		WHERE event_type='oidc.authorize.succeeded'
-	`).Scan(&length)
-	if err != nil {
-		t.Fatalf("jsonb_array_length: %v", err)
-	}
-	if length != 2 {
-		t.Fatalf("expected 2 scopes in metadata, got %d", length)
-	}
-
-	// Verify the raw JSON contains the expected scope values.
-	var raw json.RawMessage
-	err = env.Pool.QueryRow(context.Background(), `
-		SELECT metadata->'scopes' FROM audit_logs WHERE event_type='oidc.authorize.succeeded'
-	`).Scan(&raw)
-	if err != nil {
-		t.Fatalf("scan scopes: %v", err)
-	}
-	var scopes []string
-	if err := json.Unmarshal(raw, &scopes); err != nil {
-		t.Fatalf("unmarshal scopes: %v", err)
-	}
-	found := false
-	for _, s := range scopes {
-		if s == "openid" {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("openid not in audit scopes: %v", scopes)
-	}
-}
+// (TestAuthorize_AuditMetadataScopesIsJSONArray was removed when we stopped
+// emitting `oidc.authorize.succeeded`. The equivalent JSONB-shape coverage
+// for OIDC scopes lives on `oidc.code.exchanged` and is exercised by the
+// token-exchange tests in oidc_code_exchange_test.go.)

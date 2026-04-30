@@ -16,7 +16,7 @@ import (
 
 type tokenFailureAuditRow struct {
 	ActorID    sql.NullString
-	ActorEmail string
+	ActorEmail sql.NullString
 	TargetType string
 	TargetID   string
 	ClientID   sql.NullString
@@ -98,8 +98,12 @@ func assertTokenFailureAudit(
 	if row.ActorID.String != wantActorID {
 		t.Fatalf("%s actor_id=%q want %q", eventType, row.ActorID.String, wantActorID)
 	}
-	if row.ActorEmail != wantActorEmail {
-		t.Fatalf("%s actor_email=%q want %q", eventType, row.ActorEmail, wantActorEmail)
+	gotActorEmail := ""
+	if row.ActorEmail.Valid {
+		gotActorEmail = row.ActorEmail.String
+	}
+	if gotActorEmail != wantActorEmail {
+		t.Fatalf("%s actor_email=%q want %q", eventType, gotActorEmail, wantActorEmail)
 	}
 	if row.TargetType != "client" {
 		t.Fatalf("%s target_type=%q want client", eventType, row.TargetType)

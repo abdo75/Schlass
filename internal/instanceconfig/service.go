@@ -75,6 +75,14 @@ func (s *Service) RefreshTokenTTLSecs(ctx context.Context, q database.Querier) (
 	return s.store.GetInt(ctx, q, "refresh_token_ttl_secs")
 }
 
+func (s *Service) GetBool(ctx context.Context, q database.Querier, key string) (bool, error) {
+	return s.store.GetBool(ctx, q, key)
+}
+
+func (s *Service) GetInt(ctx context.Context, q database.Querier, key string) (int, error) {
+	return s.store.GetInt(ctx, q, key)
+}
+
 func (s *Service) EncryptedValue(ctx context.Context, q database.Querier, key string) (string, error) {
 	isNull, err := s.store.IsNull(ctx, q, key)
 	if err != nil {
@@ -138,6 +146,8 @@ func (s *Service) Settings(ctx context.Context, q database.Querier) (*Settings, 
 	lockD, _ := s.store.GetInt(ctx, q, "lockout_duration_secs")
 	atTTL, _ := s.store.GetInt(ctx, q, "access_token_ttl_secs")
 	rtTTL, _ := s.store.GetInt(ctx, q, "refresh_token_ttl_secs")
+	auditViewLoggingEnabled, _ := s.store.GetBool(ctx, q, "audit_view_logging_enabled")
+	auditExportMaxRows, _ := s.store.GetInt(ctx, q, "audit_export_max_rows")
 
 	host := readNullableString(ctx, s.store, q, "smtp_host")
 	port, _ := s.store.GetInt(ctx, q, "smtp_port")
@@ -158,6 +168,10 @@ func (s *Service) Settings(ctx context.Context, q database.Querier) (*Settings, 
 		Tokens: TokenSettings{
 			AccessTokenTTLSecs:  atTTL,
 			RefreshTokenTTLSecs: rtTTL,
+		},
+		AuditLog: AuditLogSettings{
+			ViewLoggingEnabled: auditViewLoggingEnabled,
+			ExportMaxRows:      auditExportMaxRows,
 		},
 		Email: EmailSettings{
 			SMTPHost:        host,
@@ -182,6 +196,7 @@ type Settings struct {
 	General  GeneralSettings  `json:"general"`
 	Security SecuritySettings `json:"security"`
 	Tokens   TokenSettings    `json:"tokens"`
+	AuditLog AuditLogSettings `json:"audit_log"`
 	Email    EmailSettings    `json:"email"`
 }
 
@@ -201,6 +216,11 @@ type SecuritySettings struct {
 type TokenSettings struct {
 	AccessTokenTTLSecs  int `json:"access_token_ttl_secs"`
 	RefreshTokenTTLSecs int `json:"refresh_token_ttl_secs"`
+}
+
+type AuditLogSettings struct {
+	ViewLoggingEnabled bool `json:"audit_view_logging_enabled"`
+	ExportMaxRows      int  `json:"audit_export_max_rows"`
 }
 
 type EmailSettings struct {

@@ -4,6 +4,8 @@
 package server
 
 import (
+	"context"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -66,6 +68,13 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 	authMW := auth.Middleware(sessionStore, d.UserStore, d.AuditStore, d.Pool)
 
 	usersHandler := users.NewHandler(d.Pool, d.ValkeyClient, d.UserStore, d.AuditStore, sessionStore, d.InstanceConfig, d.RecoveryCodeStore)
+	auditHandler := audit.NewHandler(d.Pool, sessionStore, d.InstanceConfig, d.AuditStore, func(ctx context.Context) (audit.CurrentUser, bool) {
+		u, ok := users.CurrentUser(ctx)
+		if !ok {
+			return audit.CurrentUser{}, false
+		}
+		return audit.CurrentUser{ID: u.ID, Email: u.Email}, true
+	})
 	adminSigningKeysHandler := authsigningkeys.NewHandler(d.Pool, d.AuditStore, d.Cfg.EncryptionKey)
 	settingsHandler := settings.NewHandler(d.Pool, d.InstanceConfig, d.AuditStore, d.Cfg.EncryptionKey)
 
@@ -76,8 +85,43 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 		d.Cfg.SchlassPublicURL,
 	)
 
+	// auditPermissionDenied persists an `auth.permission_denied` audit row
+	// when a signed-in user lacks the required permission. NIST 800-53 AU-2
+	// and PCI DSS 4.0 §10.2.4 require unsuccessful authorization attempts to
+	// be logged; the gated() middleware fires this from RequirePermission's
+	// 403 branch, in its own short-lived transaction (the request itself has
+	// no tx). Audit failure is non-blocking — denial response still goes
+	// out; we slog the audit error so it's visible operationally.
+	auditPermissionDenied := func(ctx context.Context, user *users.User, perm string, r *http.Request) {
+		tx, err := d.Pool.Begin(ctx)
+		if err != nil {
+			slog.Error("permission denied audit: begin", "error", err, "actor", user.Email, "perm", perm)
+			return
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
+		if err := d.AuditStore.Log(ctx, tx, audit.Entry{
+			EventType:  "auth.permission_denied",
+			ActorID:    &user.ID,
+			ActorEmail: user.Email,
+			TargetType: "permission",
+			TargetID:   perm,
+			IPAddress:  extractClientIP(r),
+			Outcome:    "failure",
+			Metadata: map[string]any{
+				"method": r.Method,
+				"path":   r.URL.Path,
+			},
+		}); err != nil {
+			slog.Error("permission denied audit: log", "error", err, "actor", user.Email, "perm", perm)
+			return
+		}
+		if err := tx.Commit(ctx); err != nil {
+			slog.Error("permission denied audit: commit", "error", err, "actor", user.Email, "perm", perm)
+		}
+	}
+
 	gated := func(perm string, h http.Handler) http.Handler {
-		return authMW(users.RequirePermission(perm)(h))
+		return authMW(users.RequirePermission(perm, auditPermissionDenied)(h))
 	}
 
 	// Setup tied to login cap so E2E raising login doesn't hit tiny setup defaults.
@@ -124,6 +168,11 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 	mux.Handle("DELETE /api/users/{id}/sessions", gated("users.sessions.terminate", http.HandlerFunc(usersHandler.TerminateAllSessions)))
 	mux.Handle("DELETE /api/users/{id}/sessions/{token}", gated("users.sessions.terminate", http.HandlerFunc(usersHandler.TerminateSession)))
 
+	mux.Handle("GET /api/audit", gated("audit.list", http.HandlerFunc(auditHandler.List)))
+	mux.Handle("GET /api/audit/actors", gated("audit.list", http.HandlerFunc(auditHandler.Actors)))
+	mux.Handle("GET /api/audit/targets", gated("audit.list", http.HandlerFunc(auditHandler.Targets)))
+	mux.Handle("GET /api/audit/export", gated("audit.list", http.HandlerFunc(auditHandler.Export)))
+
 	mux.Handle("GET /api/clients", gated("clients.list", http.HandlerFunc(d.ClientsHandler.GetList)))
 	mux.Handle("POST /api/clients", gated("clients.create", http.HandlerFunc(d.ClientsHandler.PostCreate)))
 	mux.Handle("GET /api/clients/{id}", gated("clients.read", http.HandlerFunc(d.ClientsHandler.GetOne)))
@@ -148,6 +197,8 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 		gated("settings.write", http.HandlerFunc(settingsHandler.PatchSecurity)))
 	mux.Handle("PATCH /api/settings/tokens",
 		gated("settings.write", http.HandlerFunc(settingsHandler.PatchTokens)))
+	mux.Handle("PATCH /api/settings/audit-log",
+		gated("settings.write", http.HandlerFunc(settingsHandler.PatchAuditLog)))
 	mux.Handle("PATCH /api/settings/email",
 		gated("settings.write", http.HandlerFunc(settingsHandler.PatchEmail)))
 	mux.Handle("POST /api/settings/email/test",
@@ -203,7 +254,7 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 	)
 	mux.Handle("POST /token", http.HandlerFunc(tokenHandler.Handle))
 
-	userInfoHandler := authserver.NewUserInfoHandler(d.Pool, d.AuditStore)
+	userInfoHandler := authserver.NewUserInfoHandler(d.Pool)
 	bearerAuth := authserver.BearerAuth(authserver.BearerAuthDeps{
 		Pool:      d.Pool,
 		UserStore: d.UserStore,

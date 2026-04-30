@@ -84,6 +84,27 @@ function CogIcon() {
   );
 }
 
+function AuditIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M3 3v18h18" />
+      <path d="M7 15v2" />
+      <path d="M12 9v8" />
+      <path d="M17 12v5" />
+    </svg>
+  );
+}
+
 function ChevronLeftIcon() {
   return (
     <svg
@@ -151,6 +172,19 @@ export function AdminSidebar() {
         >
           <KeyIcon />
           {t("signing_keys.title")}
+        </NavLink>
+        <NavLink
+          to="/admin/audit"
+          className={({ isActive }) =>
+            `flex h-8 items-center gap-2.5 rounded-lg px-3 text-sm font-semibold transition-colors ${
+              isActive
+                ? "bg-accent text-accent-foreground"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+            }`
+          }
+        >
+          <AuditIcon />
+          {t("audit.title")}
         </NavLink>
         <NavLink
           to="/admin/settings"

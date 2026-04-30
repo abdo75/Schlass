@@ -18,12 +18,13 @@ import (
 // metadata (Created/LastSeen/IP/UA). PendingReturnTo carries a sanitized
 // OIDC return_to across force-password-change; cleared after rotation.
 type Session struct {
-	UserID          string    `json:"user_id"`
-	CreatedAt       time.Time `json:"created_at"`
-	LastSeenAt      time.Time `json:"last_seen_at"`
-	IPAddress       string    `json:"ip_address"`
-	UserAgent       string    `json:"user_agent"`
-	PendingReturnTo string    `json:"pending_return_to,omitempty"`
+	UserID               string    `json:"user_id"`
+	CreatedAt            time.Time `json:"created_at"`
+	LastSeenAt           time.Time `json:"last_seen_at"`
+	IPAddress            string    `json:"ip_address"`
+	UserAgent            string    `json:"user_agent"`
+	PendingReturnTo      string    `json:"pending_return_to,omitempty"`
+	AuditViewedInSession bool      `json:"audit_viewed_in_session,omitempty"`
 }
 
 // SessionWithToken carries the opaque token (Valkey key) alongside so
@@ -49,6 +50,7 @@ type Store interface {
 	// re-validate. Empty returnTo equivalent to Create.
 	CreateWithPendingReturnTo(ctx context.Context, userID, ipAddress, userAgent, returnTo string) (token string, err error)
 	ClearPendingReturnTo(ctx context.Context, token string) error
+	MarkAuditViewed(ctx context.Context, token string) error
 }
 
 var ErrNotFound = errors.New("session: not found")
@@ -216,6 +218,33 @@ func (s *valkeyStore) ClearPendingReturnTo(ctx context.Context, token string) er
 	}
 	if err := s.client.SetArgs(ctx, key, payload, redis.SetArgs{KeepTTL: true}).Err(); err != nil {
 		return fmt.Errorf("session: clear pending return_to set: %w", err)
+	}
+	return nil
+}
+
+func (s *valkeyStore) MarkAuditViewed(ctx context.Context, token string) error {
+	key := sessionKey(token)
+	raw, err := s.client.Get(ctx, key).Bytes()
+	if errors.Is(err, redis.Nil) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("session: mark audit viewed get: %w", err)
+	}
+	var sess Session
+	if err := json.Unmarshal(raw, &sess); err != nil {
+		return fmt.Errorf("session: mark audit viewed unmarshal: %w", err)
+	}
+	if sess.AuditViewedInSession {
+		return nil
+	}
+	sess.AuditViewedInSession = true
+	payload, err := json.Marshal(sess)
+	if err != nil {
+		return fmt.Errorf("session: mark audit viewed marshal: %w", err)
+	}
+	if err := s.client.SetArgs(ctx, key, payload, redis.SetArgs{KeepTTL: true}).Err(); err != nil {
+		return fmt.Errorf("session: mark audit viewed set: %w", err)
 	}
 	return nil
 }

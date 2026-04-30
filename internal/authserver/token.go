@@ -758,38 +758,11 @@ func (h *TokenHandler) handleRefreshToken(w http.ResponseWriter, r *http.Request
 		slog.Error("token refresh: MarkUsed old token", "error", err, "family_id", oldPayload.FamilyID) //nolint:gosec // G706: slog structured logging is not susceptible to log injection
 	}
 
-	tx, err := h.pool.Begin(r.Context())
-	if err != nil {
-		slog.Error("token refresh: audit begin", "error", err)
-		writeTokenError(w, http.StatusInternalServerError, "server_error", "DB begin failed.")
-		return
-	}
-	defer func() { _ = tx.Rollback(r.Context()) }()
-	if err := h.auditStore.Log(r.Context(), tx, audit.Entry{
-		EventType:  "oidc.token.refreshed",
-		ActorID:    &u.ID,
-		ActorEmail: u.Email,
-		TargetType: "client",
-		TargetID:   client.ID.String(),
-		ClientID:   &client.ID,
-		IPAddress:  extractClientIP(r),
-		Outcome:    "success",
-		Metadata: map[string]any{
-			"family_id":      oldPayload.FamilyID,
-			"scopes":         narrowedScopes,
-			"new_access_jti": jtiAccess,
-			"new_id_jti":     jtiID,
-		},
-	}); err != nil {
-		slog.Error("token refresh: audit log", "error", err)
-		writeTokenError(w, http.StatusInternalServerError, "server_error", "Audit failed.")
-		return
-	}
-	if err := tx.Commit(r.Context()); err != nil {
-		slog.Error("token refresh: audit commit", "error", err)
-		writeTokenError(w, http.StatusInternalServerError, "server_error", "Commit failed.")
-		return
-	}
+	// `oidc.token.refreshed` is intentionally NOT emitted: a successful
+	// refresh is bookkeeping (session-lifetime extension). The forensically
+	// valuable failure variants — `oidc.refresh.reuse_detected` (token theft
+	// signal) and `oidc.refresh.user_disabled` — remain audited at their own
+	// emit sites earlier in this function.
 
 	httputil.WriteJSON(w, http.StatusOK, tokenResponse{
 		AccessToken:  accessTok,

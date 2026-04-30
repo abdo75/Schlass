@@ -100,7 +100,7 @@ func Middleware(
 				return
 			}
 
-			ctx := users.WithCurrentUser(r.Context(), u)
+			ctx := session.WithToken(users.WithCurrentUser(r.Context(), u), cookie.Value)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

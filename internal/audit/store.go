@@ -64,12 +64,19 @@ func (s *Store) Log(ctx context.Context, q database.Querier, entry Entry) error 
 		ipAddress = &entry.IPAddress
 	}
 
+	// actor_email empty string would defeat the COALESCE(actor_email, …, 'System')
+	// fallback in list_select.go — store NULL so system-actor rows render as 'System'.
+	var actorEmail *string
+	if entry.ActorEmail != "" {
+		actorEmail = &entry.ActorEmail
+	}
+
 	_, err := q.Exec(ctx,
 		`INSERT INTO audit_logs (event_type, actor_id, actor_email, target_type, target_id, client_id, ip_address, outcome, metadata)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
 		entry.EventType,
 		entry.ActorID,
-		entry.ActorEmail,
+		actorEmail,
 		entry.TargetType,
 		entry.TargetID,
 		entry.ClientID,

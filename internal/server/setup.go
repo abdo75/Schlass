@@ -135,6 +135,24 @@ func (h *SetupHandler) PostSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Granular per NIST 800-53 AU-3 / PCI 10.2.1.5: provisioning of the first
+	// admin is its own forensic record, separate from the setup roll-up.
+	userIDStr := userID.String()
+	if err := h.auditStore.Log(r.Context(), tx, audit.Entry{
+		EventType:  "user.created",
+		ActorID:    &userID,
+		ActorEmail: req.Email,
+		TargetType: "user",
+		TargetID:   userIDStr,
+		IPAddress:  extractClientIP(r),
+		Outcome:    "success",
+		Metadata:   map[string]any{"role": "super_admin", "email": req.Email},
+	}); err != nil {
+		slog.Error("failed to write audit log", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
 	if err := h.instanceConfig.SetSetupComplete(r.Context(), tx); err != nil {
 		slog.Error("failed to set setup_complete", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
@@ -151,7 +169,6 @@ func (h *SetupHandler) PostSetup(w http.ResponseWriter, r *http.Request) {
 		ActorID:    &userID,
 		ActorEmail: req.Email,
 		TargetType: "instance",
-		TargetID:   "setup",
 		IPAddress:  extractClientIP(r),
 		Outcome:    "success",
 		Metadata:   map[string]any{"instance_name": req.InstanceName},

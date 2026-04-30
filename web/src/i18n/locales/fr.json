@@ -323,6 +323,157 @@
   "settings": {
     "title": "Paramètres"
   },
+  "audit": {
+    "title": "Journal d'audit",
+    "subtitle": "Historique append-only de l'activité du système.",
+    "tabs": {
+      "all": "Tous les événements",
+      "signIn": "Connexions",
+      "admin": "Actions d'administration",
+      "client": "Modifications des clients"
+    },
+    "panel": {
+      "event": "Événement",
+      "copyLink": "Copier le lien",
+      "copyData": "Copier les données",
+      "exportData": "Exporter les données",
+      "participants": "Participants",
+      "actor": "Acteur",
+      "target": "Cible",
+      "fromIp": "Adresse IP",
+      "changedValues": "Valeurs modifiées",
+      "scopesGranted": "Scopes accordés",
+      "reason": "Motif",
+      "whyThisMatters": "Pourquoi c'est important",
+      "technicalDetails": "Détails techniques",
+      "eventId": "ID de l'événement",
+      "eventType": "Type d'événement",
+      "actorId": "ID de l'acteur",
+      "targetType": "Type de cible",
+      "targetId": "ID de la cible",
+      "recordedAt": "Enregistré le"
+    },
+    "severity": { "critical": "Critique" },
+    "reason": {
+      "unknown": {
+        "title": "Pas encore documenté",
+        "body": "Ce code motif n'est pas encore documenté dans le journal d'audit.",
+        "rawLabel": "Valeur brute :"
+      },
+      "login": { "wrong_password": "Le mot de passe ne correspondait pas." },
+      "oidcAuthorizeInvalidRequest": { "invalid_scope": "Un ou plusieurs scopes demandés ne sont pas autorisés pour ce client." }
+    },
+    "alert": {
+      "account.locked": "Le compte a dépassé le seuil de verrouillage et reste temporairement bloqué.",
+      "oidc.refresh.reuse_detected": "Un refresh token a été présenté deux fois et toute sa famille de rotation a été révoquée."
+    },
+    "hint": {
+      "access_token_ttl_secs": {
+        "up": "Les tokens d'accès restent valides plus longtemps.",
+        "down": "Les tokens d'accès expirent plus tôt."
+      },
+      "audit_export_max_rows": {
+        "up": "Le plafond d'export augmente ; les fichiers peuvent être plus volumineux.",
+        "down": "Le plafond d'export baisse ; la troncature interviendra plus tôt.",
+        "uncapped": "L'export n'est plus plafonné."
+      }
+    },
+    "configKey": {
+      "access_token_ttl_secs": "Durée de vie des tokens d'accès",
+      "refresh_token_ttl_secs": "Durée de vie des refresh tokens",
+      "audit_view_logging_enabled": "Journalisation des consultations d'audit",
+      "audit_export_max_rows": "Plafond des exports d'audit"
+    },
+    "eventLabel": {
+      "login": { "succeeded": "Réussite", "failed": "Échec" },
+      "logout": { "completed": "Terminée" },
+      "account": { "locked": "Verrouillé" },
+      "mfa": {
+        "challenge_succeeded": "Challenge réussi",
+        "challenge_failed": "Challenge échoué",
+        "enrollment_completed": "Enrôlement terminé",
+        "reset": "Réinitialisée par admin",
+        "self_reset": "Auto-réinitialisation",
+        "recovery_code_used": "Code de récupération utilisé"
+      },
+      "password": { "changed": "Modifié" },
+      "passwordReset": {
+        "requested": "Demandée",
+        "completed": "Terminée",
+        "confirm_failed": "Confirmation échouée",
+        "admin_blocked": "Bloquée par admin",
+        "cleanup_swept": "Nettoyage effectué"
+      },
+      "session": { "revoked": "Révoquée", "terminated": "Terminée", "reauth_forced": "Réauthentification forcée" },
+      "user": {
+        "created": "Créé",
+        "updated": "Mis à jour",
+        "enabled": "Activé",
+        "disabled": "Désactivé",
+        "deleted": "Supprimé",
+        "password_reset": "Réinitialisation envoyée par admin",
+        "sessions_terminated": "Sessions terminées",
+        "audit_pseudonymized": "Audit pseudonymisé",
+        "revoke_before_set": "Revoke-before défini",
+        "revoke_before_enforced": "Revoke-before appliqué"
+      },
+      "client": {
+        "created": "Créé",
+        "name_updated": "Renommé",
+        "redirect_uris_updated": "URI de redirection mises à jour",
+        "scopes_updated": "Scopes mis à jour",
+        "grants_updated": "Autorisations mises à jour",
+        "enabled": "Activé",
+        "disabled": "Désactivé",
+        "secret_rotated": "Secret renouvelé",
+        "deleted": "Supprimé"
+      },
+      "oidcAuthorize": { "succeeded": "Réussie", "invalid_request": "Requête invalide" },
+      "oidcClient": { "auth_failed": "Échec" },
+      "oidcCode": {
+        "exchanged": "Réussi",
+        "client_mismatch": "Client incohérent",
+        "redirect_mismatch": "Redirection incohérente",
+        "pkce_mismatch": "PKCE incohérent",
+        "user_not_found": "Utilisateur introuvable",
+        "user_disabled": "Utilisateur désactivé",
+        "grant_removed": "Autorisation retirée",
+        "scope_removed": "Scope retiré",
+        "replay_detected": "Rejeu détecté"
+      },
+      "oidcRefresh": {
+        "refreshed": "Réussi",
+        "reuse_detected": "Réutilisation détectée",
+        "user_disabled": "Utilisateur désactivé"
+      },
+      "oidcUserinfo": { "accessed": "Consulté" },
+      "signingKey": { "generated": "Générée", "rotated": "Renouvelée", "retired": "Retirée" },
+      "setup": { "completed": "Terminée" },
+      "audit": { "viewed": "Consulté", "exported": "Exporté" }
+    },
+    "eventGroup": {
+      "login": "Connexion",
+      "logout": "Déconnexion",
+      "account": "Compte",
+      "mfaChallenge": "MFA — challenge",
+      "mfaEnrollment": "MFA — enrôlement / réinitialisation",
+      "password": "Mot de passe",
+      "passwordReset": "Réinitialisation du mot de passe",
+      "session": "Session",
+      "userManagement": "Gestion des utilisateurs",
+      "userTokenRevocation": "Révocation des tokens utilisateur",
+      "clientManagement": "Gestion des clients",
+      "oidcAuthorize": "OIDC — autorisation",
+      "oidcClient": "OIDC — authentification client",
+      "oidcCode": "OIDC — échange de code",
+      "oidcRefresh": "OIDC — refresh",
+      "oidcUserinfo": "OIDC — userinfo",
+      "signingKey": "Clé de signature",
+      "configuration": "Configuration",
+      "setup": "Configuration initiale",
+      "audit": "Audit"
+    }
+  },
   "password_reset": {
     "forgot": {
       "title": "Réinitialiser votre mot de passe",

@@ -81,6 +81,26 @@ func TestValidateTokenSettings(t *testing.T) {
 	}
 }
 
+func TestValidateAuditLogSettings(t *testing.T) {
+	enabled := true
+	capRows := 50_000
+	if err := settings.ValidateAuditLogSettings(&settings.AuditLogSettings{ViewLoggingEnabled: &enabled, ExportMaxRows: &capRows}); err != nil {
+		t.Fatalf("want ok, got %v", err)
+	}
+	uncapped := 0
+	if err := settings.ValidateAuditLogSettings(&settings.AuditLogSettings{ExportMaxRows: &uncapped}); err != nil {
+		t.Fatalf("want uncapped ok, got %v", err)
+	}
+	negative := -1
+	if err := settings.ValidateAuditLogSettings(&settings.AuditLogSettings{ExportMaxRows: &negative}); err == nil {
+		t.Fatal("want error for negative audit export row cap")
+	}
+	tooLarge := 1_000_001
+	if err := settings.ValidateAuditLogSettings(&settings.AuditLogSettings{ExportMaxRows: &tooLarge}); err == nil {
+		t.Fatal("want error for too-large audit export row cap")
+	}
+}
+
 func TestValidateEmailSettings(t *testing.T) {
 	host := "smtp.mailgun.org"
 	port := 587

@@ -440,6 +440,25 @@ func (h *MFAHandler) PostEnrollmentComplete(w http.ResponseWriter, r *http.Reque
 	}
 
 	if !sessionAuthed {
+		// Cookie-path enrollment is the second factor of a fresh login (the
+		// password was verified before /api/login redirected here). Per
+		// NIST 800-53 AU-2 + PCI 10.2.1.1, that successful authentication
+		// must produce a login.succeeded record. The session-authed branch
+		// (admin enrolling MFA from an already-active session) skips it.
+		if err := h.auditStore.Log(r.Context(), tx, audit.Entry{
+			EventType:  "login.succeeded",
+			ActorID:    &userID,
+			ActorEmail: u.Email,
+			TargetType: "user",
+			TargetID:   userID.String(),
+			IPAddress:  ip,
+			Outcome:    "success",
+			Metadata:   map[string]any{"second_factor": "totp_enrollment"},
+		}); err != nil {
+			slog.Error("mfa complete: audit login.succeeded failed", "error", err)
+			httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+			return
+		}
 		if err := h.userStore.SetLastLoginAt(r.Context(), tx, userID); err != nil {
 			slog.Error("mfa complete: SetLastLoginAt failed", "error", err)
 			httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")

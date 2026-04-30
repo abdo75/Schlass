@@ -19,6 +19,7 @@ import { ClientCreatePage } from "@/features/clients/ClientCreatePage";
 import { ClientDetailPage } from "@/features/clients/ClientDetailPage";
 import { SigningKeysPage } from "@/features/clients/SigningKeysPage";
 import { SettingsPage } from "@/features/settings/SettingsPage";
+import { AuditPage } from "@/features/audit/AuditPage";
 import { ForgotPasswordPage } from "@/features/auth/ForgotPasswordPage";
 import { ResetPasswordPage } from "@/features/auth/ResetPasswordPage";
 
@@ -162,6 +163,7 @@ export default function App() {
             <Route path="clients/new" element={<ClientCreatePage />} />
             <Route path="clients/:id" element={<ClientDetailPage />} />
             <Route path="signing-keys" element={<SigningKeysPage />} />
+            <Route path="audit" element={<AuditPage />} />
             <Route path="settings" element={<SettingsPage />} />
           </Route>
           <Route path="/" element={<Bootstrap><RootRedirect /></Bootstrap>} />

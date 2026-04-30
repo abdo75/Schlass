@@ -458,12 +458,26 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	changed := map[string]any{}
+	type changedField struct {
+		Field string `json:"field"`
+		From  any    `json:"from"`
+		To    any    `json:"to"`
+	}
+	var changed []changedField
 	if req.Email != nil && *req.Email != existing.Email {
-		changed["email"] = map[string]any{"from": existing.Email, "to": *req.Email}
+		changed = append(changed, changedField{Field: "email", From: existing.Email, To: *req.Email})
 	}
 	if req.Role != nil && *req.Role != existing.Role {
-		changed["role"] = map[string]any{"from": existing.Role, "to": *req.Role}
+		changed = append(changed, changedField{Field: "role", From: existing.Role, To: *req.Role})
+	}
+	if len(changed) == 0 {
+		if err := tx.Commit(r.Context()); err != nil {
+			slog.Error("users.Update: no-op commit", "error", err)
+			httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+			return
+		}
+		httputil.WriteJSON(w, http.StatusOK, map[string]any{"user": userDTO(existing)})
+		return
 	}
 
 	if auditErr := h.auditStore.Log(r.Context(), tx, audit.Entry{

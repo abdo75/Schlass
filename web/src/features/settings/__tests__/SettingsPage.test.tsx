@@ -13,6 +13,7 @@ vi.mock("../api", () => ({
   patchGeneral: vi.fn(),
   patchSecurity: vi.fn(),
   patchTokens: vi.fn(),
+  patchAuditLog: vi.fn(),
   patchEmail: vi.fn(),
   testEmailConnection: vi.fn(),
 }));
@@ -51,16 +52,18 @@ describe("SettingsPage shell", () => {
         lockout_duration_secs: 900,
       },
       tokens: { access_token_ttl_secs: 900, refresh_token_ttl_secs: 86400 },
+      audit_log: { audit_view_logging_enabled: true, audit_export_max_rows: 50000 },
       email: { smtp_host: "", smtp_port: 0, smtp_username: "", smtp_password_set: false, smtp_from: "" },
     });
   });
 
-  it("loads snapshot on mount and renders all four tabs", async () => {
+  it("loads snapshot on mount and renders settings tabs", async () => {
     render(wrap());
     await waitFor(() => expect(getSettings).toHaveBeenCalled());
     expect(screen.getByRole("button", { name: "General" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Security" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Tokens" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Audit log" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Email" })).toBeInTheDocument();
   });
 

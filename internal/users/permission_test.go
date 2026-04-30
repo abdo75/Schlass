@@ -16,7 +16,7 @@ func TestRequirePermission_AllowsPermittedUser(t *testing.T) {
 	user := &users.User{ID: uuid.New(), Email: "admin@example.com", Role: "super_admin"}
 	ctx := users.WithCurrentUser(context.Background(), user)
 
-	handler := users.RequirePermission("users.create")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := users.RequirePermission("users.create", nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -33,7 +33,7 @@ func TestRequirePermission_RejectsUnpermittedRole(t *testing.T) {
 	user := &users.User{ID: uuid.New(), Email: "u@example.com", Role: "user"}
 	ctx := users.WithCurrentUser(context.Background(), user)
 
-	handler := users.RequirePermission("users.create")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := users.RequirePermission("users.create", nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("handler should not run")
 	}))
 
@@ -50,7 +50,7 @@ func TestRequirePermission_RejectsUnpermittedRole(t *testing.T) {
 }
 
 func TestRequirePermission_NoUserInContext_Returns401(t *testing.T) {
-	handler := users.RequirePermission("users.create")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := users.RequirePermission("users.create", nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("handler should not run")
 	}))
 
@@ -70,7 +70,7 @@ func TestRequirePermission_UnknownRole_Rejects(t *testing.T) {
 	user := &users.User{ID: uuid.New(), Email: "x@example.com", Role: "typo_role"}
 	ctx := users.WithCurrentUser(context.Background(), user)
 
-	handler := users.RequirePermission("users.create")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := users.RequirePermission("users.create", nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("handler should not run")
 	}))
 
@@ -101,5 +101,14 @@ func TestPermissionsForRole(t *testing.T) {
 	unknown := users.PermissionsForRole("nope")
 	if len(unknown) != 0 {
 		t.Fatalf("unknown role should hold 0 permissions, got %d", len(unknown))
+	}
+}
+
+func TestPermissions_SuperAdminGetsAuditList(t *testing.T) {
+	if !slices.Contains(users.PermissionsForRole("super_admin"), "audit.list") {
+		t.Fatal("super_admin should have audit.list")
+	}
+	if slices.Contains(users.PermissionsForRole("user"), "audit.list") {
+		t.Fatal("plain user must not have audit.list")
 	}
 }

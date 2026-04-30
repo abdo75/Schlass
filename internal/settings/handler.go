@@ -326,6 +326,99 @@ func (h *Handler) PatchTokens(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSON(w, http.StatusOK, snap.Tokens)
 }
 
+func (h *Handler) PatchAuditLog(w http.ResponseWriter, r *http.Request) {
+	actor, ok := users.CurrentUser(r.Context())
+	if !ok {
+		httputil.WriteError(w, http.StatusUnauthorized, "INVALID_SESSION", "Not authenticated.")
+		return
+	}
+	ip := extractClientIP(r)
+
+	r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	var in AuditLogSettings
+	if err := dec.Decode(&in); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body.")
+		return
+	}
+	if err := ValidateAuditLogSettings(&in); err != nil {
+		writeValidationError(w, err)
+		return
+	}
+
+	pre, err := h.instanceConfig.Settings(r.Context(), h.pool)
+	if err != nil {
+		slog.Error("settings.PatchAuditLog: snapshot", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	type change struct {
+		key   string
+		oldV  any
+		newV  any
+		write func(ctx context.Context, tx pgx.Tx) error
+	}
+	var changes []change
+	if in.ViewLoggingEnabled != nil && *in.ViewLoggingEnabled != pre.AuditLog.ViewLoggingEnabled {
+		v := *in.ViewLoggingEnabled
+		changes = append(changes, change{"audit_view_logging_enabled", pre.AuditLog.ViewLoggingEnabled, v, func(ctx context.Context, tx pgx.Tx) error {
+			return h.instanceConfig.SetBool(ctx, tx, "audit_view_logging_enabled", v)
+		}})
+	}
+	if in.ExportMaxRows != nil && *in.ExportMaxRows != pre.AuditLog.ExportMaxRows {
+		v := *in.ExportMaxRows
+		changes = append(changes, change{"audit_export_max_rows", pre.AuditLog.ExportMaxRows, v, func(ctx context.Context, tx pgx.Tx) error {
+			return h.instanceConfig.SetInt(ctx, tx, "audit_export_max_rows", v)
+		}})
+	}
+
+	if len(changes) == 0 {
+		httputil.WriteJSON(w, http.StatusOK, pre.AuditLog)
+		return
+	}
+
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		slog.Error("settings.PatchAuditLog: begin tx", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	defer func() { _ = tx.Rollback(r.Context()) }()
+
+	for _, c := range changes {
+		if err := c.write(r.Context(), tx); err != nil {
+			slog.Error("settings.PatchAuditLog: write", "error", err, "key", c.key)
+			httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+			return
+		}
+		if err := h.auditStore.Log(r.Context(), tx, audit.Entry{
+			EventType:  "config." + c.key + ".changed",
+			ActorID:    &actor.ID,
+			ActorEmail: actor.Email,
+			TargetType: "instance_config",
+			TargetID:   c.key,
+			IPAddress:  ip,
+			Outcome:    "success",
+			Metadata:   map[string]any{"old_value": c.oldV, "new_value": c.newV},
+		}); err != nil {
+			slog.Error("settings.PatchAuditLog: audit", "error", err, "key", c.key)
+			httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+			return
+		}
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		slog.Error("settings.PatchAuditLog: commit", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
+	snap, _ := h.instanceConfig.Settings(r.Context(), h.pool)
+	httputil.WriteJSON(w, http.StatusOK, snap.AuditLog)
+}
+
 // PatchEmail: password semantic is empty = keep current, non-empty =
 // replace + re-encrypt via SetEncryptedValue (AES-256-GCM). Audit metadata
 // on smtp_password is {"changed": true} ONLY — never plaintext or

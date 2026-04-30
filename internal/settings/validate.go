@@ -28,6 +28,11 @@ type TokenSettings struct {
 	RefreshTokenTTLSecs *int `json:"refresh_token_ttl_secs"`
 }
 
+type AuditLogSettings struct {
+	ViewLoggingEnabled *bool `json:"audit_view_logging_enabled"`
+	ExportMaxRows      *int  `json:"audit_export_max_rows"`
+}
+
 type EmailSettings struct {
 	SMTPHost     *string `json:"smtp_host"`
 	SMTPPort     *int    `json:"smtp_port"`
@@ -85,6 +90,26 @@ func ValidateTokenSettings(s *TokenSettings) error {
 		if v < 3600 || v > 604800 {
 			return &apierrors.ValidationError{Field: "refresh_token_ttl_secs", Code: "REFRESH_TOKEN_TTL_OUT_OF_RANGE"}
 		}
+	}
+	return nil
+}
+
+func ValidateAuditLogSettings(s *AuditLogSettings) error {
+	if s.ExportMaxRows != nil {
+		if err := AuditExportMaxRows(*s.ExportMaxRows); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// AuditExportMaxRows accepts 0 (uncapped) or any positive integer up to 1,000,000.
+func AuditExportMaxRows(v int) error {
+	if v < 0 {
+		return &apierrors.ValidationError{Field: "audit_export_max_rows", Code: "AUDIT_EXPORT_MAX_ROWS_NEGATIVE"}
+	}
+	if v > 1_000_000 {
+		return &apierrors.ValidationError{Field: "audit_export_max_rows", Code: "AUDIT_EXPORT_MAX_ROWS_TOO_LARGE"}
 	}
 	return nil
 }

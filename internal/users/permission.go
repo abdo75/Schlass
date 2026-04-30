@@ -1,17 +1,28 @@
 package users
 
 import (
+	"context"
 	"net/http"
 	"slices"
 
 	"github.com/abdo75/Schlass/internal/httputil"
 )
 
+// DenialHandler is invoked from RequirePermission when an authenticated user
+// lacks the required permission, immediately before the 403 response is
+// written. Callers wire this from the router so the denial can be persisted
+// to audit_logs. nil means "do not record."
+//
+// The handler receives the user, the permission they were missing, and the
+// request itself so callers can extract method/path/IP for the audit row.
+type DenialHandler func(ctx context.Context, user *User, requiredPerm string, r *http.Request)
+
 // rolePermissions is v1 hardcoded. When v2 introduces dynamic RBAC this map
 // becomes a DB lookup on roles / role_permissions; the permission strings
 // themselves don't change, so handler gates + SPA usePermission() survive.
 var rolePermissions = map[string][]string{
 	"super_admin": {
+		"audit.list",
 		"users.list",
 		"users.read",
 		"users.create",
@@ -51,8 +62,11 @@ func PermissionsForRole(role string) []string {
 }
 
 // RequirePermission must chain AFTER the session-auth middleware. Returns 403
-// FORBIDDEN on role miss, 401 INVALID_SESSION on no-user-in-context (wiring bug).
-func RequirePermission(perm string) func(http.Handler) http.Handler {
+// FORBIDDEN on role miss, 401 INVALID_SESSION on no-user-in-context (wiring
+// bug). Optional onDenied callback fires on the 403 path before the response
+// is written; callers persist denials to audit_logs there. Pass nil in tests
+// or for endpoints that should not audit denials.
+func RequirePermission(perm string, onDenied DenialHandler) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			user, ok := CurrentUser(r.Context())
@@ -63,6 +77,9 @@ func RequirePermission(perm string) func(http.Handler) http.Handler {
 			if slices.Contains(PermissionsForRole(user.Role), perm) {
 				next.ServeHTTP(w, r)
 				return
+			}
+			if onDenied != nil {
+				onDenied(r.Context(), user, perm, r)
 			}
 			httputil.WriteError(w, http.StatusForbidden, "FORBIDDEN", "This action requires a different permission.")
 		})

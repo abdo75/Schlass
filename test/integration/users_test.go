@@ -15,9 +15,9 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/abdo75/Schlass/internal/audit"
 	"github.com/abdo75/Schlass/internal/crypto"
 	"github.com/abdo75/Schlass/internal/session"
-	"github.com/abdo75/Schlass/internal/audit"
 )
 
 // mustParseUUID parses a string to uuid.UUID or fails the test.
@@ -389,7 +389,7 @@ func TestUsers_Update_EmailOnly(t *testing.T) {
 		t.Fatalf("email not updated: %s", email)
 	}
 
-	// Verify audit row has changed_fields.email metadata.
+	// Verify audit row has changed_fields array metadata with from/to.
 	var meta []byte
 	if err := env.Pool.QueryRow(t.Context(),
 		`SELECT metadata FROM audit_logs
@@ -402,12 +402,13 @@ func TestUsers_Update_EmailOnly(t *testing.T) {
 	if err := json.Unmarshal(meta, &parsed); err != nil {
 		t.Fatalf("audit metadata: %v", err)
 	}
-	changed, ok := parsed["changed_fields"].(map[string]any)
-	if !ok {
+	changed, ok := parsed["changed_fields"].([]any)
+	if !ok || len(changed) != 1 {
 		t.Fatalf("changed_fields missing: %v", parsed)
 	}
-	if _, ok := changed["email"]; !ok {
-		t.Fatalf("changed_fields.email missing: %v", changed)
+	emailEntry := findChangedField(t, changed, "email")
+	if emailEntry["from"] != "old@example.com" || emailEntry["to"] != "new@example.com" {
+		t.Fatalf("changed_fields.email from/to wrong: %v", emailEntry)
 	}
 }
 
@@ -512,7 +513,7 @@ func TestUsers_Update_RoleDemoteSecondAdmin_Succeeds(t *testing.T) {
 		t.Fatalf("role: %s", role)
 	}
 
-	// Verify audit captured the role change.
+	// Verify audit captured the role change with from/to.
 	var meta []byte
 	if err := env.Pool.QueryRow(t.Context(),
 		`SELECT metadata FROM audit_logs
@@ -523,10 +524,26 @@ func TestUsers_Update_RoleDemoteSecondAdmin_Succeeds(t *testing.T) {
 	}
 	var parsed map[string]any
 	_ = json.Unmarshal(meta, &parsed)
-	changed, _ := parsed["changed_fields"].(map[string]any)
-	if _, ok := changed["role"]; !ok {
+	changed, _ := parsed["changed_fields"].([]any)
+	roleEntry := findChangedField(t, changed, "role")
+	if roleEntry["from"] != "super_admin" || roleEntry["to"] != "user" {
 		t.Fatalf("changed_fields.role missing: %v", parsed)
 	}
+}
+
+func findChangedField(t *testing.T, fields []any, field string) map[string]any {
+	t.Helper()
+	for _, raw := range fields {
+		entry, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		if entry["field"] == field {
+			return entry
+		}
+	}
+	t.Fatalf("changed field %q missing from %v", field, fields)
+	return nil
 }
 
 // TestUsers_Update_LastAdminLockout_StoreLevel exercises the last-admin guard

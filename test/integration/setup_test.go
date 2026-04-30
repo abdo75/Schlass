@@ -92,16 +92,28 @@ func TestSetup_CreatesAdminAndMarksComplete(t *testing.T) {
 		t.Fatalf("expected role=super_admin, got %s", role)
 	}
 
-	var eventType string
-	var outcome string
-	err = env.Pool.QueryRow(t.Context(),
-		"SELECT event_type, outcome FROM audit_logs WHERE actor_email = $1", "admin@test.com",
-	).Scan(&eventType, &outcome)
+	rows, err := env.Pool.Query(t.Context(),
+		"SELECT event_type, outcome FROM audit_logs WHERE actor_email = $1 ORDER BY event_type", "admin@test.com",
+	)
 	if err != nil {
 		t.Fatalf("failed to query audit log: %v", err)
 	}
-	if eventType != "setup.completed" || outcome != "success" {
-		t.Fatalf("unexpected audit log: event=%s outcome=%s", eventType, outcome)
+	defer rows.Close()
+	got := map[string]string{}
+	for rows.Next() {
+		var eventType, outcome string
+		if err := rows.Scan(&eventType, &outcome); err != nil {
+			t.Fatalf("scan audit row: %v", err)
+		}
+		got[eventType] = outcome
+	}
+	if rows.Err() != nil {
+		t.Fatalf("audit rows: %v", rows.Err())
+	}
+	for _, want := range []string{"user.created", "setup.completed"} {
+		if got[want] != "success" {
+			t.Fatalf("missing or non-success audit row %q: got %q (all=%v)", want, got[want], got)
+		}
 	}
 }
 

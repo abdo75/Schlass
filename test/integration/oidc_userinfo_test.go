@@ -192,7 +192,12 @@ func TestUserInfo_TamperedToken_401(t *testing.T) {
 	}
 }
 
-func TestUserInfo_AuditRowWritten(t *testing.T) {
+// TestUserInfo_NoAuditRowOnSuccessfulRead asserts that successful userinfo
+// reads are intentionally NOT audited (see userinfo.go: routine self-reads
+// are not security-relevant per ISO 27001 / NIST 800-53). This guards the
+// trim from regression — a future change that re-introduces the emission
+// would be flagged here.
+func TestUserInfo_NoAuditRowOnSuccessfulRead(t *testing.T) {
 	env := NewTestEnv(t)
 	bootstrapKey(t, env)
 
@@ -220,10 +225,10 @@ func TestUserInfo_AuditRowWritten(t *testing.T) {
 
 	var count int
 	_ = env.Pool.QueryRow(context.Background(),
-		`SELECT count(*) FROM audit_logs WHERE event_type='oidc.userinfo.accessed' AND actor_email='e@example.com'`,
+		`SELECT count(*) FROM audit_logs WHERE event_type='oidc.userinfo.accessed'`,
 	).Scan(&count)
-	if count != 1 {
-		t.Fatalf("expected 1 oidc.userinfo.accessed audit row, got %d", count)
+	if count != 0 {
+		t.Fatalf("expected 0 oidc.userinfo.accessed rows after trim, got %d", count)
 	}
 }
 

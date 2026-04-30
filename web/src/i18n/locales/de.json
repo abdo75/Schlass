@@ -323,6 +323,157 @@
   "settings": {
     "title": "Einstellungen"
   },
+  "audit": {
+    "title": "Auditprotokoll",
+    "subtitle": "Unveränderliche Aufzeichnung der Systemaktivität.",
+    "tabs": {
+      "all": "Alle Ereignisse",
+      "signIn": "Anmeldeaktivität",
+      "admin": "Admin-Aktionen",
+      "client": "Client-Änderungen"
+    },
+    "panel": {
+      "event": "Ereignis",
+      "copyLink": "Link kopieren",
+      "copyData": "Daten kopieren",
+      "exportData": "Daten exportieren",
+      "participants": "Beteiligte",
+      "actor": "Akteur",
+      "target": "Ziel",
+      "fromIp": "Von IP",
+      "changedValues": "Geänderte Werte",
+      "scopesGranted": "Erteilte Scopes",
+      "reason": "Grund",
+      "whyThisMatters": "Warum das wichtig ist",
+      "technicalDetails": "Technische Details",
+      "eventId": "Ereignis-ID",
+      "eventType": "Ereignistyp",
+      "actorId": "Akteur-ID",
+      "targetType": "Zieltyp",
+      "targetId": "Ziel-ID",
+      "recordedAt": "Erfasst am"
+    },
+    "severity": { "critical": "Kritisch" },
+    "reason": {
+      "unknown": {
+        "title": "Noch nicht dokumentiert",
+        "body": "Dieser Grundcode ist im Auditprotokoll noch nicht dokumentiert.",
+        "rawLabel": "Rohwert:"
+      },
+      "login": { "wrong_password": "Das Passwort stimmte nicht überein." },
+      "oidcAuthorizeInvalidRequest": { "invalid_scope": "Ein oder mehrere angeforderte Scopes sind für diesen Client nicht erlaubt." }
+    },
+    "alert": {
+      "account.locked": "Das Konto hat die Sperrschwelle überschritten und ist vorübergehend gesperrt.",
+      "oidc.refresh.reuse_detected": "Ein Refresh-Token wurde zweimal verwendet; die gesamte Rotationsfamilie wurde widerrufen."
+    },
+    "hint": {
+      "access_token_ttl_secs": {
+        "up": "Access Tokens bleiben nun länger gültig.",
+        "down": "Access Tokens laufen nun früher ab."
+      },
+      "audit_export_max_rows": {
+        "up": "Das Exportlimit wurde erhöht; größere Dateien sind möglich.",
+        "down": "Das Exportlimit wurde gesenkt; Exporte werden früher gekürzt.",
+        "uncapped": "Der Export ist nicht mehr begrenzt."
+      }
+    },
+    "configKey": {
+      "access_token_ttl_secs": "Lebensdauer von Access Tokens",
+      "refresh_token_ttl_secs": "Lebensdauer von Refresh Tokens",
+      "audit_view_logging_enabled": "Protokollierung von Audit-Ansichten",
+      "audit_export_max_rows": "Zeilenlimit für Audit-Exporte"
+    },
+    "eventLabel": {
+      "login": { "succeeded": "Erfolgreich", "failed": "Fehlgeschlagen" },
+      "logout": { "completed": "Abgeschlossen" },
+      "account": { "locked": "Gesperrt" },
+      "mfa": {
+        "challenge_succeeded": "Challenge erfolgreich",
+        "challenge_failed": "Challenge fehlgeschlagen",
+        "enrollment_completed": "Einrichtung abgeschlossen",
+        "reset": "Durch Admin zurückgesetzt",
+        "self_reset": "Selbst zurückgesetzt",
+        "recovery_code_used": "Wiederherstellungscode verwendet"
+      },
+      "password": { "changed": "Geändert" },
+      "passwordReset": {
+        "requested": "Angefordert",
+        "completed": "Abgeschlossen",
+        "confirm_failed": "Bestätigung fehlgeschlagen",
+        "admin_blocked": "Durch Admin blockiert",
+        "cleanup_swept": "Bereinigung ausgeführt"
+      },
+      "session": { "revoked": "Widerrufen", "terminated": "Beendet", "reauth_forced": "Reauthentifizierung erzwungen" },
+      "user": {
+        "created": "Erstellt",
+        "updated": "Aktualisiert",
+        "enabled": "Aktiviert",
+        "disabled": "Deaktiviert",
+        "deleted": "Gelöscht",
+        "password_reset": "Passwort-Reset durch Admin gesendet",
+        "sessions_terminated": "Sitzungen beendet",
+        "audit_pseudonymized": "Audit pseudonymisiert",
+        "revoke_before_set": "Revoke-before gesetzt",
+        "revoke_before_enforced": "Revoke-before angewendet"
+      },
+      "client": {
+        "created": "Erstellt",
+        "name_updated": "Umbenannt",
+        "redirect_uris_updated": "Redirect-URIs aktualisiert",
+        "scopes_updated": "Scopes aktualisiert",
+        "grants_updated": "Berechtigungen aktualisiert",
+        "enabled": "Aktiviert",
+        "disabled": "Deaktiviert",
+        "secret_rotated": "Secret rotiert",
+        "deleted": "Gelöscht"
+      },
+      "oidcAuthorize": { "succeeded": "Erfolgreich", "invalid_request": "Ungültige Anfrage" },
+      "oidcClient": { "auth_failed": "Fehlgeschlagen" },
+      "oidcCode": {
+        "exchanged": "Erfolgreich",
+        "client_mismatch": "Client passt nicht",
+        "redirect_mismatch": "Redirect passt nicht",
+        "pkce_mismatch": "PKCE passt nicht",
+        "user_not_found": "Benutzer nicht gefunden",
+        "user_disabled": "Benutzer deaktiviert",
+        "grant_removed": "Berechtigung entfernt",
+        "scope_removed": "Scope entfernt",
+        "replay_detected": "Replay erkannt"
+      },
+      "oidcRefresh": {
+        "refreshed": "Erfolgreich",
+        "reuse_detected": "Wiederverwendung erkannt",
+        "user_disabled": "Benutzer deaktiviert"
+      },
+      "oidcUserinfo": { "accessed": "Abgerufen" },
+      "signingKey": { "generated": "Erzeugt", "rotated": "Rotiert", "retired": "Außer Dienst" },
+      "setup": { "completed": "Abgeschlossen" },
+      "audit": { "viewed": "Angesehen", "exported": "Exportiert" }
+    },
+    "eventGroup": {
+      "login": "Anmeldung",
+      "logout": "Abmeldung",
+      "account": "Konto",
+      "mfaChallenge": "MFA — Challenge",
+      "mfaEnrollment": "MFA — Einrichtung / Zurücksetzen",
+      "password": "Passwort",
+      "passwordReset": "Passwort zurücksetzen",
+      "session": "Sitzung",
+      "userManagement": "Benutzerverwaltung",
+      "userTokenRevocation": "Widerruf von Benutzer-Tokens",
+      "clientManagement": "Client-Verwaltung",
+      "oidcAuthorize": "OIDC — Autorisierung",
+      "oidcClient": "OIDC — Client-Authentifizierung",
+      "oidcCode": "OIDC — Code-Austausch",
+      "oidcRefresh": "OIDC — Refresh",
+      "oidcUserinfo": "OIDC — Userinfo",
+      "signingKey": "Signaturschlüssel",
+      "configuration": "Konfiguration",
+      "setup": "Einrichtung",
+      "audit": "Audit"
+    }
+  },
   "password_reset": {
     "forgot": {
       "title": "Passwort zurücksetzen",

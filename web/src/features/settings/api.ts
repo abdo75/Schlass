@@ -18,6 +18,11 @@ export interface TokenSettings {
   refresh_token_ttl_secs: number;
 }
 
+export interface AuditLogSettings {
+  audit_view_logging_enabled: boolean;
+  audit_export_max_rows: number;
+}
+
 export interface EmailSettings {
   smtp_host: string;
   smtp_port: number;
@@ -30,6 +35,7 @@ export interface Settings {
   general: GeneralSettings;
   security: SecuritySettings;
   tokens: TokenSettings;
+  audit_log?: AuditLogSettings;
   email: EmailSettings;
 }
 
@@ -53,6 +59,13 @@ export function patchSecurity(body: Partial<SecuritySettings>) {
 
 export function patchTokens(body: Partial<TokenSettings>) {
   return apiFetch<TokenSettings>("/api/settings/tokens", {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+}
+
+export function patchAuditLog(body: Partial<AuditLogSettings>) {
+  return apiFetch<AuditLogSettings>("/api/settings/audit-log", {
     method: "PATCH",
     body: JSON.stringify(body),
   });

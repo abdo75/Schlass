@@ -7,7 +7,6 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/abdo75/Schlass/internal/audit"
 	"github.com/abdo75/Schlass/internal/httputil"
 	"github.com/abdo75/Schlass/internal/oidc"
 	"github.com/abdo75/Schlass/internal/users"
@@ -16,12 +15,11 @@ import (
 // UserInfoHandler serves GET /userinfo behind BearerAuth.
 // Response is plain JSON (not a JWT) — OIDC Core §5.3 allows either.
 type UserInfoHandler struct {
-	pool       *pgxpool.Pool
-	auditStore audit.Logger
+	pool *pgxpool.Pool
 }
 
-func NewUserInfoHandler(pool *pgxpool.Pool, auditStore audit.Logger) *UserInfoHandler {
-	return &UserInfoHandler{pool: pool, auditStore: auditStore}
+func NewUserInfoHandler(pool *pgxpool.Pool) *UserInfoHandler {
+	return &UserInfoHandler{pool: pool}
 }
 
 func (h *UserInfoHandler) Handle(w http.ResponseWriter, r *http.Request) {
@@ -41,38 +39,11 @@ func (h *UserInfoHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	scopes := oidc.Scopes(strings.Fields(claims.Scope))
 	body := oidc.BuildUserInfoClaims(user, scopes)
 
-	// Best-effort audit — high-volume event, must not block the response.
-	_ = h.writeBestEffortAudit(r, audit.Entry{
-		EventType:  "oidc.userinfo.accessed",
-		ActorID:    &user.ID,
-		ActorEmail: user.Email,
-		TargetType: "client",
-		TargetID:   claims.Audience,
-		IPAddress:  extractClientIP(r),
-		Outcome:    "success",
-		Metadata: map[string]any{
-			"scopes": strings.Fields(claims.Scope),
-			"jti":    claims.JTI,
-		},
-	})
+	// Successful userinfo reads are not audited: ISO 27001:2022 A.8.15 / NIST
+	// 800-53 AU-2 only mandate logging access to security-relevant or
+	// sensitive objects, not routine self-reads of OIDC userinfo. Failure
+	// paths above (token validation, scope check) emit their own events.
 
 	httputil.WriteJSON(w, http.StatusOK, body)
 }
 
-func (h *UserInfoHandler) writeBestEffortAudit(r *http.Request, entry audit.Entry) error {
-	tx, err := h.pool.Begin(r.Context())
-	if err != nil {
-		slog.Error("userinfo best-effort audit: begin", "error", err)
-		return err
-	}
-	defer func() { _ = tx.Rollback(r.Context()) }()
-	if err := h.auditStore.Log(r.Context(), tx, entry); err != nil {
-		slog.Error("userinfo best-effort audit: log", "error", err)
-		return err
-	}
-	if err := tx.Commit(r.Context()); err != nil {
-		slog.Error("userinfo best-effort audit: commit", "error", err)
-		return err
-	}
-	return nil
-}

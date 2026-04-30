@@ -163,9 +163,12 @@ func TestTokenRefresh_HappyPath_IssuesNewAccessAndRotatesRefresh(t *testing.T) {
 		t.Fatal("new access token jti is empty")
 	}
 
-	// Audit row for refresh.
-	if n := countAuditRows(t, env, "oidc.token.refreshed", "success"); n != 1 {
-		t.Fatalf("expected 1 oidc.token.refreshed audit row, got %d", n)
+	// `oidc.token.refreshed` is intentionally NOT emitted for successful
+	// refreshes (see token.go). The forensic-valuable failure variants
+	// (oidc.refresh.reuse_detected, oidc.refresh.user_disabled) are covered
+	// by their own tests below.
+	if n := countAuditRows(t, env, "oidc.token.refreshed", "success"); n != 0 {
+		t.Fatalf("expected 0 oidc.token.refreshed rows after trim, got %d", n)
 	}
 
 	// Old refresh must now trigger reuse detection.

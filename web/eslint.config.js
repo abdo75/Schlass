@@ -23,6 +23,24 @@ export default defineConfig([
         tsconfigRootDir: import.meta.dirname,
       },
     },
+    rules: {
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
+      ],
+    },
+  },
+  {
+    // Vitest + RTL matchers (expect.any, expect.stringMatching, ...) are
+    // typed as `any`, which trips the type-aware unsafe-* rules without
+    // signalling real bugs. Relax those in test files only.
+    files: ['**/*.test.{ts,tsx}'],
+    rules: {
+      '@typescript-eslint/no-unsafe-assignment': 'off',
+      '@typescript-eslint/no-unsafe-argument': 'off',
+      '@typescript-eslint/no-unsafe-call': 'off',
+      '@typescript-eslint/no-unsafe-member-access': 'off',
+    },
   },
   {
     // Playwright E2E tests are not React code. The fixture API uses an

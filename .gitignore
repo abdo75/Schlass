@@ -43,8 +43,6 @@ superpowers
 /docs/*
 !/docs/operator/
 !/docs/operator/**
-!/docs/plans/
-!/docs/plans/**
 !/docs/architecture.md
 !/docs/security.md
 

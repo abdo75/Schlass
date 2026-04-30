@@ -5,7 +5,6 @@ import i18n from "@/i18n";
 import { EnrollStepVerify } from "../EnrollStepVerify";
 
 const verifyMock = vi.fn(
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   (_code: string): Promise<{ recovery_codes: string[] }> =>
     Promise.resolve({ recovery_codes: [] }),
 );

@@ -323,6 +323,194 @@
   "settings": {
     "title": "Settings"
   },
+  "audit": {
+    "title": "Audit log",
+    "subtitle": "Append-only record of system activity.",
+    "tabs": {
+      "all": "All events",
+      "signIn": "Sign-in activity",
+      "admin": "Admin actions",
+      "client": "Client changes"
+    },
+    "refine": {
+      "label": "Filter",
+      "actorOpener": "+ Actor",
+      "targetOpener": "+ Target",
+      "eventTypeOpener": "+ Event type",
+      "clear": "Clear filters"
+    },
+    "error": {
+      "fetch": "The audit log could not be loaded.",
+      "retry": "Retry"
+    },
+    "panel": {
+      "system": "System",
+      "event": "Event",
+      "copyLink": "Copy link",
+      "copyData": "Copy data",
+      "exportData": "Export data",
+      "participants": "Participants",
+      "actor": "Actor",
+      "target": "Target",
+      "fromIp": "From IP",
+      "changedValues": "Changed values",
+      "scopesGranted": "Scopes granted",
+      "reason": "Reason",
+      "whyThisMatters": "Why this matters",
+      "technicalDetails": "Technical details",
+      "eventId": "Event ID",
+      "eventType": "Event type",
+      "actorId": "Actor ID",
+      "targetType": "Target type",
+      "targetId": "Target ID",
+      "recordedAt": "Recorded at"
+    },
+    "severity": {
+      "critical": "Critical"
+    },
+    "reason": {
+      "unknown": {
+        "title": "Not yet documented",
+        "body": "This reason code is not yet documented in the audit-log viewer.",
+        "rawLabel": "Raw value:"
+      },
+      "login": {
+        "wrong_password": "The password did not match."
+      },
+      "oidcAuthorizeInvalidRequest": {
+        "invalid_scope": "One or more requested scopes are not allowed for this client."
+      }
+    },
+    "alert": {
+      "account.locked": "The account exceeded the lockout threshold and is temporarily locked.",
+      "oidc.refresh.reuse_detected": "A refresh token was presented twice and the rotation family was revoked."
+    },
+    "hint": {
+      "access_token_ttl_secs": {
+        "up": "Access tokens now live longer.",
+        "down": "Access tokens now expire sooner."
+      },
+      "audit_export_max_rows": {
+        "up": "Export cap raised; bigger files now possible.",
+        "down": "Export cap lowered; truncation kicks in earlier.",
+        "uncapped": "Export is now uncapped."
+      }
+    },
+    "configKey": {
+      "access_token_ttl_secs": "Access-token lifetime",
+      "refresh_token_ttl_secs": "Refresh-token lifetime",
+      "audit_view_logging_enabled": "Audit-view logging",
+      "audit_export_max_rows": "Audit export row cap"
+    },
+    "eventLabel": {
+      "login": { "succeeded": "Success", "failed": "Failure" },
+      "auth": { "permission_denied": "Permission denied" },
+      "logout": { "completed": "Completed" },
+      "account": { "locked": "Locked" },
+      "mfa": {
+        "challenge_succeeded": "Challenge success",
+        "challenge_failed": "Challenge failure",
+        "enrollment_completed": "Enrollment completed",
+        "reset": "Reset by admin",
+        "self_reset": "Self-reset",
+        "recovery_code_used": "Recovery code used"
+      },
+      "password": { "changed": "Changed" },
+      "passwordReset": {
+        "requested": "Requested",
+        "completed": "Completed",
+        "confirm_failed": "Confirm failed",
+        "admin_blocked": "Admin-blocked",
+        "cleanup_swept": "Cleanup swept"
+      },
+      "session": { "revoked": "Revoked", "terminated": "Terminated", "reauth_forced": "Re-auth forced" },
+      "user": {
+        "created": "Created",
+        "updated": "Updated",
+        "enabled": "Enabled",
+        "disabled": "Disabled",
+        "deleted": "Deleted",
+        "password_reset": "Admin-sent password reset",
+        "sessions_terminated": "Sessions terminated",
+        "audit_pseudonymized": "Audit pseudonymized",
+        "revoke_before_set": "Revoke-before set",
+        "revoke_before_enforced": "Revoke-before enforced"
+      },
+      "client": {
+        "created": "Created",
+        "name_updated": "Renamed",
+        "redirect_uris_updated": "Redirect URIs updated",
+        "scopes_updated": "Scopes updated",
+        "grants_updated": "Grants updated",
+        "enabled": "Enabled",
+        "disabled": "Disabled",
+        "secret_rotated": "Secret rotated",
+        "deleted": "Deleted"
+      },
+      "oidcAuthorize": { "succeeded": "Succeeded", "invalid_request": "Invalid request" },
+      "oidcClient": { "auth_failed": "Failed" },
+      "oidcCode": {
+        "exchanged": "Succeeded",
+        "client_mismatch": "Client mismatch",
+        "redirect_mismatch": "Redirect mismatch",
+        "pkce_mismatch": "PKCE mismatch",
+        "user_not_found": "User not found",
+        "user_disabled": "User disabled",
+        "grant_removed": "Grant removed",
+        "scope_removed": "Scope removed",
+        "replay_detected": "Replay detected"
+      },
+      "oidcRefresh": {
+        "refreshed": "Succeeded",
+        "reuse_detected": "Reuse detected",
+        "user_disabled": "User disabled"
+      },
+      "oidcUserinfo": { "accessed": "Accessed" },
+      "signingKey": { "generated": "Generated", "rotated": "Rotated", "retired": "Retired" },
+      "setup": { "completed": "Completed" },
+      "audit": { "viewed": "Viewed", "exported": "Exported" },
+      "config": {
+        "instance_name": "Instance name changed",
+        "mfa_required": "MFA requirement changed",
+        "password_min_length": "Password minimum length changed",
+        "password_require_upper": "Password uppercase rule changed",
+        "password_require_digit": "Password digit rule changed",
+        "lockout_threshold": "Lockout threshold changed",
+        "lockout_duration_secs": "Lockout duration changed",
+        "access_token_ttl_secs": "Access-token lifetime changed",
+        "refresh_token_ttl_secs": "Refresh-token lifetime changed",
+        "smtp_host": "SMTP host changed",
+        "smtp_port": "SMTP port changed",
+        "smtp_username": "SMTP username changed",
+        "smtp_from": "SMTP from-address changed",
+        "smtp_password": "SMTP password changed",
+        "audit_view_logging_enabled": "Audit-view logging toggle changed",
+        "audit_export_max_rows": "Audit export row cap changed"
+      }
+    },
+    "eventGroup": {
+      "login": "Login",
+      "logout": "Logout",
+      "account": "Account",
+      "mfaChallenge": "Multi-factor — challenge",
+      "mfaEnrollment": "Multi-factor — enrollment / reset",
+      "password": "Password",
+      "passwordReset": "Password reset",
+      "session": "Session",
+      "userManagement": "User management",
+      "userTokenRevocation": "User token revocation",
+      "clientManagement": "Client management",
+      "oidcAuthorize": "OIDC — authorize",
+      "oidcClient": "OIDC — client authentication",
+      "oidcCode": "OIDC — code exchange",
+      "oidcRefresh": "OIDC — refresh",
+      "oidcUserinfo": "OIDC — userinfo",
+      "signingKey": "Signing key",
+      "configuration": "Configuration",
+      "setup": "Setup",
+      "audit": "Audit"
+    }
+  },
   "password_reset": {
     "forgot": {
       "title": "Reset your password",

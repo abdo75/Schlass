@@ -216,23 +216,12 @@ func (h *AuthorizeHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		h.redirectError(w, r, redirectURI, state, oidc.ErrServerError("db insert"))
 		return
 	}
-	if err := h.auditStore.Log(r.Context(), tx, audit.Entry{
-		EventType:  "oidc.authorize.succeeded",
-		ActorID:    &user.ID,
-		ActorEmail: user.Email,
-		TargetType: "client",
-		TargetID:   client.ID.String(),
-		IPAddress:  extractClientIP(r),
-		Outcome:    "success",
-		Metadata: map[string]any{
-			"scopes":    scopes,
-			"family_id": familyID.String(),
-		},
-	}); err != nil {
-		slog.Error("authorize: audit", "error", err)
-		h.redirectError(w, r, redirectURI, state, oidc.ErrServerError("audit"))
-		return
-	}
+	// `oidc.authorize.succeeded` is intentionally NOT emitted: the equivalent
+	// `oidc.code.exchanged` event fires moments later on token-endpoint
+	// success and carries the same actor/client/scopes data. Emitting both is
+	// redundant for forensics and roughly doubles the OIDC event volume.
+	// Failure paths (oidc.authorize.invalid_request, session.reauth_forced)
+	// remain audited above.
 	if err := tx.Commit(r.Context()); err != nil {
 		h.redirectError(w, r, redirectURI, state, oidc.ErrServerError("commit"))
 		return
