@@ -32,8 +32,11 @@ type BearerAuthDeps struct {
 }
 
 // BearerAuth — 401 + WWW-Authenticate: Bearer per RFC 6750 §3.1 on any
-// failure. Best-effort oidc.userinfo.accessed audit is emitted by the
-// handler, not here, so this middleware stays free of audit/tx concerns.
+// failure. oidc.userinfo.accessed is registered in audit/registry.go but
+// not yet emitted at runtime — wiring is deferred to M9 (CAEP outbound
+// projection), where the userinfo handler will emit alongside SET push.
+// Either way the emit will live in the handler, not here, so this
+// middleware stays free of audit/tx concerns.
 func BearerAuth(d BearerAuthDeps) func(http.Handler) http.Handler {
 	if d.SigningKeyStore == nil {
 		d.SigningKeyStore = authsigningkeys.NewStore()

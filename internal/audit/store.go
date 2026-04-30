@@ -208,7 +208,10 @@ func (s *Store) Emit(ctx context.Context, tx pgx.Tx, e Event) error {
 	// to the middleware-injected request correlation ID. Mirror into
 	// metadata under the same key so the viewer's existing event-grouping
 	// (UI reads metadata.correlation_id) keeps working until M7 surfaces
-	// the column directly.
+	// the column directly. Mirror whichever source actually populated the
+	// column so explicit-field callers (CLI/sweeper paths without a
+	// request middleware) don't end up with a column-only row that the
+	// viewer can't group.
 	correlationID := e.CorrelationID
 	cidStr := middleware.CorrelationID(ctx)
 	if correlationID == nil && cidStr != "" {
@@ -217,12 +220,12 @@ func (s *Store) Emit(ctx context.Context, tx pgx.Tx, e Event) error {
 		}
 	}
 	metadata := e.Metadata
-	if cidStr != "" {
+	if correlationID != nil {
 		merged := make(map[string]any, len(metadata)+1)
 		for k, v := range metadata {
 			merged[k] = v
 		}
-		merged["correlation_id"] = cidStr
+		merged["correlation_id"] = correlationID.String()
 		metadata = merged
 	}
 
