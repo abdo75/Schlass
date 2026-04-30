@@ -51,7 +51,11 @@ M3-emitted row onward.
 
 DATABASE_URL must be set in the environment.
 
-Exit codes: 0 clean, 1 mismatch, 2 gap, 3 operational error.
+Exit codes:
+  0  clean (chain valid)
+  1  mismatch (row_hash diverges from recompute)
+  2  gap (sequence_no missing)
+  3  error (DB / connection / argument)
 
 Flags:
 `)

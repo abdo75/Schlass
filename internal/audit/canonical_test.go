@@ -135,6 +135,39 @@ func TestCanonicalize_BoolNullArray(t *testing.T) {
 	}
 }
 
+// TestCanonicalize_NumberECMAScriptBoundaries pins the ECMAScript
+// ToString(Number) boundaries that RFC 8785 §3.2.4 references. Go's
+// strconv 'g' formatter diverges from ECMAScript at these points
+// (1e21, 1e-7), so we render via ecmaScriptNumber instead. If this
+// test fails, canonical encoding is no longer byte-identical with a
+// JavaScript reference implementation.
+func TestCanonicalize_NumberECMAScriptBoundaries(t *testing.T) {
+	cases := []struct {
+		in   float64
+		want string
+	}{
+		{1e20, `{"x":100000000000000000000}`},
+		{1e21, `{"x":1e+21}`},
+		{1e-6, `{"x":0.000001}`},
+		{1e-7, `{"x":1e-7}`},
+		// Sanity vectors that don't sit on a boundary but exercise the
+		// fixed-notation branches:
+		{1.5, `{"x":1.5}`},
+		{0.1, `{"x":0.1}`},
+		{-1e21, `{"x":-1e+21}`},
+		{-1e-7, `{"x":-1e-7}`},
+	}
+	for _, c := range cases {
+		got, err := Canonicalize(map[string]any{"x": c.in})
+		if err != nil {
+			t.Fatalf("canonicalize %v: %v", c.in, err)
+		}
+		if string(got) != c.want {
+			t.Fatalf("Canonicalize(%v) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
 // TestCanonicalize_Determinism re-encodes the same input twice and
 // asserts byte-equal output. This is the property chain.go relies on:
 // the same row encoded twice MUST produce the same bytes.

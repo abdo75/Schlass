@@ -1,5 +1,6 @@
 // Hash-chain layer for audit_logs. Every M3-or-later row carries:
-//   - sequence_no: monotonic, populated by the audit_logs_seq sequence default.
+//   - sequence_no: monotonic, computed transactionally as MAX(seq)+1
+//     for the tenant inside the per-tenant advisory lock.
 //   - prev_hash: row_hash of the immediately prior row in the same tenant
 //     (NULL for the first row in a tenant + for legacy pre-M3 rows).
 //   - row_hash: sha256 over the canonical JSON of the row's fields plus
@@ -9,6 +10,18 @@
 // hashtext(tenant_id). The advisory lock auto-releases at tx end, so
 // callers don't need to remember to unlock. Locking on the int4 hash
 // keeps the lock keyspace narrow even with many tenants.
+//
+// Sequence number allocation rationale: an earlier draft used
+// `nextval('audit_logs_seq')` as both the column DEFAULT and the
+// reservation call inside Append. Postgres sequences advance OUTSIDE
+// the enclosing tx, so any business tx that aborted after Append
+// returned would burn a sequence number — the next committed emit
+// would then carry a non-contiguous sequence_no and Verify would
+// report a false-positive Gap. The current implementation reads
+// MAX(sequence_no)+1 for the tenant inside the advisory lock; the
+// read+insert participate in the same tx, so a rollback leaves no
+// gap. The audit_logs_seq sequence object is kept vestigial for
+// migration back-compat (see 000006_audit_seq_transactional.up.sql).
 //
 // Verifier semantics for legacy rows: the M3 migration backfilled
 // pre-M3 rows with row_hash = sha256('legacy:' || id::text) and
@@ -93,13 +106,14 @@ func LegacyRowHash(id uuid.UUID) []byte {
 // MUST run inside an existing transaction; the advisory lock survives
 // only as long as the tx and is released on COMMIT or ROLLBACK.
 //
-// The function reads the current chain head BEFORE generating the
-// sequence_no — sequence_no comes from the column DEFAULT inside the
-// INSERT, and the RETURNING clause reads it back. The hash input
-// already covers (prev_hash, sequence_no) so any race that produced
-// two rows with the same sequence_no would also produce different
-// row_hash values; the unique constraint on (tenant_id, sequence_no)
-// catches it as a clean integrity-error rollback either way.
+// The function reads the current chain head (row_hash, sequence_no)
+// inside the per-tenant advisory lock. The next sequence_no is
+// head.sequence_no+1 (or 1 when no head exists). The MAX read and the
+// INSERT participate in the same tx, so a rollback leaves the chain
+// state unchanged — no burned sequence numbers, no false-positive
+// Gap reports. The unique constraint on (tenant_id, sequence_no) is
+// the belt-and-suspenders backstop if a future code path bypasses the
+// lock.
 func (c *Chain) Append(ctx context.Context, tx pgx.Tx, s *Store, e Event) error {
 	// Default actor_type from ActorID presence so existing call sites
 	// don't have to set it explicitly.
@@ -154,15 +168,21 @@ func (c *Chain) Append(ctx context.Context, tx pgx.Tx, s *Store, e Event) error 
 
 	// Read the current chain head for this tenant. NULL prev_hash for
 	// the first M3 emit — sentinel-backfilled rows have a row_hash so
-	// the chain reads cleanly across the M3 cutover.
-	var prevHash []byte
+	// the chain reads cleanly across the M3 cutover. We also pull the
+	// head's sequence_no so Append can derive next_seq = head_seq + 1
+	// transactionally (see package doc).
+	var (
+		prevHash []byte
+		headSeq  int64
+	)
 	if err := tx.QueryRow(ctx,
-		`SELECT row_hash FROM audit_logs WHERE tenant_id = $1
-		 ORDER BY sequence_no DESC LIMIT 1`, tenantID).Scan(&prevHash); err != nil {
+		`SELECT row_hash, sequence_no FROM audit_logs WHERE tenant_id = $1
+		 ORDER BY sequence_no DESC LIMIT 1`, tenantID).Scan(&prevHash, &headSeq); err != nil {
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("chain: read head: %w", err)
 		}
 		prevHash = nil
+		headSeq = 0
 	}
 
 	// event_timestamp: zero falls back to DB now(). For hashing purposes
@@ -212,13 +232,13 @@ func (c *Chain) Append(ctx context.Context, tx pgx.Tx, s *Store, e Event) error 
 	}
 
 	// We need the sequence_no in the hash, which means we have to know
-	// it BEFORE the row is committed. Reserve it via nextval() inside
-	// the same tx — the advisory lock guarantees no interleaving emit
-	// reads our reservation as the chain head.
-	var sequenceNo int64
-	if err := tx.QueryRow(ctx, `SELECT nextval('audit_logs_seq')`).Scan(&sequenceNo); err != nil {
-		return fmt.Errorf("chain: nextval: %w", err)
-	}
+	// it BEFORE the row is committed. Compute it from the head we just
+	// read under the per-tenant advisory lock: next = head_seq + 1
+	// (or 1 when this is the tenant's first row). The read+insert
+	// share this tx, so a later ROLLBACK reverts the allocation
+	// cleanly — no sequence-number leaks, no false-positive Gap
+	// reports from Verify.
+	sequenceNo := headSeq + 1
 
 	// Build the chainRow. UUID values render as canonical hyphenated
 	// strings; missing optional fields stay zero-valued and drop out

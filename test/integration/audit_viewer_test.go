@@ -137,9 +137,12 @@ func insertAuditViewerRow(t *testing.T, env *TestEnv, eventType string, actorID 
 		actor = nil
 		metadata = `{"pseudonymized_at": "2026-04-30T00:00:00Z"}`
 	}
+	// Post-M3 (000005 + 000006): sequence_no is NOT NULL with no DEFAULT;
+	// raw INSERTs that bypass chain.Append must supply it explicitly.
 	if _, err := env.Pool.Exec(context.Background(), `
-		INSERT INTO audit_logs (event_type, actor_id, target_type, target_id, outcome, metadata)
-		VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+		INSERT INTO audit_logs (event_type, actor_id, target_type, target_id, outcome, metadata, sequence_no)
+		VALUES ($1, $2, $3, $4, $5, $6::jsonb,
+		        (SELECT COALESCE(MAX(sequence_no), 0) + 1 FROM audit_logs))
 	`, eventType, actor, targetType, targetID, outcome, metadata); err != nil {
 		t.Fatalf("insert audit row %s: %v", eventType, err)
 	}

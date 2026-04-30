@@ -6,10 +6,14 @@
 //   - Object keys sorted by UTF-16 code-unit ordering (RFC 8785 §3.2.3).
 //   - No insignificant whitespace.
 //   - Strings: NFC unicode normalisation + RFC 8785 string escaping.
-//   - Numbers: ECMAScript Number formatting (RFC 8785 §3.2.4 / IEEE 754
-//     double precision). Integers stay integer, floats use Go's
-//     strconv.FormatFloat with 'g' + -1 precision (shortest round-trip).
-//     Exponential notation for the integer subdomain is collapsed.
+//   - Numbers: ECMAScript ToString(Number) per RFC 8785 §3.2.4. Integer
+//     values render with no `.` or `e`; non-integer floats use fixed
+//     notation when the decimal exponent k satisfies -6 <= k <= 20 and
+//     exponential notation (form `<digits>e+<exp>` / `<digits>e-<exp>`,
+//     always signed, never zero-padded) otherwise. The boundary at
+//     1e21 / 1e-7 differs from Go's strconv 'g' formatter; we
+//     reconstruct the ECMAScript output directly so byte-identical
+//     canonical encoding holds across implementations.
 //   - Booleans, null, arrays handled per JSON.
 //   - UTF-8 byte output.
 //
@@ -180,13 +184,11 @@ func writeCanonicalString(buf *bytes.Buffer, s string) error {
 }
 
 // writeCanonicalNumber emits a JSON number per RFC 8785 §3.2.4, which
-// references the ECMAScript ToString(Number) algorithm. We accept a
-// json.Number string (already validated as a JSON number by the
-// decoder) and:
+// references the ECMAScript ToString(Number) algorithm
+// (ES2023 §6.1.6.1.20). We accept a json.Number string (already
+// validated as a JSON number by the decoder) and:
 //   - keep integer literals as integer (no trailing `.0`),
-//   - reformat floats via strconv.FormatFloat 'g' / -1 — that matches
-//     ECMAScript "shortest round-trip" exactly for values in the
-//     IEEE 754 double range,
+//   - reformat floats via the ECMAScript rules (see ecmaScriptNumber),
 //   - reject NaN / +Inf / -Inf (RFC 8785 forbids them in JCS).
 func writeCanonicalNumber(buf *bytes.Buffer, s string) error {
 	if i, err := strconv.ParseInt(s, 10, 64); err == nil {
@@ -204,15 +206,143 @@ func writeCanonicalNumber(buf *bytes.Buffer, s string) error {
 	if math.IsNaN(f) || math.IsInf(f, 0) {
 		return fmt.Errorf("canonicalize: NaN/Inf not representable in JCS")
 	}
-	// Whole-valued floats emit as integers so 1.0 -> "1", matching the
-	// ECMAScript ToString contract. Bound the cast to int64's range;
-	// outside that, FormatFloat 'g' -1 produces the canonical exponential
-	// form that ECMAScript Number.prototype.toString agrees with.
+	buf.WriteString(ecmaScriptNumber(f))
+	return nil
+}
+
+// ecmaScriptNumber renders f per the ECMAScript ToString(Number)
+// algorithm (ES2023 §6.1.6.1.20), which RFC 8785 §3.2.4 inherits.
+//
+// The shape:
+//   - Zero -> "0".
+//   - Integer-valued floats inside int64 range -> decimal integer with
+//     no decimal point or exponent.
+//   - Otherwise, derive the shortest round-trip mantissa s and decimal
+//     exponent expE from strconv.FormatFloat 'e' / -1 (s is in [1, 10),
+//     so the printed exponent expE satisfies value = mantissa * 10^expE
+//     where the leading digit is non-zero). Let k = digit-count of s.
+//     ECMAScript "n" = expE + 1.
+//   - If -6 <= expE <= 20: fixed notation.
+//   - Otherwise: exponential as `<digit>[.<rest>]e<+|->|n-1|` — the
+//     sign is always present (no `e+0`-style padding, no leading zero
+//     on the exponent value).
+//
+// The boundary at expE=21 (1e21 -> "1e+21") and expE=-7 (1e-7 ->
+// "1e-7") differs from Go's strconv 'g' format; we reconstruct the
+// ECMAScript output directly to keep canonical encoding byte-identical
+// across implementations.
+func ecmaScriptNumber(f float64) string {
+	if f == 0 {
+		// Both +0 and -0 render as "0" per ECMAScript ToString(0).
+		return "0"
+	}
+	// Integer fast-path: whole-valued floats inside int64 range emit as
+	// the decimal integer form, matching ECMAScript ToString for any
+	// integer in the safe-integer range.
 	const int64MaxAsFloat = 9.223372036854775e18
 	if f == math.Trunc(f) && f >= -int64MaxAsFloat && f <= int64MaxAsFloat {
-		buf.WriteString(strconv.FormatInt(int64(f), 10))
-		return nil
+		return strconv.FormatInt(int64(f), 10)
 	}
-	buf.WriteString(strconv.FormatFloat(f, 'g', -1, 64))
-	return nil
+
+	// FormatFloat 'e' / -1 yields "<sign?><digit>.<rest>e<sign><expdigits>"
+	// with the shortest round-trip mantissa. We split on 'e' and extract
+	// the digits (sans decimal point) plus the integer exponent.
+	raw := strconv.FormatFloat(f, 'e', -1, 64)
+	negative := false
+	if raw[0] == '-' {
+		negative = true
+		raw = raw[1:]
+	}
+	eIdx := -1
+	for i := 0; i < len(raw); i++ {
+		if raw[i] == 'e' {
+			eIdx = i
+			break
+		}
+	}
+	if eIdx < 0 {
+		// Defensive — FormatFloat 'e' always emits an 'e'. Fall back
+		// to 'g' rather than panicking; only reachable if the stdlib
+		// changes its contract.
+		return strconv.FormatFloat(f, 'g', -1, 64)
+	}
+	mantissaStr := raw[:eIdx]
+	expStr := raw[eIdx+1:]
+	expE, err := strconv.Atoi(expStr)
+	if err != nil {
+		return strconv.FormatFloat(f, 'g', -1, 64)
+	}
+	// Strip the decimal point so digits is the bare significand.
+	digits := mantissaStr
+	if dot := indexByte(mantissaStr, '.'); dot >= 0 {
+		digits = mantissaStr[:dot] + mantissaStr[dot+1:]
+	}
+	// Trim trailing zeros so digit count k matches the ECMAScript
+	// "minimal s digits" contract. FormatFloat 'e' / -1 already does
+	// this for the mantissa, but the manual splice above can leave
+	// nothing to trim — guard anyway for robustness.
+	for len(digits) > 1 && digits[len(digits)-1] == '0' {
+		digits = digits[:len(digits)-1]
+	}
+	k := len(digits)
+	n := expE + 1 // ECMAScript "n" — value = digits * 10^(n-k)
+
+	var out string
+	switch {
+	case expE >= -6 && expE <= 20:
+		// Fixed notation. Three sub-cases keyed by n vs k.
+		switch {
+		case n >= k:
+			// digits, then (n-k) trailing zeros, no decimal.
+			out = digits + repeatZeros(n-k)
+		case n > 0:
+			// First n digits, '.', remaining (k-n).
+			out = digits[:n] + "." + digits[n:]
+		default:
+			// n <= 0: "0." + (-n) leading zeros + digits.
+			out = "0." + repeatZeros(-n) + digits
+		}
+	default:
+		// Exponential. ECMAScript: "<digit>[.<rest>]e<sign>|n-1|".
+		exp := n - 1
+		var expSign string
+		if exp >= 0 {
+			expSign = "+"
+		} else {
+			expSign = "-"
+			exp = -exp
+		}
+		if k == 1 {
+			out = digits + "e" + expSign + strconv.Itoa(exp)
+		} else {
+			out = digits[:1] + "." + digits[1:] + "e" + expSign + strconv.Itoa(exp)
+		}
+	}
+	if negative {
+		out = "-" + out
+	}
+	return out
+}
+
+// indexByte is a stdlib-free byte search used only inside this file's
+// number rendering to keep the import surface minimal.
+func indexByte(s string, c byte) int {
+	for i := 0; i < len(s); i++ {
+		if s[i] == c {
+			return i
+		}
+	}
+	return -1
+}
+
+// repeatZeros returns a string of n '0' characters; n <= 0 returns "".
+func repeatZeros(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = '0'
+	}
+	return string(b)
 }

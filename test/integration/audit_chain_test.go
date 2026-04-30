@@ -291,6 +291,101 @@ func TestChain_LegacyRowsAcceptedAsOpaque(t *testing.T) {
 	}
 }
 
+// TestChain_RolledBackEmitDoesNotLeakSequenceGap regresses the
+// false-positive Gap pathway that surfaced when sequence_no was
+// allocated via `nextval`. Postgres sequences advance outside the
+// enclosing tx, so a rolled-back emit used to burn a sequence number
+// and the next committed emit would carry sequence_no=N+2, prompting
+// audit.Verify to report Gap{MissingSequenceNo: N+1} on an honest
+// chain.
+//
+// The fix: Append reads the head + computes next = head.seq+1 inside
+// the per-tenant advisory lock, all in the same tx as the INSERT —
+// rollback leaves no scar. This test enforces that contract.
+func TestChain_RolledBackEmitDoesNotLeakSequenceGap(t *testing.T) {
+	env := NewTestEnv(t)
+	defer env.Cleanup()
+
+	store := audit.NewStore()
+	actorID := uuid.New()
+	ctx := context.Background()
+
+	// Tx A: emit 1 row, commit. Expect sequence_no=1.
+	emitOne(t, env, store, audit.Event{
+		EventType:  "login.succeeded",
+		Outcome:    "success",
+		ActorID:    &actorID,
+		TargetType: "user",
+		TargetID:   actorID.String(),
+		Metadata:   map[string]any{"tx": "a"},
+	})
+	var seqA int64
+	if err := env.Pool.QueryRow(ctx,
+		`SELECT sequence_no FROM audit_logs WHERE metadata->>'tx' = 'a'`).Scan(&seqA); err != nil {
+		t.Fatalf("read seq A: %v", err)
+	}
+	if seqA != 1 {
+		t.Fatalf("tx A sequence_no = %d, want 1", seqA)
+	}
+
+	// Tx B: emit 1 row, ROLLBACK. The sequence_no allocation must not
+	// persist past rollback.
+	{
+		tx, err := env.Pool.Begin(ctx)
+		if err != nil {
+			t.Fatalf("begin B: %v", err)
+		}
+		if err := store.Emit(ctx, tx, audit.Event{
+			EventType:  "login.succeeded",
+			Outcome:    "success",
+			ActorID:    &actorID,
+			TargetType: "user",
+			TargetID:   actorID.String(),
+			Metadata:   map[string]any{"tx": "b"},
+		}); err != nil {
+			_ = tx.Rollback(ctx)
+			t.Fatalf("emit B: %v", err)
+		}
+		if err := tx.Rollback(ctx); err != nil {
+			t.Fatalf("rollback B: %v", err)
+		}
+	}
+
+	// Tx C: emit 1 row, commit. Expect sequence_no=2 (NOT 3).
+	emitOne(t, env, store, audit.Event{
+		EventType:  "login.succeeded",
+		Outcome:    "success",
+		ActorID:    &actorID,
+		TargetType: "user",
+		TargetID:   actorID.String(),
+		Metadata:   map[string]any{"tx": "c"},
+	})
+	var seqC int64
+	if err := env.Pool.QueryRow(ctx,
+		`SELECT sequence_no FROM audit_logs WHERE metadata->>'tx' = 'c'`).Scan(&seqC); err != nil {
+		t.Fatalf("read seq C: %v", err)
+	}
+	if seqC != 2 {
+		t.Fatalf("tx C sequence_no = %d, want 2 (rolled-back tx B leaked a sequence gap)", seqC)
+	}
+
+	// Verify the chain — must NOT report a gap.
+	report, err := audit.Verify(ctx, env.Pool, audit.VerifyOptions{})
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if report.Gap != nil {
+		t.Fatalf("verify reported false-positive gap at seq=%d after rolled-back emit",
+			report.Gap.MissingSequenceNo)
+	}
+	if report.Mismatch != nil {
+		t.Fatalf("verify reported mismatch at seq=%d", report.Mismatch.SequenceNo)
+	}
+	if report.RowsChecked != 2 {
+		t.Fatalf("rows_checked = %d, want 2", report.RowsChecked)
+	}
+}
+
 // TestChain_VerifySmoke is the CI-side smoke check the spec asks for in
 // Step 7: seed a small chain and assert Verify is clean. Lives in the
 // existing integration suite so it runs on every `make test` without a

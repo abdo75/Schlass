@@ -28,11 +28,12 @@ type VerifyOptions struct {
 	// TenantID restricts verification to one tenant. Zero value means
 	// SingleTenant (the deployment-wide single-tenant constant).
 	TenantID uuid.UUID
-	// Since restricts the scan to rows with event_timestamp >= Since.
-	// Zero means walk the entire chain. Note that even when Since is
-	// set we read the row immediately preceding the cutoff so prev_hash
-	// for the first in-window row resolves correctly; without that the
-	// verifier would always report a fake mismatch on the boundary.
+	// Since constrains the verification window. We trust each row's
+	// stored prev_hash column (it is itself part of the row's hash
+	// input, so any tamper of prev_hash would surface as a row_hash
+	// mismatch). The gap check is suppressed for the first in-window
+	// row because we cannot tell whether it is the chain head or just
+	// the window head. Zero means walk the entire chain.
 	Since time.Time
 }
 

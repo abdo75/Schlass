@@ -12,9 +12,12 @@ func TestRLSPreventsAuditLogDeletion(t *testing.T) {
 	ctx := context.Background()
 
 	// Post-M2: actor_email is gone; system rows just identify by event_type.
+	// Post-M3 (000005 + 000006): sequence_no is NOT NULL with no DEFAULT;
+	// raw INSERTs that bypass chain.Append must supply it explicitly.
 	_, err := env.Pool.Exec(ctx,
-		`INSERT INTO audit_logs (event_type, outcome)
-		 VALUES ('test.event', 'success')`,
+		`INSERT INTO audit_logs (event_type, outcome, sequence_no)
+		 VALUES ('test.event', 'success',
+		         (SELECT COALESCE(MAX(sequence_no), 0) + 1 FROM audit_logs))`,
 	)
 	if err != nil {
 		t.Fatalf("failed to insert audit log: %v", err)
@@ -53,8 +56,9 @@ func TestRLSAllowsAuditLogInsertAndSelect(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := env.Pool.Exec(ctx,
-		`INSERT INTO audit_logs (event_type, outcome)
-		 VALUES ('test.insert', 'success')`,
+		`INSERT INTO audit_logs (event_type, outcome, sequence_no)
+		 VALUES ('test.insert', 'success',
+		         (SELECT COALESCE(MAX(sequence_no), 0) + 1 FROM audit_logs))`,
 	)
 	if err != nil {
 		t.Fatalf("INSERT should succeed for app role: %v", err)
