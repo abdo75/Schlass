@@ -51,7 +51,10 @@ func (q ListQuery) toSQL() (string, []any) {
 	if q.Actor == "system" {
 		parts = append(parts, "a.actor_id IS NULL")
 	} else if q.Actor != "" {
-		parts = append(parts, "a.actor_email = $"+strconv.Itoa(len(args)+1))
+		// REQ-AUD-011 (M2): actor_email is gone from audit_logs. Filter
+		// resolves the live email via a users sub-select; rows whose
+		// actor was deleted/pseudonymized fall out of the match set.
+		parts = append(parts, "a.actor_id = (SELECT id FROM users WHERE email = $"+strconv.Itoa(len(args)+1)+" LIMIT 1)")
 		args = append(args, q.Actor)
 	}
 	if q.TargetType == "system" {

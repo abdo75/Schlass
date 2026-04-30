@@ -71,6 +71,28 @@ func (s *Service) AccessTokenTTLSecs(ctx context.Context, q database.Querier) (i
 	return s.store.GetInt(ctx, q, "access_token_ttl_secs")
 }
 
+// AuditClientIPMode returns the configured value for
+// `audit.client_ip_mode` (REQ-AUD-031, M2). The string is one of
+// "coarse" (default), "country", or "off". Callers translate to the
+// audit.IPMode enum via audit.ParseIPMode at boot time. An empty key
+// (only possible if the M2 migration didn't seed it, e.g. tests
+// pointing at a pre-M2 schema) collapses to "coarse" so coarsening
+// stays the safe default.
+func (s *Service) AuditClientIPMode(ctx context.Context, q database.Querier) (string, error) {
+	isNull, err := s.store.IsNull(ctx, q, "audit.client_ip_mode")
+	if err != nil {
+		return "coarse", nil // missing key falls back to default
+	}
+	if isNull {
+		return "coarse", nil
+	}
+	v, err := s.store.GetString(ctx, q, "audit.client_ip_mode")
+	if err != nil || v == "" {
+		return "coarse", nil
+	}
+	return v, nil
+}
+
 func (s *Service) RefreshTokenTTLSecs(ctx context.Context, q database.Querier) (int, error) {
 	return s.store.GetInt(ctx, q, "refresh_token_ttl_secs")
 }
@@ -148,6 +170,7 @@ func (s *Service) Settings(ctx context.Context, q database.Querier) (*Settings, 
 	rtTTL, _ := s.store.GetInt(ctx, q, "refresh_token_ttl_secs")
 	auditViewLoggingEnabled, _ := s.store.GetBool(ctx, q, "audit_view_logging_enabled")
 	auditExportMaxRows, _ := s.store.GetInt(ctx, q, "audit_export_max_rows")
+	auditClientIPMode, _ := s.AuditClientIPMode(ctx, q)
 
 	host := readNullableString(ctx, s.store, q, "smtp_host")
 	port, _ := s.store.GetInt(ctx, q, "smtp_port")
@@ -172,6 +195,7 @@ func (s *Service) Settings(ctx context.Context, q database.Querier) (*Settings, 
 		AuditLog: AuditLogSettings{
 			ViewLoggingEnabled: auditViewLoggingEnabled,
 			ExportMaxRows:      auditExportMaxRows,
+			ClientIPMode:       auditClientIPMode,
 		},
 		Email: EmailSettings{
 			SMTPHost:        host,
@@ -219,8 +243,9 @@ type TokenSettings struct {
 }
 
 type AuditLogSettings struct {
-	ViewLoggingEnabled bool `json:"audit_view_logging_enabled"`
-	ExportMaxRows      int  `json:"audit_export_max_rows"`
+	ViewLoggingEnabled bool   `json:"audit_view_logging_enabled"`
+	ExportMaxRows      int    `json:"audit_export_max_rows"`
+	ClientIPMode       string `json:"audit_client_ip_mode"`
 }
 
 type EmailSettings struct {

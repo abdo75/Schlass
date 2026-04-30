@@ -63,12 +63,13 @@ func Middleware(
 			if errors.Is(err, users.ErrUserNotFound) {
 				_ = sessionStore.Delete(r.Context(), sess.UserID, cookie.Value)
 				bestEffortAudit(r.Context(), pool, auditStore, audit.Event{
-					EventType:  "session.revoked",
-					TargetType: "user",
-					TargetID:   userID.String(),
-					IPAddress:  clientIP(r),
-					Outcome:    "success",
-					Metadata:   map[string]any{"reason": "user_not_found"},
+					EventType:      "session.revoked",
+					TargetType:     "user",
+					TargetID:       userID.String(),
+					IPAddress:      clientIP(r),
+					ClientUAFamily: audit.ParseUAFamily(r.Header.Get("User-Agent")),
+					Outcome:        "success",
+					Metadata:       map[string]any{"reason": "user_not_found"},
 				})
 				writeAuthError(w, http.StatusUnauthorized, "INVALID_SESSION", "Not authenticated.")
 				return
@@ -82,14 +83,15 @@ func Middleware(
 			if u.Status == "disabled" {
 				_ = sessionStore.Delete(r.Context(), u.ID.String(), cookie.Value)
 				bestEffortAudit(r.Context(), pool, auditStore, audit.Event{
-					EventType:  "session.revoked",
-					ActorID:    &u.ID,
-					ActorEmail: u.Email,
-					TargetType: "user",
-					TargetID:   u.ID.String(),
-					IPAddress:  clientIP(r),
-					Outcome:    "success",
-					Metadata:   map[string]any{"reason": "user_disabled"},
+					EventType:      "session.revoked",
+					ActorID:        &u.ID,
+					ActorEmail:     u.Email,
+					TargetType:     "user",
+					TargetID:       u.ID.String(),
+					IPAddress:      clientIP(r),
+					ClientUAFamily: audit.ParseUAFamily(r.Header.Get("User-Agent")),
+					Outcome:        "success",
+					Metadata:       map[string]any{"reason": "user_disabled"},
 				})
 				writeAuthError(w, http.StatusUnauthorized, "INVALID_SESSION", "Not authenticated.")
 				return

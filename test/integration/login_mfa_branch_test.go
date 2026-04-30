@@ -156,9 +156,12 @@ func TestPostLogin_ForcePasswordChange_PrecedesMfa(t *testing.T) {
 	}
 
 	// Confirm the audit row carries force_password_change_pending=true.
+	// Post-M2 (REQ-AUD-011): actor_email is gone; resolve via the join.
 	var metadata []byte
 	_ = env.Pool.QueryRow(t.Context(),
-		`SELECT metadata FROM audit_logs WHERE event_type = 'login.succeeded' AND actor_email = 'newuser@example.com'`,
+		`SELECT a.metadata FROM audit_logs a
+		   JOIN users u ON u.id = a.actor_id
+		  WHERE a.event_type = 'login.succeeded' AND u.email = 'newuser@example.com'`,
 	).Scan(&metadata)
 	if len(metadata) == 0 {
 		t.Fatal("expected a login.succeeded audit row for newuser@example.com")

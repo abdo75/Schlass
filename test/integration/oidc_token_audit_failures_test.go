@@ -24,6 +24,12 @@ type tokenFailureAuditRow struct {
 	Metadata   map[string]any
 }
 
+// Post-M2 (REQ-AUD-011): actor_email is gone; the viewer resolves it
+// via a left join on users. We mirror that here so existing assertions
+// keep working — for rows whose actor_id no longer points to a live
+// user (e.g. user_not_found tests), the join returns NULL, which maps
+// back to the test's empty-string expectation. ip_address renamed to
+// client_ip_coarse.
 func readTokenFailureAudit(t *testing.T, env *TestEnv, eventType string) tokenFailureAuditRow {
 	t.Helper()
 
@@ -32,16 +38,17 @@ func readTokenFailureAudit(t *testing.T, env *TestEnv, eventType string) tokenFa
 		metadataJSON []byte
 	)
 	err := env.Pool.QueryRow(context.Background(), `
-		SELECT actor_id::text,
-		       actor_email,
-		       target_type,
-		       target_id,
-		       client_id::text,
-		       ip_address::text,
-		       metadata
-		FROM audit_logs
-		WHERE event_type = $1 AND outcome = 'failure'
-		ORDER BY created_at DESC
+		SELECT a.actor_id::text,
+		       u.email,
+		       a.target_type,
+		       a.target_id,
+		       a.client_id::text,
+		       a.client_ip_coarse::text,
+		       a.metadata
+		FROM audit_logs a
+		LEFT JOIN users u ON u.id = a.actor_id
+		WHERE a.event_type = $1 AND a.outcome = 'failure'
+		ORDER BY a.created_at DESC
 		LIMIT 1
 	`, eventType).Scan(
 		&row.ActorID,
@@ -153,7 +160,10 @@ func TestToken_AuthorizationCodeFailureAudits(t *testing.T) {
 		rec := doTokenRequest(t, env, params)
 
 		assertTokenError(t, rec, http.StatusBadRequest, "invalid_grant")
-		assertTokenFailureAudit(t, env, "oidc.code.client_mismatch", clientB, familyID, userID.String(), "")
+		// Post-M2: actor_email derives from the live users join, so
+		// the admin email comes through even though the emit site
+		// passes ActorEmail="".
+		assertTokenFailureAudit(t, env, "oidc.code.client_mismatch", clientB, familyID, userID.String(), adminEmail)
 	})
 
 	t.Run("redirect_mismatch", func(t *testing.T) {
@@ -171,7 +181,7 @@ func TestToken_AuthorizationCodeFailureAudits(t *testing.T) {
 		rec := doTokenRequest(t, env, params)
 
 		assertTokenError(t, rec, http.StatusBadRequest, "invalid_grant")
-		assertTokenFailureAudit(t, env, "oidc.code.redirect_mismatch", clientID, familyID, userID.String(), "")
+		assertTokenFailureAudit(t, env, "oidc.code.redirect_mismatch", clientID, familyID, userID.String(), adminEmail)
 	})
 
 	t.Run("pkce_mismatch", func(t *testing.T) {
@@ -189,7 +199,7 @@ func TestToken_AuthorizationCodeFailureAudits(t *testing.T) {
 		rec := doTokenRequest(t, env, params)
 
 		assertTokenError(t, rec, http.StatusBadRequest, "invalid_grant")
-		assertTokenFailureAudit(t, env, "oidc.code.pkce_mismatch", clientID, familyID, userID.String(), "")
+		assertTokenFailureAudit(t, env, "oidc.code.pkce_mismatch", clientID, familyID, userID.String(), adminEmail)
 	})
 
 	t.Run("user_not_found", func(t *testing.T) {

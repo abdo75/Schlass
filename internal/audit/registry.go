@@ -148,6 +148,7 @@ var EventTypes = map[string]EventTypeSpec{
 // instance_config key without updating this slice fails fast at startup.
 var configChangeKeys = []string{
 	"access_token_ttl_secs",
+	"audit.client_ip_mode",
 	"audit_export_max_rows",
 	"audit_view_logging_enabled",
 	"instance_name",

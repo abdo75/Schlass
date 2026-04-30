@@ -100,13 +100,17 @@ func Execute(ctx context.Context, pool *pgxpool.Pool, cfg *config.Env, email str
 	auditStore := audit.NewStore()
 	if err := auditStore.Emit(ctx, tx, audit.Event{
 		EventType:  "password_reset.recovery_issued",
-		ActorEmail: "system:recovery",
+		ActorType:  audit.ActorTypeSystem,
 		TargetType: "user",
 		TargetID:   u.ID.String(),
 		Outcome:    "success",
 		Metadata: map[string]any{
+			// Post-M2: system actor identification lives in metadata
+			// since the actor_email column is gone. The target user's
+			// email comes from the viewer's live join on TargetID, so
+			// it does not need to be duplicated here.
+			"actor_source": "system:recovery",
 			"token_id":     tokenID.String(),
-			"target_email": u.Email,
 			"invoker":      invokerInfo(),
 		},
 	}); err != nil {

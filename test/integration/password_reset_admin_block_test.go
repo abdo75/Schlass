@@ -49,12 +49,14 @@ func TestPasswordReset_AdminBlocked_AuditRowPresent(t *testing.T) {
 		outcome    string
 		metaJSON   []byte
 	)
+	// Post-M2 (REQ-AUD-011): actor_email resolves via the live join.
 	err := env.Pool.QueryRow(t.Context(), `
-		SELECT actor_id::text, actor_email, outcome, metadata
-		  FROM audit_logs
-		 WHERE event_type = 'password_reset.admin_blocked'
-		   AND target_id = $1::text
-		 ORDER BY created_at DESC
+		SELECT a.actor_id::text, u.email, a.outcome, a.metadata
+		  FROM audit_logs a
+		  LEFT JOIN users u ON u.id = a.actor_id
+		 WHERE a.event_type = 'password_reset.admin_blocked'
+		   AND a.target_id = $1::text
+		 ORDER BY a.created_at DESC
 		 LIMIT 1
 	`, adminID).Scan(&actorID, &actorEmail, &outcome, &metaJSON)
 	if err != nil {

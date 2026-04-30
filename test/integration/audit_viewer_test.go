@@ -73,6 +73,10 @@ func TestAuditViewerEndpoints(t *testing.T) {
 		t.Fatalf("audit.exported rows = %d, want 2", exportedCount)
 	}
 
+	// Post-M2 (REQ-AUD-011/030): pseudonymized rows have actor_id=NULL
+	// and metadata.pseudonymized_at set. The viewer renders the literal
+	// 'pseudonymized' as actor_display, and the row drops out of any
+	// actor=email filter (no actor_id to join on).
 	formerID := env.DirectCreateUser(t, "former@example.com", "user")
 	insertAuditViewerRow(t, env, "login.succeeded", &formerID, "", nil, nil, "success")
 	pseudo := auditViewerGetList(t, env, cookie, "/api/audit?actor=former@example.com")
@@ -80,14 +84,14 @@ func TestAuditViewerEndpoints(t *testing.T) {
 		t.Fatalf("pseudonymized actor must not match old email, got %d rows", len(pseudo.Items))
 	}
 	all := auditViewerGetList(t, env, cookie, "/api/audit")
-	foundFormer := false
+	foundPseudo := false
 	for _, item := range all.Items {
-		if item.ActorID != nil && *item.ActorID == formerID.String() && item.ActorDisplay == "Former user" {
-			foundFormer = true
+		if item.ActorID == nil && item.ActorPseudonymized && item.ActorDisplay == "pseudonymized" {
+			foundPseudo = true
 		}
 	}
-	if !foundFormer {
-		t.Fatal("pseudonymized actor did not render as Former user")
+	if !foundPseudo {
+		t.Fatal("pseudonymized row did not render as 'pseudonymized'")
 	}
 }
 
@@ -113,20 +117,30 @@ func auditViewerGetList(t *testing.T, env *TestEnv, cookie *http.Cookie, path st
 	return out
 }
 
+// Post-M2 (REQ-AUD-011): actor_email column is gone. The viewer
+// derives the actor display via a live join on users; pseudonymized
+// rows have actor_id NULL + metadata.pseudonymized_at set. Test rows
+// emulate that shape — the actorEmail parameter is preserved for
+// callers but only used to flip the row into the pseudonymized state
+// when empty (mirrors the pre-M2 "actor_email NULL" convention).
 func insertAuditViewerRow(t *testing.T, env *TestEnv, eventType string, actorID *uuid.UUID, actorEmail string, targetType, targetID *string, outcome string) {
 	t.Helper()
 	var actor any
 	if actorID != nil {
 		actor = *actorID
 	}
-	email := any(nil)
-	if actorEmail != "" {
-		email = actorEmail
+	metadata := `{}`
+	// Pre-M2 callers used empty actorEmail to mean "this row is for a
+	// pseudonymized actor". Post-M2 we model that as actor_id=NULL +
+	// metadata.pseudonymized_at populated.
+	if actorID != nil && actorEmail == "" {
+		actor = nil
+		metadata = `{"pseudonymized_at": "2026-04-30T00:00:00Z"}`
 	}
 	if _, err := env.Pool.Exec(context.Background(), `
-		INSERT INTO audit_logs (event_type, actor_id, actor_email, target_type, target_id, outcome, metadata)
-		VALUES ($1, $2, $3, $4, $5, $6, '{}'::jsonb)
-	`, eventType, actor, email, targetType, targetID, outcome); err != nil {
+		INSERT INTO audit_logs (event_type, actor_id, target_type, target_id, outcome, metadata)
+		VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+	`, eventType, actor, targetType, targetID, outcome, metadata); err != nil {
 		t.Fatalf("insert audit row %s: %v", eventType, err)
 	}
 }

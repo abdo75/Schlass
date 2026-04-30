@@ -146,7 +146,8 @@ func (h *SetupHandler) PostSetup(w http.ResponseWriter, r *http.Request) {
 		TargetID:   userIDStr,
 		IPAddress:  extractClientIP(r),
 		Outcome:    "success",
-		Metadata:   map[string]any{"role": "super_admin", "email": req.Email},
+		// REQ-AUD-011 (M2): no plaintext email in metadata.
+		Metadata: map[string]any{"role": "super_admin"},
 	}); err != nil {
 		slog.Error("failed to write audit log", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")

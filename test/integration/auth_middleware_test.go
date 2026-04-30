@@ -66,9 +66,12 @@ func TestAuthMiddleware_DisabledUser_Revokes(t *testing.T) {
 		t.Fatalf("want 401 on disabled user, got %d", rec.Code)
 	}
 
+	// Post-M2 (REQ-AUD-011): actor_email is gone; resolve via the join.
 	var revokedCount int
 	if err := env.Pool.QueryRow(context.Background(),
-		`SELECT count(*) FROM audit_logs WHERE event_type='session.revoked' AND actor_email=$1`,
+		`SELECT count(*) FROM audit_logs a
+		   JOIN users u ON u.id = a.actor_id
+		  WHERE a.event_type = 'session.revoked' AND u.email = $1`,
 		"admin@example.com").Scan(&revokedCount); err != nil {
 		t.Fatalf("scan revoked count: %v", err)
 	}

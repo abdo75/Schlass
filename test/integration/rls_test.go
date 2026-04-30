@@ -11,9 +11,10 @@ func TestRLSPreventsAuditLogDeletion(t *testing.T) {
 	env := NewTestEnv(t)
 	ctx := context.Background()
 
+	// Post-M2: actor_email is gone; system rows just identify by event_type.
 	_, err := env.Pool.Exec(ctx,
-		`INSERT INTO audit_logs (event_type, actor_email, outcome)
-		 VALUES ('test.event', 'test@test.com', 'success')`,
+		`INSERT INTO audit_logs (event_type, outcome)
+		 VALUES ('test.event', 'success')`,
 	)
 	if err != nil {
 		t.Fatalf("failed to insert audit log: %v", err)
@@ -52,8 +53,8 @@ func TestRLSAllowsAuditLogInsertAndSelect(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := env.Pool.Exec(ctx,
-		`INSERT INTO audit_logs (event_type, actor_email, outcome)
-		 VALUES ('test.insert', 'test@test.com', 'success')`,
+		`INSERT INTO audit_logs (event_type, outcome)
+		 VALUES ('test.insert', 'success')`,
 	)
 	if err != nil {
 		t.Fatalf("INSERT should succeed for app role: %v", err)

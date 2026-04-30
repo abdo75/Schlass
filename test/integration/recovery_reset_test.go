@@ -42,28 +42,31 @@ func TestRecoveryReset_Succeeds_OnAdminEmail(t *testing.T) {
 	}
 
 	// Audit row written with the expected shape.
-	var actorEmail string
+	// Post-M2 (REQ-AUD-011): actor_email is gone; system identification
+	// lives in metadata.actor_source. The target user resolves via the
+	// live users join in the viewer.
+	var actorType string
 	var metaJSON []byte
 	err := env.Pool.QueryRow(t.Context(), `
-		SELECT actor_email, metadata
+		SELECT actor_type, metadata
 		  FROM audit_logs
 		 WHERE event_type = 'password_reset.recovery_issued'
 		   AND target_id = $1::text
 		 ORDER BY created_at DESC
 		 LIMIT 1
-	`, adminID).Scan(&actorEmail, &metaJSON)
+	`, adminID).Scan(&actorType, &metaJSON)
 	if err != nil {
 		t.Fatalf("audit row: %v", err)
 	}
-	if actorEmail != "system:recovery" {
-		t.Fatalf("actor_email: want 'system:recovery', got %q", actorEmail)
+	if actorType != "system" {
+		t.Fatalf("actor_type: want 'system', got %q", actorType)
 	}
 	var meta map[string]any
 	if err := json.Unmarshal(metaJSON, &meta); err != nil {
 		t.Fatalf("metadata json: %v", err)
 	}
-	if meta["target_email"] != "cli-admin@example.com" {
-		t.Fatalf("metadata.target_email: %v", meta["target_email"])
+	if meta["actor_source"] != "system:recovery" {
+		t.Fatalf("metadata.actor_source: %v", meta["actor_source"])
 	}
 	if _, ok := meta["token_id"]; !ok {
 		t.Fatal("metadata.token_id missing")

@@ -373,6 +373,12 @@ func (h *Handler) PatchAuditLog(w http.ResponseWriter, r *http.Request) {
 			return h.instanceConfig.SetInt(ctx, tx, "audit_export_max_rows", v)
 		}})
 	}
+	if in.ClientIPMode != nil && *in.ClientIPMode != pre.AuditLog.ClientIPMode {
+		v := *in.ClientIPMode
+		changes = append(changes, change{"audit.client_ip_mode", pre.AuditLog.ClientIPMode, v, func(ctx context.Context, tx pgx.Tx) error {
+			return h.instanceConfig.SetString(ctx, tx, "audit.client_ip_mode", v)
+		}})
+	}
 
 	if len(changes) == 0 {
 		httputil.WriteJSON(w, http.StatusOK, pre.AuditLog)

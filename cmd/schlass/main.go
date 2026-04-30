@@ -73,9 +73,20 @@ func main() {
 	// Build the store objects that handlers use to read and write each table.
 	configStore := instanceconfig.NewStore()
 	userStore := users.NewStore()
-	auditStore := audit.NewStore()
 	recoveryCodeStore := auth.NewRecoveryCodeStore()
 	instanceConfig := instanceconfig.NewService(configStore, cfg.EncryptionKey)
+
+	// Read the IP coarsening mode once at boot. Anything that fails to
+	// parse falls back to IPModeCoarse — same default the migration
+	// seeds, so the only way to land here is a hand-edited row.
+	ipModeRaw, _ := instanceConfig.AuditClientIPMode(ctx, pool)
+	ipMode, err := audit.ParseIPMode(ipModeRaw)
+	if err != nil {
+		slog.Warn("audit: invalid client_ip_mode in instance_config, falling back to coarse", "got", ipModeRaw, "error", err)
+		ipMode = audit.IPModeCoarse
+	}
+	auditStore := audit.NewStoreWithIPMode(ipMode)
+	slog.Info("audit store ready", "ip_mode", ipMode)
 
 	// Make sure a signing key exists so we can issue OIDC tokens. Generates one on first boot.
 	slog.Info("bootstrapping signing key")

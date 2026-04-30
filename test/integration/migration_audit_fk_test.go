@@ -29,9 +29,11 @@ func TestMigration011_HardDeleteWithAuditRowsWorks(t *testing.T) {
 	}
 
 	// Insert an audit row referencing the victim (simulating past activity).
+	// Post-M2 (REQ-AUD-011): no actor_email column; ip_address renamed to
+	// client_ip_coarse and stored at /24.
 	if _, err := env.Pool.Exec(ctx, `
-		INSERT INTO audit_logs (event_type, actor_id, actor_email, target_type, target_id, ip_address, outcome)
-		VALUES ('login.succeeded', $1, 'victim@example.com', 'user', $2, '192.0.2.1', 'success')
+		INSERT INTO audit_logs (event_type, actor_id, target_type, target_id, client_ip_coarse, outcome)
+		VALUES ('login.succeeded', $1, 'user', $2, '192.0.2.0', 'success')
 	`, victimID, victimID.String()); err != nil {
 		t.Fatalf("insert audit row: %v", err)
 	}

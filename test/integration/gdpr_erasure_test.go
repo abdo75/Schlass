@@ -17,12 +17,16 @@ import (
 	"github.com/abdo75/Schlass/internal/crypto"
 )
 
-// TestGDPR_ActorEmailPseudonymizedOnDelete walks the full GDPR Art. 17 path:
-// admin creates U, U performs an audit-emitting action (login), admin deletes
-// U, the original audit row's actor_email is now 'deleted:<uuid>' instead of
-// U's real email. The parallel row recording the admin's delete action keeps
-// the admin's actor_email (it's attributable to the admin, not the victim).
-func TestGDPR_ActorEmailPseudonymizedOnDelete(t *testing.T) {
+// TestGDPR_ActorPseudonymizedOnDelete walks the full GDPR Art. 17 path:
+// admin creates U, U performs an audit-emitting action (login), admin
+// deletes U.
+//
+// Post-M2 (REQ-AUD-011/030): the pseudonymization function nulls
+// actor_id and writes metadata.pseudonymized_at instead of overwriting
+// actor_email (column is gone). The parallel row recording the admin's
+// delete action keeps the admin's actor_id intact (it's attributable to
+// the admin, not the victim).
+func TestGDPR_ActorPseudonymizedOnDelete(t *testing.T) {
 	ctx := t.Context()
 	env := NewTestEnv(t)
 
@@ -35,8 +39,6 @@ func TestGDPR_ActorEmailPseudonymizedOnDelete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("hash victim password: %v", err)
 	}
-	// force_password_change=false so the login-succeeded branch is the
-	// straight legacy path (no MFA per LoginAsAdmin helper).
 	if _, err := env.Pool.Exec(ctx,
 		`INSERT INTO users (email, password_hash, role, force_password_change)
 		 VALUES ($1, $2, 'user', false)`, victimEmail, hash); err != nil {
@@ -44,21 +46,20 @@ func TestGDPR_ActorEmailPseudonymizedOnDelete(t *testing.T) {
 	}
 	victimID := userIDByEmail(t, env, victimEmail)
 
-	// Victim logs in — writes a login.succeeded audit row with
-	// actor_email=victimEmail and actor_id=victimID.
+	// Victim logs in — writes a login.succeeded audit row with actor_id=victimID.
 	_ = env.LoginAsAdmin(t, victimEmail, victimPassword)
 
-	// Sanity: pre-delete, the victim's login audit row carries their real email.
-	var preEmail string
+	// Sanity: pre-delete, the victim's login audit row carries their actor_id.
+	var preActor string
 	if err := env.Pool.QueryRow(ctx,
-		`SELECT actor_email FROM audit_logs
+		`SELECT actor_id::text FROM audit_logs
 		 WHERE actor_id = $1 AND event_type = 'login.succeeded'
 		 ORDER BY created_at DESC LIMIT 1`, victimID,
-	).Scan(&preEmail); err != nil {
+	).Scan(&preActor); err != nil {
 		t.Fatalf("pre-delete login audit row missing: %v", err)
 	}
-	if preEmail != victimEmail {
-		t.Fatalf("pre-delete actor_email=%q, want %q", preEmail, victimEmail)
+	if preActor != victimID {
+		t.Fatalf("pre-delete actor_id=%q, want %q", preActor, victimID)
 	}
 
 	// Admin deletes the victim.
@@ -71,47 +72,53 @@ func TestGDPR_ActorEmailPseudonymizedOnDelete(t *testing.T) {
 		t.Fatalf("delete: got %d, want 204 — body=%s", rec.Code, rec.Body.String())
 	}
 
-	// The original login.succeeded row now has actor_email = 'deleted:<uuid>'.
-	var scrubbedEmail string
+	// The original login.succeeded row now has actor_id=NULL and
+	// metadata.pseudonymized_at populated.
+	var scrubbedActor *string
+	var pseudoAt *string
 	if err := env.Pool.QueryRow(ctx,
-		`SELECT actor_email FROM audit_logs
-		 WHERE actor_id = $1 AND event_type = 'login.succeeded'
+		`SELECT actor_id::text, metadata->>'pseudonymized_at' FROM audit_logs
+		 WHERE event_type = 'login.succeeded'
+		   AND target_id = $1
 		 ORDER BY created_at DESC LIMIT 1`, victimID,
-	).Scan(&scrubbedEmail); err != nil {
+	).Scan(&scrubbedActor, &pseudoAt); err != nil {
 		t.Fatalf("query scrubbed row: %v", err)
 	}
-	want := "deleted:" + victimID
-	if scrubbedEmail != want {
-		t.Fatalf("actor_email=%q, want %q", scrubbedEmail, want)
+	if scrubbedActor != nil {
+		t.Fatalf("post-delete actor_id=%v, want NULL", *scrubbedActor)
+	}
+	if pseudoAt == nil || *pseudoAt == "" {
+		t.Fatal("metadata.pseudonymized_at not set on login.succeeded row")
 	}
 
 	// The user.deleted row is attributable to the admin — must NOT be scrubbed.
-	var adminEmailAfter string
+	var deleteActor string
 	if err := env.Pool.QueryRow(ctx,
-		`SELECT actor_email FROM audit_logs
+		`SELECT actor_id::text FROM audit_logs
 		 WHERE target_id = $1 AND event_type = 'user.deleted'
 		 ORDER BY created_at DESC LIMIT 1`, victimID,
-	).Scan(&adminEmailAfter); err != nil {
+	).Scan(&deleteActor); err != nil {
 		t.Fatalf("query user.deleted row: %v", err)
 	}
-	if adminEmailAfter != "admin@example.com" {
-		t.Fatalf("user.deleted actor_email=%q, want admin@example.com (must not be scrubbed)", adminEmailAfter)
+	adminID := userIDByEmail(t, env, "admin@example.com")
+	if deleteActor != adminID {
+		t.Fatalf("user.deleted actor_id=%q, want admin %q (must not be scrubbed)", deleteActor, adminID)
 	}
 
-	// The user.audit_pseudonymized audit row must be present, actor_email
-	// is the admin, and rows_updated > 0 in metadata.
-	var pseudoActor string
+	// The user.audit_pseudonymized audit row is attributable to the admin
+	// and rows_updated > 0 in metadata.
+	var pseudoActorID string
 	var rowsUpdated int
 	if err := env.Pool.QueryRow(ctx,
-		`SELECT actor_email, COALESCE((metadata->>'rows_updated')::int, 0)
+		`SELECT actor_id::text, COALESCE((metadata->>'rows_updated')::int, 0)
 		 FROM audit_logs
 		 WHERE target_id = $1 AND event_type = 'user.audit_pseudonymized'
 		 ORDER BY created_at DESC LIMIT 1`, victimID,
-	).Scan(&pseudoActor, &rowsUpdated); err != nil {
+	).Scan(&pseudoActorID, &rowsUpdated); err != nil {
 		t.Fatalf("query user.audit_pseudonymized: %v", err)
 	}
-	if pseudoActor != "admin@example.com" {
-		t.Fatalf("user.audit_pseudonymized actor_email=%q, want admin@example.com", pseudoActor)
+	if pseudoActorID != adminID {
+		t.Fatalf("user.audit_pseudonymized actor_id=%q, want admin %q", pseudoActorID, adminID)
 	}
 	if rowsUpdated < 1 {
 		t.Fatalf("user.audit_pseudonymized rows_updated=%d, want >= 1", rowsUpdated)
@@ -123,7 +130,8 @@ func TestGDPR_ActorEmailPseudonymizedOnDelete(t *testing.T) {
 }
 
 // TestGDPR_PseudonymizeIdempotent: calling the function twice on the same
-// user returns 0 rows on the second call (IS DISTINCT FROM guard).
+// user returns 0 rows on the second call (the metadata.pseudonymized_at
+// guard makes the second pass a no-op).
 func TestGDPR_PseudonymizeIdempotent(t *testing.T) {
 	ctx := t.Context()
 	env := NewTestEnv(t)
@@ -154,8 +162,9 @@ func TestGDPR_PseudonymizeIdempotent(t *testing.T) {
 		t.Fatalf("delete: got %d — body=%s", rec.Code, rec.Body.String())
 	}
 
-	// Second invocation — call the SQL function directly. The IS DISTINCT FROM
-	// guard in migration 000018 must make this a no-op.
+	// Second invocation — call the SQL function directly. After the first
+	// run all matching rows have actor_id NULL, so the WHERE clause
+	// (actor_id = p_user_id) matches nothing.
 	qctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	var rows int
@@ -165,7 +174,7 @@ func TestGDPR_PseudonymizeIdempotent(t *testing.T) {
 		t.Fatalf("second pseudonymize call: %v", err)
 	}
 	if rows != 0 {
-		t.Fatalf("second call returned %d rows, want 0 (IS DISTINCT FROM guard should make it a no-op)", rows)
+		t.Fatalf("second call returned %d rows, want 0", rows)
 	}
 }
 
@@ -190,7 +199,7 @@ func assertAppRoleCannotUpdateAuditLogs(t *testing.T, env *TestEnv) {
 	defer func() { _ = conn.Close(ctx) }()
 
 	_, err = conn.Exec(ctx,
-		`UPDATE audit_logs SET actor_email = 'x' WHERE id = '00000000-0000-0000-0000-000000000000'`)
+		`UPDATE audit_logs SET outcome = 'success' WHERE id = '00000000-0000-0000-0000-000000000000'`)
 	if err == nil {
 		t.Fatal("schlass_app unexpectedly has UPDATE on audit_logs — compliance regression")
 	}

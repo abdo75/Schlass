@@ -290,7 +290,9 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		TargetID:   newID.String(),
 		IPAddress:  ip,
 		Outcome:    "success",
-		Metadata:   map[string]any{"email": req.Email, "role": req.Role},
+		// REQ-AUD-011 (M2): no plaintext email in metadata. Target user
+		// renders via the live join in the viewer (target_id -> users).
+		Metadata: map[string]any{"role": req.Role},
 	}); auditErr != nil {
 		slog.Error("audit user.created", "error", auditErr)
 		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
@@ -575,7 +577,8 @@ func (h *Handler) Disable(w http.ResponseWriter, r *http.Request) {
 		TargetID:   id.String(),
 		IPAddress:  ip,
 		Outcome:    "success",
-		Metadata:   map[string]any{"email": existing.Email, "role": existing.Role},
+		// REQ-AUD-011 (M2): no plaintext email in metadata.
+		Metadata: map[string]any{"role": existing.Role},
 	}); auditErr != nil {
 		slog.Error("audit user.disabled", "error", auditErr)
 		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
@@ -667,7 +670,8 @@ func (h *Handler) Enable(w http.ResponseWriter, r *http.Request) {
 		TargetID:   id.String(),
 		IPAddress:  ip,
 		Outcome:    "success",
-		Metadata:   map[string]any{"email": existing.Email, "role": existing.Role},
+		// REQ-AUD-011 (M2): no plaintext email in metadata.
+		Metadata: map[string]any{"role": existing.Role},
 	}); auditErr != nil {
 		slog.Error("audit user.enabled", "error", auditErr)
 		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
@@ -727,8 +731,7 @@ func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { _ = tx.Rollback(r.Context()) }()
 
-	existing, err := h.userStore.GetByID(r.Context(), tx, id)
-	if err != nil {
+	if _, err := h.userStore.GetByID(r.Context(), tx, id); err != nil {
 		if errors.Is(err, ErrUserNotFound) {
 			httputil.WriteError(w, http.StatusNotFound, "USER_NOT_FOUND", "User not found.")
 			return
@@ -762,7 +765,9 @@ func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 		TargetID:   id.String(),
 		IPAddress:  ip,
 		Outcome:    "success",
-		Metadata:   map[string]any{"email": existing.Email},
+		// REQ-AUD-011 (M2): no plaintext email in metadata. Target user
+		// resolves to email via the viewer's live join.
+		Metadata: map[string]any{},
 	}); auditErr != nil {
 		slog.Error("audit user.password_reset", "error", auditErr)
 		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")

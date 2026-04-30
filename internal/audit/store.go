@@ -10,12 +10,20 @@
 // callers cannot compile against this signature — partial commits
 // where the audit row is missing the originating mutation, or vice
 // versa, are unrepresentable.
+//
+// REQ-AUD-011/030/031 (M2): PII closure. actor_email is gone from the
+// schema; the IPAddress field is coarsened at emit time per the Store's
+// IPMode setting (/24 v4, /48 v6, country-only, or off) and written to
+// client_ip_coarse. The viewer derives actor display by joining users
+// at read time. UA strings are parsed to family/major before storage —
+// the raw header is never persisted.
 package audit
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/netip"
 	"time"
 
 	"github.com/google/uuid"
@@ -33,6 +41,38 @@ const SchemaVersion = 1
 // deployments override per-row at emit time once tenancy is wired.
 var SingleTenant = uuid.Nil
 
+// IPMode controls how the IPAddress field on Event is transformed
+// before being written to client_ip_coarse. Set once at startup from
+// instance_config["audit.client_ip_mode"].
+type IPMode string
+
+const (
+	// IPModeCoarse zeroes host bits below /24 (v4) or /48 (v6).
+	// Default per REQ-AUD-031.
+	IPModeCoarse IPMode = "coarse"
+	// IPModeCountry stores NULL in client_ip_coarse and writes a
+	// country code into client_geo_coarse via a country-lookup
+	// provider. M2 ships without a provider wired; in that case we
+	// store the literal "country_lookup_unconfigured" sentinel so
+	// operators can spot the misconfiguration in the viewer.
+	IPModeCountry IPMode = "country"
+	// IPModeOff drops the IP entirely. client_ip_coarse and
+	// client_geo_coarse both write NULL.
+	IPModeOff IPMode = "off"
+)
+
+// ParseIPMode validates an instance_config value and returns the
+// corresponding IPMode. Unknown values fail rather than silently
+// fall back so a typo in the config doesn't quietly disable coarsening.
+func ParseIPMode(s string) (IPMode, error) {
+	switch IPMode(s) {
+	case IPModeCoarse, IPModeCountry, IPModeOff:
+		return IPMode(s), nil
+	default:
+		return "", fmt.Errorf("audit: unknown ip mode %q (want coarse|country|off)", s)
+	}
+}
+
 // ActorType enumerates REQ-AUD-010 actor_type values.
 type ActorType string
 
@@ -47,6 +87,11 @@ const (
 // Optional fields default at Emit time: EventTimestamp=now, ActorType
 // from ActorID presence, TenantID=SingleTenant, SourceService from
 // event_type prefix, CorrelationID from middleware.CorrelationID(ctx).
+//
+// ActorEmail is a transition-only field. The schema column was dropped
+// in M2 (REQ-AUD-011); the value is no longer written. Call sites still
+// pass it because removing every emit-site signature in one milestone
+// would dwarf the actual PII closure work — M7 is the natural cleanup.
 type Event struct {
 	EventType       string
 	EventTimestamp  time.Time
@@ -54,7 +99,7 @@ type Event struct {
 	ReasonCode      string
 	ActorType       ActorType
 	ActorID         *uuid.UUID
-	ActorEmail      string // M2 will drop this column; field stays for transition
+	ActorEmail      string // accepted but not persisted post-M2; see type doc
 	ActorSessionID  *uuid.UUID
 	TargetType      string
 	TargetID        string
@@ -133,11 +178,31 @@ func (b *EventBuilder) Build() Event {
 	return b.e
 }
 
-type Store struct{}
-
-func NewStore() *Store {
-	return &Store{}
+// Store writes audit rows into the audit_logs table.
+type Store struct {
+	ipMode IPMode
 }
+
+// NewStore returns a Store using IPModeCoarse by default. Boot paths
+// that read instance_config use NewStoreWithIPMode to override.
+func NewStore() *Store {
+	return &Store{ipMode: IPModeCoarse}
+}
+
+// NewStoreWithIPMode returns a Store whose Emit applies the given IP
+// coarsening mode to the IPAddress field on every event. Empty string
+// is treated as IPModeCoarse so the caller doesn't have to duplicate
+// the default.
+func NewStoreWithIPMode(mode IPMode) *Store {
+	if mode == "" {
+		mode = IPModeCoarse
+	}
+	return &Store{ipMode: mode}
+}
+
+// IPMode returns the configured coarsening mode. Exposed for tests and
+// for the boot path's startup log.
+func (s *Store) IPMode() IPMode { return s.ipMode }
 
 // sourceServiceFromEventType returns the originating component for an
 // event_type, mirroring the M1 migration's CASE backfill so historical
@@ -172,6 +237,53 @@ func sourceServiceFromEventType(eventType string) string {
 
 func startsWith(s, prefix string) bool {
 	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
+}
+
+// coarsenIP applies REQ-AUD-031 prefix masking. Returns the masked
+// network as the prefix (e.g. "192.168.5.0/24") so the inet column
+// stores the prefix address with a /32 host that already has the host
+// bits zeroed. Empty input or unparseable input yields an empty string;
+// caller writes NULL to the column in that case.
+func coarsenIP(raw string) string {
+	addr, err := netip.ParseAddr(raw)
+	if err != nil {
+		return ""
+	}
+	bits := 24
+	if addr.Is6() && !addr.Is4In6() {
+		bits = 48
+	}
+	prefix, err := addr.Prefix(bits)
+	if err != nil {
+		return ""
+	}
+	return prefix.Masked().Addr().String()
+}
+
+// applyIPMode transforms the per-event IPAddress + ClientGeoCoarse
+// according to the Store's mode. Returns the column values to write.
+func (s *Store) applyIPMode(rawIP, geo string) (ipColumn, geoColumn string) {
+	switch s.ipMode {
+	case IPModeOff:
+		return "", ""
+	case IPModeCountry:
+		// Country provider not wired in M2; leave geo as the caller
+		// supplied (likely empty) and write a sentinel so operators
+		// see the misconfiguration in the viewer instead of a silent
+		// blank cell.
+		if geo == "" {
+			geo = "country_lookup_unconfigured"
+		}
+		return "", geo
+	case IPModeCoarse, "":
+		fallthrough
+	default:
+		if rawIP == "" {
+			return "", geo
+		}
+		coarse := coarsenIP(rawIP)
+		return coarse, geo
+	}
 }
 
 // Emit writes one audit row inside an existing transaction. The pgx.Tx
@@ -238,18 +350,14 @@ func (s *Store) Emit(ctx context.Context, tx pgx.Tx, e Event) error {
 		}
 	}
 
-	// ip_address is INET + nullable — pass nil when empty; pgx would
-	// otherwise cast "" to inet and Postgres rejects with 22P02.
-	var ipAddress *string
-	if e.IPAddress != "" {
-		ipAddress = &e.IPAddress
-	}
+	// Apply REQ-AUD-031 IP coarsening per the Store's configured mode.
+	coarseIP, geoCoarse := s.applyIPMode(e.IPAddress, e.ClientGeoCoarse)
 
-	// actor_email empty string would defeat the COALESCE(actor_email, …, 'System')
-	// fallback in list_select.go — store NULL so system-actor rows render as 'System'.
-	var actorEmail *string
-	if e.ActorEmail != "" {
-		actorEmail = &e.ActorEmail
+	// client_ip_coarse is INET + nullable — pass nil when empty; pgx
+	// would otherwise cast "" to inet and Postgres rejects with 22P02.
+	var ipAddress *string
+	if coarseIP != "" {
+		ipAddress = &coarseIP
 	}
 
 	var reasonCode *string
@@ -263,8 +371,8 @@ func (s *Store) Emit(ctx context.Context, tx pgx.Tx, e Event) error {
 	}
 
 	var clientGeoCoarse *string
-	if e.ClientGeoCoarse != "" {
-		clientGeoCoarse = &e.ClientGeoCoarse
+	if geoCoarse != "" {
+		clientGeoCoarse = &geoCoarse
 	}
 
 	var requestID *string
@@ -284,16 +392,16 @@ func (s *Store) Emit(ctx context.Context, tx pgx.Tx, e Event) error {
 	_, err := tx.Exec(ctx,
 		`INSERT INTO audit_logs (
 			event_type, schema_version, event_timestamp, outcome, reason_code,
-			actor_type, actor_id, actor_email, actor_session_id,
+			actor_type, actor_id, actor_session_id,
 			target_type, target_id, tenant_id, source_service,
-			client_id, ip_address, client_ua_family, client_geo_coarse,
+			client_id, client_ip_coarse, client_ua_family, client_geo_coarse,
 			request_id, correlation_id, metadata
 		)
 		VALUES ($1, $2, COALESCE($3, now()), $4, $5,
-		        $6, $7, $8, $9,
-		        $10, $11, $12, $13,
-		        $14, $15, $16, $17,
-		        $18, $19, $20)`,
+		        $6, $7, $8,
+		        $9, $10, $11, $12,
+		        $13, $14, $15, $16,
+		        $17, $18, $19)`,
 		e.EventType,
 		SchemaVersion,
 		eventTimestamp,
@@ -301,7 +409,6 @@ func (s *Store) Emit(ctx context.Context, tx pgx.Tx, e Event) error {
 		reasonCode,
 		actorType,
 		e.ActorID,
-		actorEmail,
 		e.ActorSessionID,
 		e.TargetType,
 		e.TargetID,
@@ -325,6 +432,11 @@ func (s *Store) Emit(ctx context.Context, tx pgx.Tx, e Event) error {
 // SECURITY DEFINER function — the single sanctioned mutation on
 // audit_logs. schlass_app has no direct UPDATE on the table, only
 // EXECUTE on this function. GDPR Art. 17(3)(b) compliance path.
+//
+// Post-M2: the function nulls actor_id and writes
+// metadata.pseudonymized_at instead of overwriting actor_email (which
+// no longer exists). Returned count is the rows touched on this call;
+// rows already pseudonymized are skipped via the metadata marker.
 func (s *Store) PseudonymizeUser(ctx context.Context, q database.Querier, userID uuid.UUID) (int, error) {
 	var rows int
 	if err := q.QueryRow(ctx, `SELECT audit_log_pseudonymize_user($1)`, userID).Scan(&rows); err != nil {

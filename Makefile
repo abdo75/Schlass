@@ -1,4 +1,4 @@
-.PHONY: setup build build-docker dev dev-frontend test test-unit test-integration e2e clean lint lint-fix
+.PHONY: setup build build-docker dev dev-frontend test test-unit test-integration e2e clean lint lint-fix audit-lint
 
 setup:
 	git config core.hooksPath .githooks
@@ -37,9 +37,14 @@ clean:
 	rm -rf bin/ internal/web/dist/*
 	touch internal/web/dist/.gitkeep
 
-lint:
+lint: audit-lint
 	golangci-lint run ./...
 	cd web && npx eslint src/ --max-warnings=0
+
+# REQ-AUD-011 (M2): static gate against denylisted metadata keys in
+# audit.Event composite literals. Fails CI on violation.
+audit-lint:
+	go run ./tools/audit-lint ./internal/...
 
 lint-fix:
 	golangci-lint run ./... --fix

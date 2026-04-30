@@ -120,11 +120,15 @@ func (h *Handler) Actors(w http.ResponseWriter, r *http.Request) {
 	q := parseListQuery(r.URL.Query())
 	where, args := q.toSQL()
 	ctx := r.Context()
+	// REQ-AUD-011 (M2): actor_email is no longer a column. Resolve via
+	// LEFT JOIN on users; rows whose actor was deleted/pseudonymized
+	// (actor_id NULL or no matching user row) fall out of the bucket.
 	rows, err := h.pool.Query(ctx, `
-		SELECT a.actor_id::text, a.actor_email, COUNT(*)
+		SELECT a.actor_id::text, u.email, COUNT(*)
 		FROM audit_logs a
-		WHERE `+where+` AND a.actor_id IS NOT NULL AND a.actor_email IS NOT NULL
-		GROUP BY a.actor_id, a.actor_email
+		JOIN users u ON u.id = a.actor_id
+		WHERE `+where+` AND a.actor_id IS NOT NULL
+		GROUP BY a.actor_id, u.email
 		ORDER BY COUNT(*) DESC
 		LIMIT 100`, args...)
 	if err != nil {

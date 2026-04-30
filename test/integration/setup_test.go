@@ -92,8 +92,12 @@ func TestSetup_CreatesAdminAndMarksComplete(t *testing.T) {
 		t.Fatalf("expected role=super_admin, got %s", role)
 	}
 
+	// Post-M2 (REQ-AUD-011): actor_email is gone; resolve via the join.
 	rows, err := env.Pool.Query(t.Context(),
-		"SELECT event_type, outcome FROM audit_logs WHERE actor_email = $1 ORDER BY event_type", "admin@test.com",
+		`SELECT a.event_type, a.outcome FROM audit_logs a
+		 JOIN users u ON u.id = a.actor_id
+		 WHERE u.email = $1
+		 ORDER BY a.event_type`, "admin@test.com",
 	)
 	if err != nil {
 		t.Fatalf("failed to query audit log: %v", err)

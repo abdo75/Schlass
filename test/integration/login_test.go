@@ -284,9 +284,13 @@ func TestLogin_AuditTrailCompleteness(t *testing.T) {
 		_ = rec
 	}
 
+	// Post-M2 (REQ-AUD-011): actor_email is gone; resolve via the join.
+	// ip_address renamed to client_ip_coarse and stored at /24.
 	var failedCount, lockedCount int
 	if err := env.Pool.QueryRow(context.Background(),
-		`SELECT count(*) FROM audit_logs WHERE event_type='login.failed' AND actor_email=$1`,
+		`SELECT count(*) FROM audit_logs a
+		   JOIN users u ON u.id = a.actor_id
+		  WHERE a.event_type = 'login.failed' AND u.email = $1`,
 		"admin@example.com").Scan(&failedCount); err != nil {
 		t.Fatalf("scan failedCount: %v", err)
 	}
@@ -294,7 +298,9 @@ func TestLogin_AuditTrailCompleteness(t *testing.T) {
 		t.Fatalf("expected 5 login.failed rows, got %d", failedCount)
 	}
 	if err := env.Pool.QueryRow(context.Background(),
-		`SELECT count(*) FROM audit_logs WHERE event_type='account.locked' AND actor_email=$1`,
+		`SELECT count(*) FROM audit_logs a
+		   JOIN users u ON u.id = a.actor_id
+		  WHERE a.event_type = 'account.locked' AND u.email = $1`,
 		"admin@example.com").Scan(&lockedCount); err != nil {
 		t.Fatalf("scan lockedCount: %v", err)
 	}
@@ -302,10 +308,13 @@ func TestLogin_AuditTrailCompleteness(t *testing.T) {
 		t.Fatalf("expected 1 account.locked row, got %d", lockedCount)
 	}
 
-	// Every login.failed row must have actor_id populated, non-empty ip, outcome=failure.
-	// ip_address is INET — cast to text so pgx scans cleanly into a Go string.
+	// Every login.failed row must have actor_id populated, non-empty
+	// client_ip_coarse, outcome=failure.
 	rows, _ := env.Pool.Query(context.Background(),
-		`SELECT actor_id, ip_address::text, outcome FROM audit_logs WHERE event_type='login.failed' AND actor_email=$1`,
+		`SELECT a.actor_id, a.client_ip_coarse::text, a.outcome
+		   FROM audit_logs a
+		   JOIN users u ON u.id = a.actor_id
+		  WHERE a.event_type = 'login.failed' AND u.email = $1`,
 		"admin@example.com")
 	defer rows.Close()
 	for rows.Next() {
@@ -319,7 +328,7 @@ func TestLogin_AuditTrailCompleteness(t *testing.T) {
 			t.Error("login.failed row missing actor_id")
 		}
 		if ip == "" {
-			t.Error("login.failed row missing ip_address")
+			t.Error("login.failed row missing client_ip_coarse")
 		}
 		if outcome != "failure" {
 			t.Errorf("login.failed row has outcome=%q", outcome)

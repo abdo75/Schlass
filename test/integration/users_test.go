@@ -127,9 +127,13 @@ func TestCreateUser_ReturnsTemporaryPassword(t *testing.T) {
 	}
 
 	// Verify an audit row exists with no password in metadata.
+	// Post-M2 (REQ-AUD-011): actor_email is gone; resolve via the live
+	// users join.
 	var auditCount int
 	_ = env.Pool.QueryRow(t.Context(),
-		`SELECT count(*) FROM audit_logs WHERE event_type = 'user.created' AND actor_email = $1`,
+		`SELECT count(*) FROM audit_logs a
+		 JOIN users u ON u.id = a.actor_id
+		 WHERE a.event_type = 'user.created' AND u.email = $1`,
 		"admin@example.com").Scan(&auditCount)
 	if auditCount != 1 {
 		t.Fatalf("want 1 user.created audit row, got %d", auditCount)
@@ -1027,12 +1031,12 @@ func TestUsers_Delete_SelfRejected(t *testing.T) {
 // hard-delete them via the admin API, and verify the original audit row
 // still exists with actor_id still pointing at the now-dangling UUID.
 //
-// Sprint 6a T3 (GDPR Art. 17) addendum: actor_email is deliberately
-// pseudonymized to 'deleted:<uuid>' by the delete handler — migration
-// 000018 + handler wiring scrub it inside the same tx. The row itself
-// (and the actor_id FK-free reference) is what survives; the email is
-// what the DPA requires us to redact. See the gdpr_erasure_test.go pair
-// for the dedicated GDPR assertions.
+// Sprint 6a T3 (GDPR Art. 17) — post-M2 (REQ-AUD-011/030) the
+// pseudonymization function nulls actor_id and writes
+// metadata.pseudonymized_at instead of overwriting actor_email (column
+// is gone). The row itself survives; the linkability to the victim is
+// what the DPA requires us to redact. See the gdpr_erasure_test.go
+// pair for the dedicated GDPR assertions.
 func TestUsers_Delete_PreservesAuditTrail(t *testing.T) {
 	ctx := t.Context()
 	env := NewTestEnv(t)
@@ -1096,28 +1100,23 @@ func TestUsers_Delete_PreservesAuditTrail(t *testing.T) {
 		t.Fatal("expected victim users row to be gone")
 	}
 
-	// The login.succeeded audit row STILL exists with actor_id pointing at
-	// the now-dangling UUID and actor_email populated. This is what
-	// migration 000011 enables — the FK is gone, so the delete cannot
-	// cascade or nullify the audit trail.
+	// The login.succeeded audit row STILL exists. M2 changed the
+	// pseudonymization shape: actor_id is NULL and metadata
+	// .pseudonymized_at is set. The row itself survives — that's what
+	// migration 000011 + the M2 function rewrite enable.
 	var actorID *string
-	var actorEmail string
+	var pseudoAt *string
 	if err := env.Pool.QueryRow(ctx,
-		`SELECT actor_id::text, actor_email FROM audit_logs
+		`SELECT actor_id::text, metadata->>'pseudonymized_at' FROM audit_logs
 		 WHERE event_type = 'login.succeeded' AND target_id = $1`, targetID,
-	).Scan(&actorID, &actorEmail); err != nil {
+	).Scan(&actorID, &pseudoAt); err != nil {
 		t.Fatalf("fetch preserved audit row: %v", err)
 	}
-	if actorID == nil || *actorID != targetID {
-		t.Fatalf("actor_id not preserved: got %v, want %s", actorID, targetID)
+	if actorID != nil {
+		t.Fatalf("actor_id should be NULL post-pseudonymization, got %q", *actorID)
 	}
-	// GDPR Art. 17 — actor_email is scrubbed to 'deleted:<uuid>' by the
-	// delete handler's pseudonymize-in-tx call (Sprint 6a T3). actor_id
-	// itself is still the victim's UUID so the row stays linkable across
-	// the audit trail; only the PII is redacted.
-	wantScrubbed := "deleted:" + targetID
-	if actorEmail != wantScrubbed {
-		t.Fatalf("actor_email: got %q want %q (should be pseudonymized)", actorEmail, wantScrubbed)
+	if pseudoAt == nil || *pseudoAt == "" {
+		t.Fatal("metadata.pseudonymized_at should be set")
 	}
 }
 

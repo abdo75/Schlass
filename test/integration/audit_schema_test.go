@@ -191,9 +191,11 @@ func TestAuditSchemaBaseline_EmitPopulatesAllSpecColumns(t *testing.T) {
 		requestID     string
 		gotSessionID  uuid.UUID
 	)
+	// Post-M2 (REQ-AUD-011/031): ip_address is now client_ip_coarse and
+	// stored at /24 (v4). 203.0.113.7 -> 203.0.113.0.
 	err = env.Pool.QueryRow(context.Background(),
 		`SELECT schema_version, source_service, actor_type, tenant_id,
-		        host(ip_address), correlation_id, reason_code,
+		        host(client_ip_coarse), correlation_id, reason_code,
 		        client_ua_family, request_id, actor_session_id
 		   FROM audit_logs
 		  WHERE event_type = 'login.succeeded'
@@ -217,8 +219,8 @@ func TestAuditSchemaBaseline_EmitPopulatesAllSpecColumns(t *testing.T) {
 	if tenantID != audit.SingleTenant {
 		t.Errorf("tenant_id = %s, want SingleTenant %s", tenantID, audit.SingleTenant)
 	}
-	if ipAddress != "203.0.113.7" {
-		t.Errorf("ip_address = %q, want %q", ipAddress, "203.0.113.7")
+	if ipAddress != "203.0.113.0" {
+		t.Errorf("client_ip_coarse host = %q, want %q (REQ-AUD-031: /24 mask of 203.0.113.7)", ipAddress, "203.0.113.0")
 	}
 	if gotCorrID != correlationID {
 		t.Errorf("correlation_id = %s, want %s", gotCorrID, correlationID)

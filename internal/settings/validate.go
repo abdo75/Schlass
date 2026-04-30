@@ -29,8 +29,12 @@ type TokenSettings struct {
 }
 
 type AuditLogSettings struct {
-	ViewLoggingEnabled *bool `json:"audit_view_logging_enabled"`
-	ExportMaxRows      *int  `json:"audit_export_max_rows"`
+	ViewLoggingEnabled *bool   `json:"audit_view_logging_enabled"`
+	ExportMaxRows      *int    `json:"audit_export_max_rows"`
+	// REQ-AUD-031 (M2): controls IP coarsening at emit time. One of
+	// "coarse" (default), "country", "off". Read once at boot; updates
+	// via this PATCH require a process restart to take effect.
+	ClientIPMode *string `json:"audit_client_ip_mode,omitempty"`
 }
 
 type EmailSettings struct {
@@ -100,7 +104,24 @@ func ValidateAuditLogSettings(s *AuditLogSettings) error {
 			return err
 		}
 	}
+	if s.ClientIPMode != nil {
+		if err := AuditClientIPMode(*s.ClientIPMode); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// AuditClientIPMode validates the audit.client_ip_mode value against
+// the REQ-AUD-031 enum. Anything outside the enum returns a validation
+// error so a typo doesn't silently disable coarsening on the next boot.
+func AuditClientIPMode(v string) error {
+	switch v {
+	case "coarse", "country", "off":
+		return nil
+	default:
+		return &apierrors.ValidationError{Field: "audit_client_ip_mode", Code: "AUDIT_CLIENT_IP_MODE_INVALID"}
+	}
 }
 
 // AuditExportMaxRows accepts 0 (uncapped) or any positive integer up to 1,000,000.

@@ -55,6 +55,7 @@ func TestPermissionDenied_AuditsTheAttempt(t *testing.T) {
 
 	// Audit row must exist with actor, target_id = the missing permission,
 	// outcome = failure, and metadata carrying method+path.
+	// Post-M2 (REQ-AUD-011): actor_email is gone; resolve via the live join.
 	var (
 		actorID    string
 		actorEmail string
@@ -65,16 +66,17 @@ func TestPermissionDenied_AuditsTheAttempt(t *testing.T) {
 		path       string
 	)
 	err = env.Pool.QueryRow(context.Background(), `
-		SELECT actor_id::text,
-		       actor_email,
-		       target_type,
-		       target_id,
-		       outcome,
-		       metadata->>'method',
-		       metadata->>'path'
-		FROM audit_logs
-		WHERE event_type = 'auth.permission_denied'
-		ORDER BY created_at DESC
+		SELECT a.actor_id::text,
+		       u.email,
+		       a.target_type,
+		       a.target_id,
+		       a.outcome,
+		       a.metadata->>'method',
+		       a.metadata->>'path'
+		FROM audit_logs a
+		LEFT JOIN users u ON u.id = a.actor_id
+		WHERE a.event_type = 'auth.permission_denied'
+		ORDER BY a.created_at DESC
 		LIMIT 1
 	`).Scan(&actorID, &actorEmail, &targetType, &targetID, &outcome, &method, &path)
 	if err != nil {
