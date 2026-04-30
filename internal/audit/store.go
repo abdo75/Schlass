@@ -21,7 +21,6 @@ package audit
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/netip"
 	"time"
@@ -30,7 +29,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/abdo75/Schlass/internal/database"
-	"github.com/abdo75/Schlass/internal/middleware"
 )
 
 // SchemaVersion is the current row schema. Bumped on breaking field
@@ -295,142 +293,17 @@ func (s *Store) applyIPMode(rawIP, geo string) (ipColumn, geoColumn string) {
 // signature is type-level enforcement of REQ-AUD-062: pool/non-tx
 // callers cannot compile against this. Unknown event_types fail closed
 // via Lookup + ErrUnknownEventType.
+//
+// Post-M3 (REQ-AUD-012/020/021/023): Emit delegates to Chain.Append,
+// which serialises per-tenant inserts via pg_advisory_xact_lock,
+// computes the canonical-JSON sha256 row_hash, and INSERTs with a
+// non-null prev_hash that links to the previous row. There is no
+// non-chained path — every emit is part of the chain.
 func (s *Store) Emit(ctx context.Context, tx pgx.Tx, e Event) error {
 	if _, ok := Lookup(e.EventType); !ok {
 		return fmt.Errorf("%w: %q", ErrUnknownEventType, e.EventType)
 	}
-
-	// Default actor_type from ActorID presence so existing call sites
-	// don't have to set it explicitly.
-	actorType := e.ActorType
-	if actorType == "" {
-		if e.ActorID != nil {
-			actorType = ActorTypeUser
-		} else {
-			actorType = ActorTypeSystem
-		}
-	}
-
-	tenantID := e.TenantID
-	if tenantID == uuid.Nil {
-		tenantID = SingleTenant
-	}
-
-	sourceService := e.SourceService
-	if sourceService == "" {
-		sourceService = sourceServiceFromEventType(e.EventType)
-	}
-
-	// correlation_id: prefer the explicit field on Event, else fall back
-	// to the middleware-injected request correlation ID. Mirror into
-	// metadata under the same key so the viewer's existing event-grouping
-	// (UI reads metadata.correlation_id) keeps working until M7 surfaces
-	// the column directly. Mirror whichever source actually populated the
-	// column so explicit-field callers (CLI/sweeper paths without a
-	// request middleware) don't end up with a column-only row that the
-	// viewer can't group.
-	correlationID := e.CorrelationID
-	cidStr := middleware.CorrelationID(ctx)
-	if correlationID == nil && cidStr != "" {
-		if u, err := uuid.Parse(cidStr); err == nil {
-			correlationID = &u
-		}
-	}
-	metadata := e.Metadata
-	if correlationID != nil {
-		merged := make(map[string]any, len(metadata)+1)
-		for k, v := range metadata {
-			merged[k] = v
-		}
-		merged["correlation_id"] = correlationID.String()
-		metadata = merged
-	}
-
-	var metadataJSON []byte
-	if metadata != nil {
-		var err error
-		metadataJSON, err = json.Marshal(metadata)
-		if err != nil {
-			return fmt.Errorf("audit emit: marshal metadata: %w", err)
-		}
-	}
-
-	// Apply REQ-AUD-031 IP coarsening per the Store's configured mode.
-	coarseIP, geoCoarse := s.applyIPMode(e.IPAddress, e.ClientGeoCoarse)
-
-	// client_ip_coarse is INET + nullable — pass nil when empty; pgx
-	// would otherwise cast "" to inet and Postgres rejects with 22P02.
-	var ipAddress *string
-	if coarseIP != "" {
-		ipAddress = &coarseIP
-	}
-
-	var reasonCode *string
-	if e.ReasonCode != "" {
-		reasonCode = &e.ReasonCode
-	}
-
-	var clientUAFamily *string
-	if e.ClientUAFamily != "" {
-		clientUAFamily = &e.ClientUAFamily
-	}
-
-	var clientGeoCoarse *string
-	if geoCoarse != "" {
-		clientGeoCoarse = &geoCoarse
-	}
-
-	var requestID *string
-	if e.RequestID != "" {
-		requestID = &e.RequestID
-	}
-
-	// event_timestamp: zero value falls back to the DB DEFAULT now().
-	// Pass nil so the column default fires; otherwise the explicit value
-	// wins so tests / replay paths can backdate rows.
-	var eventTimestamp *time.Time
-	if !e.EventTimestamp.IsZero() {
-		t := e.EventTimestamp
-		eventTimestamp = &t
-	}
-
-	_, err := tx.Exec(ctx,
-		`INSERT INTO audit_logs (
-			event_type, schema_version, event_timestamp, outcome, reason_code,
-			actor_type, actor_id, actor_session_id,
-			target_type, target_id, tenant_id, source_service,
-			client_id, client_ip_coarse, client_ua_family, client_geo_coarse,
-			request_id, correlation_id, metadata
-		)
-		VALUES ($1, $2, COALESCE($3, now()), $4, $5,
-		        $6, $7, $8,
-		        $9, $10, $11, $12,
-		        $13, $14, $15, $16,
-		        $17, $18, $19)`,
-		e.EventType,
-		SchemaVersion,
-		eventTimestamp,
-		e.Outcome,
-		reasonCode,
-		actorType,
-		e.ActorID,
-		e.ActorSessionID,
-		e.TargetType,
-		e.TargetID,
-		tenantID,
-		sourceService,
-		e.ClientID,
-		ipAddress,
-		clientUAFamily,
-		clientGeoCoarse,
-		requestID,
-		correlationID,
-		metadataJSON,
-	)
-	if err != nil {
-		return fmt.Errorf("audit emit: %w", err)
-	}
-	return nil
+	return (&Chain{}).Append(ctx, tx, s, e)
 }
 
 // PseudonymizeUser dispatches to the audit_log_pseudonymize_user

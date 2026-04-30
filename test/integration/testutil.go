@@ -143,6 +143,10 @@ func NewTestEnv(t *testing.T) *TestEnv {
 // role; TRUNCATE requires owner-level access.
 func resetState(t *testing.T, migrPool *pgxpool.Pool) {
 	t.Helper()
+	// audit_logs_seq is a standalone sequence (not owned by any column),
+	// so RESTART IDENTITY doesn't touch it. Reset it explicitly so each
+	// test starts at sequence_no=1 — chain tests rely on this for the
+	// good/tampered/truncated/concurrency fixtures.
 	_, err := migrPool.Exec(context.Background(), `
 		TRUNCATE TABLE
 			audit_logs,
@@ -154,6 +158,7 @@ func resetState(t *testing.T, migrPool *pgxpool.Pool) {
 			signing_keys,
 			instance_config
 		RESTART IDENTITY CASCADE;
+		SELECT setval('audit_logs_seq', 1, false);
 		INSERT INTO instance_config (key, value, updated_at)
 			SELECT key, value, updated_at FROM _instance_config_snapshot;
 	`)
