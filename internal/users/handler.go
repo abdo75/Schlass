@@ -282,7 +282,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if auditErr := h.auditStore.Log(r.Context(), tx, audit.Entry{
+	if auditErr := h.auditStore.Emit(r.Context(), tx, audit.Event{
 		EventType:  "user.created",
 		ActorID:    &current.ID,
 		ActorEmail: current.Email,
@@ -480,7 +480,7 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if auditErr := h.auditStore.Log(r.Context(), tx, audit.Entry{
+	if auditErr := h.auditStore.Emit(r.Context(), tx, audit.Event{
 		EventType:  "user.updated",
 		ActorID:    &current.ID,
 		ActorEmail: current.Email,
@@ -567,7 +567,7 @@ func (h *Handler) Disable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if auditErr := h.auditStore.Log(r.Context(), tx, audit.Entry{
+	if auditErr := h.auditStore.Emit(r.Context(), tx, audit.Event{
 		EventType:  "user.disabled",
 		ActorID:    &current.ID,
 		ActorEmail: current.Email,
@@ -582,7 +582,7 @@ func (h *Handler) Disable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if auditErr := h.auditStore.Log(r.Context(), tx, audit.Entry{
+	if auditErr := h.auditStore.Emit(r.Context(), tx, audit.Event{
 		EventType:  "user.revoke_before_set",
 		ActorID:    &current.ID,
 		ActorEmail: current.Email,
@@ -659,7 +659,7 @@ func (h *Handler) Enable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if auditErr := h.auditStore.Log(r.Context(), tx, audit.Entry{
+	if auditErr := h.auditStore.Emit(r.Context(), tx, audit.Event{
 		EventType:  "user.enabled",
 		ActorID:    &current.ID,
 		ActorEmail: current.Email,
@@ -754,7 +754,7 @@ func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if auditErr := h.auditStore.Log(r.Context(), tx, audit.Entry{
+	if auditErr := h.auditStore.Emit(r.Context(), tx, audit.Event{
 		EventType:  "user.password_reset",
 		ActorID:    &current.ID,
 		ActorEmail: current.Email,
@@ -769,7 +769,7 @@ func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if auditErr := h.auditStore.Log(r.Context(), tx, audit.Entry{
+	if auditErr := h.auditStore.Emit(r.Context(), tx, audit.Event{
 		EventType:  "user.revoke_before_set",
 		ActorID:    &current.ID,
 		ActorEmail: current.Email,
@@ -869,7 +869,7 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 		return
 	}
-	if auditErr := h.auditStore.Log(r.Context(), tx, audit.Entry{
+	if auditErr := h.auditStore.Emit(r.Context(), tx, audit.Event{
 		EventType:  "user.audit_pseudonymized",
 		ActorID:    &current.ID,
 		ActorEmail: current.Email,
@@ -884,7 +884,7 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if auditErr := h.auditStore.Log(r.Context(), tx, audit.Entry{
+	if auditErr := h.auditStore.Emit(r.Context(), tx, audit.Event{
 		EventType:  "user.deleted",
 		ActorID:    &current.ID,
 		ActorEmail: current.Email,
@@ -964,7 +964,7 @@ func (h *Handler) TerminateAllSessions(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { _ = tx.Rollback(r.Context()) }()
 
-	if err := h.auditStore.Log(r.Context(), tx, audit.Entry{
+	if err := h.auditStore.Emit(r.Context(), tx, audit.Event{
 		EventType:  "user.sessions_terminated",
 		ActorID:    &current.ID,
 		ActorEmail: current.Email,
@@ -979,7 +979,7 @@ func (h *Handler) TerminateAllSessions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.auditStore.Log(r.Context(), tx, audit.Entry{
+	if err := h.auditStore.Emit(r.Context(), tx, audit.Event{
 		EventType:  "user.revoke_before_set",
 		ActorID:    &current.ID,
 		ActorEmail: current.Email,
@@ -1058,7 +1058,7 @@ func (h *Handler) ResetMFA(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	wasEnrolledAt := target.TOTPEnrolledAt.Format(time.RFC3339)
-	if err := h.auditStore.Log(r.Context(), tx, audit.Entry{
+	if err := h.auditStore.Emit(r.Context(), tx, audit.Event{
 		EventType:  "mfa.reset",
 		ActorID:    &acting.ID,
 		ActorEmail: acting.Email,
@@ -1076,7 +1076,7 @@ func (h *Handler) ResetMFA(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if auditErr := h.auditStore.Log(r.Context(), tx, audit.Entry{
+	if auditErr := h.auditStore.Emit(r.Context(), tx, audit.Event{
 		EventType:  "user.revoke_before_set",
 		ActorID:    &acting.ID,
 		ActorEmail: acting.Email,
@@ -1140,7 +1140,7 @@ func (h *Handler) TerminateSession(w http.ResponseWriter, r *http.Request) {
 	if len(tokenPrefix) > 8 {
 		tokenPrefix = tokenPrefix[:8]
 	}
-	if err := h.auditStore.Log(r.Context(), tx, audit.Entry{
+	if err := h.auditStore.Emit(r.Context(), tx, audit.Event{
 		EventType:  "session.terminated",
 		ActorID:    &current.ID,
 		ActorEmail: current.Email,

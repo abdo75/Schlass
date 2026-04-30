@@ -47,7 +47,7 @@ func Bootstrap(
 	if err != nil {
 		return fmt.Errorf("bootstrap: insert: %w", err)
 	}
-	if err := auditStore.Log(ctx, tx, audit.Entry{
+	if err := auditStore.Emit(ctx, tx, audit.Event{
 		EventType:  "oidc.signing_key.generated",
 		ActorEmail: "",
 		TargetType: "signing_key",
@@ -83,7 +83,7 @@ func RetireSweep(
 			_ = tx.Rollback(ctx)
 			return fmt.Errorf("retire sweep: mark: %w", err)
 		}
-		if err := auditStore.Log(ctx, tx, audit.Entry{
+		if err := auditStore.Emit(ctx, tx, audit.Event{
 			EventType:  "oidc.signing_key.retired",
 			ActorEmail: "",
 			TargetType: "signing_key",

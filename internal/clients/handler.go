@@ -272,7 +272,7 @@ func (h *Handler) PostCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.auditStore.Log(r.Context(), tx, audit.Entry{
+	if err := h.auditStore.Emit(r.Context(), tx, audit.Event{
 		EventType:  "client.created",
 		ActorID:    &current.ID,
 		ActorEmail: current.Email,
@@ -388,7 +388,7 @@ func (h *Handler) PatchOne(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if old.Name != updated.Name {
-		if err := h.auditStore.Log(r.Context(), tx, audit.Entry{
+		if err := h.auditStore.Emit(r.Context(), tx, audit.Event{
 			EventType:  "client.name_updated",
 			ActorID:    &current.ID,
 			ActorEmail: current.Email,
@@ -403,7 +403,7 @@ func (h *Handler) PatchOne(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !slicesEqual(old.RedirectURIs, updated.RedirectURIs) {
-		if err := h.auditStore.Log(r.Context(), tx, audit.Entry{
+		if err := h.auditStore.Emit(r.Context(), tx, audit.Event{
 			EventType:  "client.redirect_uris_updated",
 			ActorID:    &current.ID,
 			ActorEmail: current.Email,
@@ -418,7 +418,7 @@ func (h *Handler) PatchOne(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !slicesEqual(old.AllowedScopes, updated.AllowedScopes) {
-		if err := h.auditStore.Log(r.Context(), tx, audit.Entry{
+		if err := h.auditStore.Emit(r.Context(), tx, audit.Event{
 			EventType:  "client.scopes_updated",
 			ActorID:    &current.ID,
 			ActorEmail: current.Email,
@@ -433,7 +433,7 @@ func (h *Handler) PatchOne(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !slicesEqual(old.AllowedGrantTypes, updated.AllowedGrantTypes) {
-		if err := h.auditStore.Log(r.Context(), tx, audit.Entry{
+		if err := h.auditStore.Emit(r.Context(), tx, audit.Event{
 			EventType:  "client.grants_updated",
 			ActorID:    &current.ID,
 			ActorEmail: current.Email,
@@ -496,7 +496,7 @@ func (h *Handler) PostDisable(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 		return
 	}
-	if err := h.auditStore.Log(r.Context(), tx, audit.Entry{
+	if err := h.auditStore.Emit(r.Context(), tx, audit.Event{
 		EventType:  "client.disabled",
 		ActorID:    &current.ID,
 		ActorEmail: current.Email,
@@ -554,7 +554,7 @@ func (h *Handler) PostEnable(w http.ResponseWriter, r *http.Request) {
 	if old.DisabledAt != nil {
 		meta["previously_disabled_at"] = old.DisabledAt
 	}
-	if err := h.auditStore.Log(r.Context(), tx, audit.Entry{
+	if err := h.auditStore.Emit(r.Context(), tx, audit.Event{
 		EventType:  "client.enabled",
 		ActorID:    &current.ID,
 		ActorEmail: current.Email,
@@ -636,7 +636,7 @@ func (h *Handler) PostRotateSecret(w http.ResponseWriter, r *http.Request) {
 	if rotated.SecretPreviousExpiresAt != nil {
 		meta["previous_expires_at"] = rotated.SecretPreviousExpiresAt
 	}
-	if err := h.auditStore.Log(r.Context(), tx, audit.Entry{
+	if err := h.auditStore.Emit(r.Context(), tx, audit.Event{
 		EventType:  "client.secret_rotated",
 		ActorID:    &current.ID,
 		ActorEmail: current.Email,
@@ -700,7 +700,7 @@ func (h *Handler) DeleteOne(w http.ResponseWriter, r *http.Request) {
 	if old.DisabledAt != nil {
 		meta["previously_disabled_at"] = old.DisabledAt
 	}
-	if err := h.auditStore.Log(r.Context(), tx, audit.Entry{
+	if err := h.auditStore.Emit(r.Context(), tx, audit.Event{
 		EventType:  "client.deleted",
 		ActorID:    &current.ID,
 		ActorEmail: current.Email,

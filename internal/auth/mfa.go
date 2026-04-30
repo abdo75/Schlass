@@ -424,7 +424,7 @@ func (h *MFAHandler) PostEnrollmentComplete(w http.ResponseWriter, r *http.Reque
 	}
 
 	ip := extractClientIP(r)
-	if err := h.auditStore.Log(r.Context(), tx, audit.Entry{
+	if err := h.auditStore.Emit(r.Context(), tx, audit.Event{
 		EventType:  "mfa.enrollment_completed",
 		ActorID:    &userID,
 		ActorEmail: u.Email,
@@ -445,7 +445,7 @@ func (h *MFAHandler) PostEnrollmentComplete(w http.ResponseWriter, r *http.Reque
 		// NIST 800-53 AU-2 + PCI 10.2.1.1, that successful authentication
 		// must produce a login.succeeded record. The session-authed branch
 		// (admin enrolling MFA from an already-active session) skips it.
-		if err := h.auditStore.Log(r.Context(), tx, audit.Entry{
+		if err := h.auditStore.Emit(r.Context(), tx, audit.Event{
 			EventType:  "login.succeeded",
 			ActorID:    &userID,
 			ActorEmail: u.Email,
@@ -603,7 +603,7 @@ func (h *MFAHandler) PostChallenge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ip := extractClientIP(r)
-	if err := h.auditStore.Log(r.Context(), tx, audit.Entry{
+	if err := h.auditStore.Emit(r.Context(), tx, audit.Event{
 		EventType:  "login.succeeded",
 		ActorID:    &userID,
 		ActorEmail: u.Email,
@@ -615,7 +615,7 @@ func (h *MFAHandler) PostChallenge(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 		return
 	}
-	if err := h.auditStore.Log(r.Context(), tx, audit.Entry{
+	if err := h.auditStore.Emit(r.Context(), tx, audit.Event{
 		EventType:  "mfa.challenge_succeeded",
 		ActorID:    &userID,
 		ActorEmail: u.Email,
@@ -683,7 +683,7 @@ func (h *MFAHandler) writeChallengeFailedAudit(r *http.Request, userID, reason s
 			}
 		}
 	}
-	if err := h.auditStore.Log(r.Context(), tx, audit.Entry{
+	if err := h.auditStore.Emit(r.Context(), tx, audit.Event{
 		EventType:  "mfa.challenge_failed",
 		ActorID:    actorID,
 		ActorEmail: actorEmail,
@@ -746,7 +746,7 @@ func (h *MFAHandler) verifyRecoveryCode(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 	ip := extractClientIP(r)
-	if err := h.auditStore.Log(r.Context(), tx, audit.Entry{
+	if err := h.auditStore.Emit(r.Context(), tx, audit.Event{
 		EventType:  "login.succeeded",
 		ActorID:    &u.ID,
 		ActorEmail: u.Email,
@@ -758,7 +758,7 @@ func (h *MFAHandler) verifyRecoveryCode(w http.ResponseWriter, r *http.Request, 
 		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 		return
 	}
-	if err := h.auditStore.Log(r.Context(), tx, audit.Entry{
+	if err := h.auditStore.Emit(r.Context(), tx, audit.Event{
 		EventType:  "mfa.challenge_succeeded",
 		ActorID:    &u.ID,
 		ActorEmail: u.Email,
@@ -771,7 +771,7 @@ func (h *MFAHandler) verifyRecoveryCode(w http.ResponseWriter, r *http.Request, 
 		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 		return
 	}
-	if err := h.auditStore.Log(r.Context(), tx, audit.Entry{
+	if err := h.auditStore.Emit(r.Context(), tx, audit.Event{
 		EventType:  "mfa.recovery_code_used",
 		ActorID:    &u.ID,
 		ActorEmail: u.Email,

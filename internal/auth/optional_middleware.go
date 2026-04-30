@@ -57,17 +57,14 @@ func OptionalMiddleware(
 			u, err := userStore.GetByID(r.Context(), pool, userID)
 			if errors.Is(err, users.ErrUserNotFound) {
 				_ = sessionStore.Delete(r.Context(), sess.UserID, cookie.Value)
-				if auditErr := auditStore.Log(r.Context(), pool, audit.Entry{
+				bestEffortAudit(r.Context(), pool, auditStore, audit.Event{
 					EventType:  "session.revoked",
-					ActorEmail: "",
 					TargetType: "user",
 					TargetID:   userID.String(),
 					IPAddress:  clientIP(r),
 					Outcome:    "success",
 					Metadata:   map[string]any{"reason": "user_not_found", "mw": "optional"},
-				}); auditErr != nil {
-					slog.Error("OptionalMiddleware: session.revoked audit write failed (best-effort)", "error", auditErr)
-				}
+				})
 				clearSessionCookie(w)
 				next.ServeHTTP(w, r)
 				return
@@ -80,7 +77,7 @@ func OptionalMiddleware(
 
 			if u.Status == "disabled" {
 				_ = sessionStore.Delete(r.Context(), u.ID.String(), cookie.Value)
-				if auditErr := auditStore.Log(r.Context(), pool, audit.Entry{
+				bestEffortAudit(r.Context(), pool, auditStore, audit.Event{
 					EventType:  "session.revoked",
 					ActorID:    &u.ID,
 					ActorEmail: u.Email,
@@ -89,9 +86,7 @@ func OptionalMiddleware(
 					IPAddress:  clientIP(r),
 					Outcome:    "success",
 					Metadata:   map[string]any{"reason": "user_disabled", "mw": "optional"},
-				}); auditErr != nil {
-					slog.Error("OptionalMiddleware: session.revoked audit write failed (best-effort)", "error", auditErr)
-				}
+				})
 				clearSessionCookie(w)
 				next.ServeHTTP(w, r)
 				return

@@ -138,7 +138,7 @@ func (h *SetupHandler) PostSetup(w http.ResponseWriter, r *http.Request) {
 	// Granular per NIST 800-53 AU-3 / PCI 10.2.1.5: provisioning of the first
 	// admin is its own forensic record, separate from the setup roll-up.
 	userIDStr := userID.String()
-	if err := h.auditStore.Log(r.Context(), tx, audit.Entry{
+	if err := h.auditStore.Emit(r.Context(), tx, audit.Event{
 		EventType:  "user.created",
 		ActorID:    &userID,
 		ActorEmail: req.Email,
@@ -164,7 +164,7 @@ func (h *SetupHandler) PostSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.auditStore.Log(r.Context(), tx, audit.Entry{
+	if err := h.auditStore.Emit(r.Context(), tx, audit.Event{
 		EventType:  "setup.completed",
 		ActorID:    &userID,
 		ActorEmail: req.Email,

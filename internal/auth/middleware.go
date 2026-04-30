@@ -62,17 +62,14 @@ func Middleware(
 			u, err := userStore.GetByID(r.Context(), pool, userID)
 			if errors.Is(err, users.ErrUserNotFound) {
 				_ = sessionStore.Delete(r.Context(), sess.UserID, cookie.Value)
-				if auditErr := auditStore.Log(r.Context(), pool, audit.Entry{
+				bestEffortAudit(r.Context(), pool, auditStore, audit.Event{
 					EventType:  "session.revoked",
-					ActorEmail: "",
 					TargetType: "user",
 					TargetID:   userID.String(),
 					IPAddress:  clientIP(r),
 					Outcome:    "success",
 					Metadata:   map[string]any{"reason": "user_not_found"},
-				}); auditErr != nil {
-					slog.Error("session.revoked audit write failed (best-effort)", "error", auditErr)
-				}
+				})
 				writeAuthError(w, http.StatusUnauthorized, "INVALID_SESSION", "Not authenticated.")
 				return
 			}
@@ -84,7 +81,7 @@ func Middleware(
 
 			if u.Status == "disabled" {
 				_ = sessionStore.Delete(r.Context(), u.ID.String(), cookie.Value)
-				if auditErr := auditStore.Log(r.Context(), pool, audit.Entry{
+				bestEffortAudit(r.Context(), pool, auditStore, audit.Event{
 					EventType:  "session.revoked",
 					ActorID:    &u.ID,
 					ActorEmail: u.Email,
@@ -93,9 +90,7 @@ func Middleware(
 					IPAddress:  clientIP(r),
 					Outcome:    "success",
 					Metadata:   map[string]any{"reason": "user_disabled"},
-				}); auditErr != nil {
-					slog.Error("session.revoked audit write failed (best-effort)", "error", auditErr)
-				}
+				})
 				writeAuthError(w, http.StatusUnauthorized, "INVALID_SESSION", "Not authenticated.")
 				return
 			}
@@ -117,4 +112,27 @@ func writeAuthError(w http.ResponseWriter, status int, code, message string) {
 
 func clientIP(r *http.Request) string {
 	return extractClientIP(r)
+}
+
+// bestEffortAudit opens a short-lived tx around a single Emit call so
+// pool-only callers (middleware on the orphan/disabled-session cleanup
+// path; password-reset enumeration-safe paths) keep audit writes
+// committed atomically with no surrounding mutation. Failures slog but
+// never block the caller — these are documented best-effort sites
+// (Middleware comment: "load-bearing compliance event is the user-disable
+// action in its source handler, not this cleanup").
+func bestEffortAudit(ctx context.Context, pool *pgxpool.Pool, auditStore audit.Logger, event audit.Event) {
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		slog.Error("best-effort audit: begin", "error", err, "event_type", event.EventType)
+		return
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := auditStore.Emit(ctx, tx, event); err != nil {
+		slog.Error("best-effort audit: emit", "error", err, "event_type", event.EventType)
+		return
+	}
+	if err := tx.Commit(ctx); err != nil {
+		slog.Error("best-effort audit: commit", "error", err, "event_type", event.EventType)
+	}
 }

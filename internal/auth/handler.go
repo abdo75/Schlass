@@ -143,7 +143,7 @@ func (h *Handler) PostLogin(w http.ResponseWriter, r *http.Request) {
 		// this path takes roughly the same wall time as the real path.
 		_, _ = crypto.VerifyPassword(req.Password, h.dummyHash)
 
-		if auditErr := h.auditStore.Log(r.Context(), tx, audit.Entry{
+		if auditErr := h.auditStore.Emit(r.Context(), tx, audit.Event{
 			EventType:  "login.failed",
 			ActorEmail: req.Email,
 			TargetType: "user",
@@ -165,7 +165,7 @@ func (h *Handler) PostLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if u.LockedUntil != nil && u.LockedUntil.After(time.Now()) {
-		if auditErr := h.auditStore.Log(r.Context(), tx, audit.Entry{
+		if auditErr := h.auditStore.Emit(r.Context(), tx, audit.Event{
 			EventType:  "login.failed",
 			ActorID:    &u.ID,
 			ActorEmail: u.Email,
@@ -208,7 +208,7 @@ func (h *Handler) PostLogin(w http.ResponseWriter, r *http.Request) {
 			r.Context(), tx, u.ID, threshold, durationSecs,
 		)
 		if errors.Is(incErr, users.ErrAlreadyLocked) {
-			if auditErr := h.auditStore.Log(r.Context(), tx, audit.Entry{
+			if auditErr := h.auditStore.Emit(r.Context(), tx, audit.Event{
 				EventType:  "login.failed",
 				ActorID:    &u.ID,
 				ActorEmail: u.Email,
@@ -236,7 +236,7 @@ func (h *Handler) PostLogin(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if err := h.auditStore.Log(r.Context(), tx, audit.Entry{
+		if err := h.auditStore.Emit(r.Context(), tx, audit.Event{
 			EventType:  "login.failed",
 			ActorID:    &u.ID,
 			ActorEmail: u.Email,
@@ -251,7 +251,7 @@ func (h *Handler) PostLogin(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if locked {
-			if err := h.auditStore.Log(r.Context(), tx, audit.Entry{
+			if err := h.auditStore.Emit(r.Context(), tx, audit.Event{
 				EventType:  "account.locked",
 				ActorID:    &u.ID,
 				ActorEmail: u.Email,
@@ -283,7 +283,7 @@ func (h *Handler) PostLogin(w http.ResponseWriter, r *http.Request) {
 			httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 			return
 		}
-		if auditErr := h.auditStore.Log(r.Context(), tx, audit.Entry{
+		if auditErr := h.auditStore.Emit(r.Context(), tx, audit.Event{
 			EventType:  "login.failed",
 			ActorID:    &u.ID,
 			ActorEmail: u.Email,
@@ -323,7 +323,7 @@ func (h *Handler) PostLogin(w http.ResponseWriter, r *http.Request) {
 	// with a temp password rotates it BEFORE binding an authenticator.
 	// Enrolling MFA against a credential that's about to change is wrong.
 	if u.ForcePasswordChange {
-		if err := h.auditStore.Log(r.Context(), tx, audit.Entry{
+		if err := h.auditStore.Emit(r.Context(), tx, audit.Event{
 			EventType:  "login.succeeded",
 			ActorID:    &u.ID,
 			ActorEmail: u.Email,
@@ -438,7 +438,7 @@ func (h *Handler) PostLogin(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteJSON(w, http.StatusAccepted, map[string]any{"totp_required": true})
 
 	default:
-		if err := h.auditStore.Log(r.Context(), tx, audit.Entry{
+		if err := h.auditStore.Emit(r.Context(), tx, audit.Event{
 			EventType:  "login.succeeded",
 			ActorID:    &u.ID,
 			ActorEmail: u.Email,
@@ -493,7 +493,7 @@ func (h *Handler) PostLogout(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { _ = tx.Rollback(r.Context()) }()
 
-	if auditErr := h.auditStore.Log(r.Context(), tx, audit.Entry{
+	if auditErr := h.auditStore.Emit(r.Context(), tx, audit.Event{
 		EventType:  "logout.completed",
 		ActorID:    &u.ID,
 		ActorEmail: u.Email,
@@ -617,7 +617,7 @@ func (h *Handler) PostChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if auditErr := h.auditStore.Log(r.Context(), tx, audit.Entry{
+	if auditErr := h.auditStore.Emit(r.Context(), tx, audit.Event{
 		EventType:  "password.changed",
 		ActorID:    &current.ID,
 		ActorEmail: current.Email,
@@ -631,7 +631,7 @@ func (h *Handler) PostChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if auditErr := h.auditStore.Log(r.Context(), tx, audit.Entry{
+	if auditErr := h.auditStore.Emit(r.Context(), tx, audit.Event{
 		EventType:  "user.revoke_before_set",
 		ActorID:    &current.ID,
 		ActorEmail: current.Email,
@@ -742,7 +742,7 @@ func (h *Handler) PostDisableMfa(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	wasEnrolledAt := current.TOTPEnrolledAt.Format(time.RFC3339)
-	if err := h.auditStore.Log(r.Context(), tx, audit.Entry{
+	if err := h.auditStore.Emit(r.Context(), tx, audit.Event{
 		EventType:  "mfa.self_reset",
 		ActorID:    &current.ID,
 		ActorEmail: current.Email,
@@ -760,7 +760,7 @@ func (h *Handler) PostDisableMfa(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if auditErr := h.auditStore.Log(r.Context(), tx, audit.Entry{
+	if auditErr := h.auditStore.Emit(r.Context(), tx, audit.Event{
 		EventType:  "user.revoke_before_set",
 		ActorID:    &current.ID,
 		ActorEmail: current.Email,

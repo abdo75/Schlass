@@ -162,7 +162,7 @@ func (h *AuthorizeHandler) Handle(w http.ResponseWriter, r *http.Request) {
 			if cookie, cerr := r.Cookie("schlass_session"); cerr == nil {
 				_ = h.sessionStore.Delete(r.Context(), user.ID.String(), cookie.Value)
 			}
-			h.writeBestEffortAudit(r, audit.Entry{
+			h.writeBestEffortAudit(r, audit.Event{
 				EventType:  "session.reauth_forced",
 				ActorID:    &user.ID,
 				ActorEmail: user.Email,
@@ -257,7 +257,7 @@ func (h *AuthorizeHandler) renderLocalError(r *http.Request, w http.ResponseWrit
 	for k, v := range extra {
 		md[k] = v
 	}
-	h.writeBestEffortAudit(r, audit.Entry{
+	h.writeBestEffortAudit(r, audit.Event{
 		EventType:  "oidc.authorize.invalid_request",
 		ActorEmail: "",
 		TargetType: "authorize_request",
@@ -296,15 +296,15 @@ func (h *AuthorizeHandler) getSessionFromCookie(r *http.Request) (*session.Sessi
 
 // writeBestEffortAudit: own tx, failure logged but does not block the
 // caller. Matches the middleware session.revoked pattern.
-func (h *AuthorizeHandler) writeBestEffortAudit(r *http.Request, entry audit.Entry) {
+func (h *AuthorizeHandler) writeBestEffortAudit(r *http.Request, event audit.Event) {
 	tx, err := h.pool.Begin(r.Context())
 	if err != nil {
 		slog.Error("authorize audit: begin", "error", err)
 		return
 	}
 	defer func() { _ = tx.Rollback(r.Context()) }()
-	if err := h.auditStore.Log(r.Context(), tx, entry); err != nil {
-		slog.Error("authorize audit: log", "error", err)
+	if err := h.auditStore.Emit(r.Context(), tx, event); err != nil {
+		slog.Error("authorize audit: emit", "error", err)
 		return
 	}
 	if err := tx.Commit(r.Context()); err != nil {

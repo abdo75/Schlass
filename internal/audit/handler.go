@@ -376,7 +376,7 @@ func (h *Handler) maybeEmitViewed(ctx context.Context, tx pgx.Tx, r *http.Reques
 	if err != nil || sess == nil || sess.AuditViewedInSession {
 		return nil
 	}
-	return h.audit.Log(ctx, tx, Entry{
+	return h.audit.Emit(ctx, tx, Event{
 		EventType:  "audit.viewed",
 		ActorID:    &user.ID,
 		ActorEmail: user.Email,

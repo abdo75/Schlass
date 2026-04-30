@@ -98,7 +98,7 @@ func Execute(ctx context.Context, pool *pgxpool.Pool, cfg *config.Env, email str
 	}
 
 	auditStore := audit.NewStore()
-	if err := auditStore.Log(ctx, tx, audit.Entry{
+	if err := auditStore.Emit(ctx, tx, audit.Event{
 		EventType:  "password_reset.recovery_issued",
 		ActorEmail: "system:recovery",
 		TargetType: "user",

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
@@ -279,14 +280,14 @@ func (e *TestEnv) CaptureLogs(t *testing.T) *bytes.Buffer {
 	return &buf
 }
 
-// failingAuditStore satisfies audit.PseudonymizingLogger by returning whatever
-// fn returns on every Log call. Used by WithFakeAuditStore to exercise the
-// "audit failure rolls back the login tx" contract.
+// failingAuditStore satisfies audit.PseudonymizingLogger by returning
+// whatever fn returns on every Emit call. Used by WithFakeAuditStore to
+// exercise the "audit failure rolls back the originating tx" contract.
 type failingAuditStore struct {
 	fn func() error
 }
 
-func (f *failingAuditStore) Log(_ context.Context, _ database.Querier, _ audit.Entry) error {
+func (f *failingAuditStore) Emit(_ context.Context, _ pgx.Tx, _ audit.Event) error {
 	return f.fn()
 }
 

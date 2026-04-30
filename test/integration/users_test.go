@@ -1052,9 +1052,14 @@ func TestUsers_Delete_PreservesAuditTrail(t *testing.T) {
 	victimUUID := mustParseUUID(t, targetID)
 
 	// Write a login.succeeded audit row with the victim as actor, directly
-	// via the audit store, mirroring the real auth handler's shape.
+	// via the audit store, mirroring the real auth handler's shape. Emit
+	// requires pgx.Tx (REQ-AUD-062), so wrap the seed in a tx + commit.
 	as := env.BuildDeps().AuditStore
-	if err := as.Log(ctx, env.Pool, audit.Entry{
+	seedTx, err := env.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("seed login.succeeded audit: begin: %v", err)
+	}
+	if err := as.Emit(ctx, seedTx, audit.Event{
 		EventType:  "login.succeeded",
 		ActorID:    &victimUUID,
 		ActorEmail: "victim@example.com",
@@ -1064,7 +1069,11 @@ func TestUsers_Delete_PreservesAuditTrail(t *testing.T) {
 		Outcome:    "success",
 		Metadata:   map[string]any{"method": "password"},
 	}); err != nil {
-		t.Fatalf("seed login.succeeded audit: %v", err)
+		_ = seedTx.Rollback(ctx)
+		t.Fatalf("seed login.succeeded audit: emit: %v", err)
+	}
+	if err := seedTx.Commit(ctx); err != nil {
+		t.Fatalf("seed login.succeeded audit: commit: %v", err)
 	}
 
 	// Hard-delete the victim via the admin API.

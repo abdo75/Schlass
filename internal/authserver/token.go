@@ -144,7 +144,7 @@ func (h *TokenHandler) handleAuthorizationCode(w http.ResponseWriter, r *http.Re
 
 	ok, err := h.clientStore.VerifySecret(r.Context(), h.pool, clientID, clientSecret)
 	if err != nil || !ok {
-		h.writeBestEffortAudit(r, audit.Entry{
+		h.writeBestEffortAudit(r, audit.Event{
 			EventType:  "oidc.client.auth_failed",
 			TargetType: "client",
 			TargetID:   clientID,
@@ -184,7 +184,7 @@ func (h *TokenHandler) handleAuthorizationCode(w http.ResponseWriter, r *http.Re
 
 	if row.ClientID != client.ID {
 		// Theft indicator — code was issued for a different client. Burned by ConsumeOnce above.
-		if auditErr := h.auditStore.Log(r.Context(), tx, audit.Entry{
+		if auditErr := h.auditStore.Emit(r.Context(), tx, audit.Event{
 			EventType:  "oidc.code.client_mismatch",
 			ActorID:    &row.UserID,
 			ActorEmail: "",
@@ -206,7 +206,7 @@ func (h *TokenHandler) handleAuthorizationCode(w http.ResponseWriter, r *http.Re
 	}
 
 	if row.RedirectURI != redirectURI {
-		if auditErr := h.auditStore.Log(r.Context(), tx, audit.Entry{
+		if auditErr := h.auditStore.Emit(r.Context(), tx, audit.Event{
 			EventType:  "oidc.code.redirect_mismatch",
 			ActorID:    &row.UserID,
 			ActorEmail: "",
@@ -228,7 +228,7 @@ func (h *TokenHandler) handleAuthorizationCode(w http.ResponseWriter, r *http.Re
 	}
 
 	if !oidc.VerifyPKCE(row.CodeChallenge, codeVerifier) {
-		if auditErr := h.auditStore.Log(r.Context(), tx, audit.Entry{
+		if auditErr := h.auditStore.Emit(r.Context(), tx, audit.Event{
 			EventType:  "oidc.code.pkce_mismatch",
 			ActorID:    &row.UserID,
 			ActorEmail: "",
@@ -251,7 +251,7 @@ func (h *TokenHandler) handleAuthorizationCode(w http.ResponseWriter, r *http.Re
 
 	u, err := h.userStore.GetByID(r.Context(), tx, row.UserID)
 	if err != nil {
-		if auditErr := h.auditStore.Log(r.Context(), tx, audit.Entry{
+		if auditErr := h.auditStore.Emit(r.Context(), tx, audit.Event{
 			EventType:  "oidc.code.user_not_found",
 			ActorID:    &row.UserID,
 			ActorEmail: "",
@@ -275,7 +275,7 @@ func (h *TokenHandler) handleAuthorizationCode(w http.ResponseWriter, r *http.Re
 		return
 	}
 	if u.Status != "active" {
-		if auditErr := h.auditStore.Log(r.Context(), tx, audit.Entry{
+		if auditErr := h.auditStore.Emit(r.Context(), tx, audit.Event{
 			EventType:  "oidc.code.user_disabled",
 			ActorID:    &u.ID,
 			ActorEmail: u.Email,
@@ -306,7 +306,7 @@ func (h *TokenHandler) handleAuthorizationCode(w http.ResponseWriter, r *http.Re
 		}
 	}
 	if !allowsAuthCode {
-		if auditErr := h.auditStore.Log(r.Context(), tx, audit.Entry{
+		if auditErr := h.auditStore.Emit(r.Context(), tx, audit.Event{
 			EventType:  "oidc.code.grant_removed",
 			ActorID:    &u.ID,
 			ActorEmail: u.Email,
@@ -329,7 +329,7 @@ func (h *TokenHandler) handleAuthorizationCode(w http.ResponseWriter, r *http.Re
 
 	narrowedCodeScopes, err := intersectScopesAgainstClient(row.Scopes, client.AllowedScopes)
 	if err != nil {
-		if auditErr := h.auditStore.Log(r.Context(), tx, audit.Entry{
+		if auditErr := h.auditStore.Emit(r.Context(), tx, audit.Event{
 			EventType:  "oidc.code.scope_removed",
 			ActorID:    &u.ID,
 			ActorEmail: u.Email,
@@ -419,7 +419,7 @@ func (h *TokenHandler) handleAuthorizationCode(w http.ResponseWriter, r *http.Re
 		refreshTokenStr = tok
 	}
 
-	if err := h.auditStore.Log(r.Context(), tx, audit.Entry{
+	if err := h.auditStore.Emit(r.Context(), tx, audit.Event{
 		EventType:  "oidc.code.exchanged",
 		ActorID:    &u.ID,
 		ActorEmail: u.Email,
@@ -478,7 +478,7 @@ func (h *TokenHandler) handleCodeReplay(r *http.Request, w http.ResponseWriter, 
 		return
 	}
 	defer func() { _ = tx.Rollback(r.Context()) }()
-	if err := h.auditStore.Log(r.Context(), tx, audit.Entry{
+	if err := h.auditStore.Emit(r.Context(), tx, audit.Event{
 		EventType:  "oidc.code.replay_detected",
 		TargetType: "authorization_code",
 		IPAddress:  extractClientIP(r),
@@ -518,15 +518,15 @@ func (h *TokenHandler) readTokenTTLs(ctx context.Context, q database.Querier) (a
 	return time.Duration(accessSecs) * time.Second, time.Duration(refreshSecs) * time.Second, nil
 }
 
-func (h *TokenHandler) writeBestEffortAudit(r *http.Request, entry audit.Entry) {
+func (h *TokenHandler) writeBestEffortAudit(r *http.Request, event audit.Event) {
 	tx, err := h.pool.Begin(r.Context())
 	if err != nil {
 		slog.Error("token best-effort audit: begin", "error", err)
 		return
 	}
 	defer func() { _ = tx.Rollback(r.Context()) }()
-	if err := h.auditStore.Log(r.Context(), tx, entry); err != nil {
-		slog.Error("token best-effort audit: log", "error", err)
+	if err := h.auditStore.Emit(r.Context(), tx, event); err != nil {
+		slog.Error("token best-effort audit: emit", "error", err)
 		return
 	}
 	if err := tx.Commit(r.Context()); err != nil {
@@ -561,7 +561,7 @@ func (h *TokenHandler) handleRefreshToken(w http.ResponseWriter, r *http.Request
 
 	ok, err := h.clientStore.VerifySecret(r.Context(), h.pool, clientID, clientSecret)
 	if err != nil || !ok {
-		h.writeBestEffortAudit(r, audit.Entry{
+		h.writeBestEffortAudit(r, audit.Event{
 			EventType:  "oidc.client.auth_failed",
 			TargetType: "client",
 			TargetID:   clientID,
@@ -590,7 +590,7 @@ func (h *TokenHandler) handleRefreshToken(w http.ResponseWriter, r *http.Request
 			if err := h.refreshStore.RevokeFamily(r.Context(), oldPayload.FamilyID); err != nil {
 				slog.Error("token refresh: RevokeFamily on reuse", "error", err)
 			}
-			h.writeBestEffortAudit(r, audit.Entry{
+			h.writeBestEffortAudit(r, audit.Event{
 				EventType:  "oidc.refresh.reuse_detected",
 				ActorID:    uuidPtr(oldPayload.UserID),
 				TargetType: "client",
@@ -647,7 +647,7 @@ func (h *TokenHandler) handleRefreshToken(w http.ResponseWriter, r *http.Request
 		if err := h.refreshStore.RevokeFamily(r.Context(), oldPayload.FamilyID); err != nil {
 			slog.Error("token refresh: RevokeFamily on disabled-user", "error", err)
 		}
-		h.writeBestEffortAudit(r, audit.Entry{
+		h.writeBestEffortAudit(r, audit.Event{
 			EventType:  "oidc.refresh.user_disabled",
 			ActorID:    &u.ID,
 			ActorEmail: u.Email,
@@ -671,7 +671,7 @@ func (h *TokenHandler) handleRefreshToken(w http.ResponseWriter, r *http.Request
 		if rerr := h.refreshStore.RevokeFamily(r.Context(), oldPayload.FamilyID); rerr != nil {
 			slog.Error("token refresh: RevokeFamily on revoke_before", "error", rerr)
 		}
-		h.writeBestEffortAudit(r, audit.Entry{
+		h.writeBestEffortAudit(r, audit.Event{
 			EventType:  "user.revoke_before_enforced",
 			ActorID:    &u.ID,
 			ActorEmail: u.Email,

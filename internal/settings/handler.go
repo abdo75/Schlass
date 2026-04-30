@@ -92,7 +92,7 @@ func (h *Handler) PatchGeneral(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 		return
 	}
-	if err := h.auditStore.Log(r.Context(), tx, audit.Entry{
+	if err := h.auditStore.Emit(r.Context(), tx, audit.Event{
 		EventType:  "config.instance_name.changed",
 		ActorID:    &actor.ID,
 		ActorEmail: actor.Email,
@@ -207,7 +207,7 @@ func (h *Handler) PatchSecurity(w http.ResponseWriter, r *http.Request) {
 			httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 			return
 		}
-		if err := h.auditStore.Log(r.Context(), tx, audit.Entry{
+		if err := h.auditStore.Emit(r.Context(), tx, audit.Event{
 			EventType:  "config." + c.key + ".changed",
 			ActorID:    &actor.ID,
 			ActorEmail: actor.Email,
@@ -300,7 +300,7 @@ func (h *Handler) PatchTokens(w http.ResponseWriter, r *http.Request) {
 			httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 			return
 		}
-		if err := h.auditStore.Log(r.Context(), tx, audit.Entry{
+		if err := h.auditStore.Emit(r.Context(), tx, audit.Event{
 			EventType:  "config." + c.key + ".changed",
 			ActorID:    &actor.ID,
 			ActorEmail: actor.Email,
@@ -393,7 +393,7 @@ func (h *Handler) PatchAuditLog(w http.ResponseWriter, r *http.Request) {
 			httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 			return
 		}
-		if err := h.auditStore.Log(r.Context(), tx, audit.Entry{
+		if err := h.auditStore.Emit(r.Context(), tx, audit.Event{
 			EventType:  "config." + c.key + ".changed",
 			ActorID:    &actor.ID,
 			ActorEmail: actor.Email,
@@ -533,7 +533,7 @@ func (h *Handler) PatchEmail(w http.ResponseWriter, r *http.Request) {
 			httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 			return
 		}
-		if err := h.auditStore.Log(r.Context(), tx, audit.Entry{
+		if err := h.auditStore.Emit(r.Context(), tx, audit.Event{
 			EventType:  "config." + c.key + ".changed",
 			ActorID:    &actor.ID,
 			ActorEmail: actor.Email,

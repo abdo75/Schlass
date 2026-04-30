@@ -81,7 +81,7 @@ func (h *Handler) Rotate(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 		return
 	}
-	if err := h.auditStore.Log(r.Context(), tx, audit.Entry{
+	if err := h.auditStore.Emit(r.Context(), tx, audit.Event{
 		EventType:  "oidc.signing_key.rotated",
 		ActorID:    &actor.ID,
 		ActorEmail: actor.Email,
@@ -183,7 +183,7 @@ func (h *Handler) EmergencyRetire(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.auditStore.Log(r.Context(), tx, audit.Entry{
+	if err := h.auditStore.Emit(r.Context(), tx, audit.Event{
 		EventType:  "oidc.signing_key.retired",
 		ActorID:    &actor.ID,
 		ActorEmail: actor.Email,

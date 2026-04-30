@@ -99,7 +99,7 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 			return
 		}
 		defer func() { _ = tx.Rollback(ctx) }()
-		if err := d.AuditStore.Log(ctx, tx, audit.Entry{
+		if err := d.AuditStore.Emit(ctx, tx, audit.Event{
 			EventType:  "auth.permission_denied",
 			ActorID:    &user.ID,
 			ActorEmail: user.Email,

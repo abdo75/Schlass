@@ -61,7 +61,7 @@ func RunSweepOnce(ctx context.Context, pool *pgxpool.Pool, auditStore AuditLogge
 		return err
 	}
 
-	if err := auditStore.Log(ctx, tx, audit.Entry{
+	if err := auditStore.Emit(ctx, tx, audit.Event{
 		EventType:  "password_reset.cleanup_swept",
 		ActorEmail: "system:sweeper",
 		TargetType: "schedule",

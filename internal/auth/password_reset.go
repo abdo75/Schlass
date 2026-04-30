@@ -126,7 +126,7 @@ func (h *PasswordResetHandler) PostRequest(w http.ResponseWriter, r *http.Reques
 	// admin-specific audit row distinguishes forensically.
 	if matched && u.Role == "super_admin" {
 		matched = false
-		if auditErr := h.auditStore.Log(r.Context(), h.pool, audit.Entry{
+		bestEffortAudit(r.Context(), h.pool, h.auditStore, audit.Event{
 			EventType:  "password_reset.admin_blocked",
 			ActorID:    &u.ID,
 			ActorEmail: u.Email,
@@ -135,15 +135,13 @@ func (h *PasswordResetHandler) PostRequest(w http.ResponseWriter, r *http.Reques
 			IPAddress:  ipStr,
 			Outcome:    "success",
 			Metadata:   map[string]any{"reason": "super_admin_cannot_self_reset"},
-		}); auditErr != nil {
-			slog.Error("password_reset.admin_blocked audit", "error", auditErr)
-		}
+		})
 	}
 
 	if !matched {
 		// Audit is the only signal that someone probed for this email. 200
 		// contract is absolute; audit failure does not alter the response.
-		if auditErr := h.auditStore.Log(r.Context(), h.pool, audit.Entry{
+		bestEffortAudit(r.Context(), h.pool, h.auditStore, audit.Event{
 			EventType:  "password_reset.requested",
 			TargetType: "user",
 			IPAddress:  ipStr,
@@ -152,9 +150,7 @@ func (h *PasswordResetHandler) PostRequest(w http.ResponseWriter, r *http.Reques
 				"email_matched":     false,
 				"email_hash_prefix": sha256Prefix(email),
 			},
-		}); auditErr != nil {
-			slog.Error("password_reset.request: audit unmatched", "error", auditErr)
-		}
+		})
 		httputil.WriteJSON(w, http.StatusOK, map[string]any{})
 		return
 	}
@@ -190,7 +186,7 @@ func (h *PasswordResetHandler) PostRequest(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if err := h.auditStore.Log(r.Context(), tx, audit.Entry{
+	if err := h.auditStore.Emit(r.Context(), tx, audit.Event{
 		EventType:  "password_reset.requested",
 		ActorID:    &u.ID,
 		ActorEmail: u.Email,
@@ -314,7 +310,7 @@ func (h *PasswordResetHandler) PostConfirm(w http.ResponseWriter, r *http.Reques
 	}
 
 	userID := token.UserID
-	if err := h.auditStore.Log(r.Context(), tx, audit.Entry{
+	if err := h.auditStore.Emit(r.Context(), tx, audit.Event{
 		EventType:  "password_reset.completed",
 		ActorID:    &userID,
 		TargetType: "user",
@@ -327,7 +323,7 @@ func (h *PasswordResetHandler) PostConfirm(w http.ResponseWriter, r *http.Reques
 		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 		return
 	}
-	if err := h.auditStore.Log(r.Context(), tx, audit.Entry{
+	if err := h.auditStore.Emit(r.Context(), tx, audit.Event{
 		EventType:  "user.revoke_before_set",
 		ActorID:    &userID,
 		TargetType: "user",
@@ -400,10 +396,10 @@ func (h *PasswordResetHandler) PostValidate(w http.ResponseWriter, r *http.Reque
 	httputil.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-// auditConfirmFailed writes against the pool (not the confirm tx) — failure
-// paths are about to roll back, so tx-scoped audit would roll back too.
+// auditConfirmFailed writes its own short-lived tx (the confirm tx is
+// about to roll back, so a tx-scoped audit would roll back too).
 func (h *PasswordResetHandler) auditConfirmFailed(ctx context.Context, reason, ip string, userID *uuid.UUID) {
-	entry := audit.Entry{
+	event := audit.Event{
 		EventType:  "password_reset.confirm_failed",
 		TargetType: "user",
 		IPAddress:  ip,
@@ -411,12 +407,10 @@ func (h *PasswordResetHandler) auditConfirmFailed(ctx context.Context, reason, i
 		Metadata:   map[string]any{"reason": reason},
 	}
 	if userID != nil {
-		entry.ActorID = userID
-		entry.TargetID = userID.String()
+		event.ActorID = userID
+		event.TargetID = userID.String()
 	}
-	if err := h.auditStore.Log(ctx, h.pool, entry); err != nil {
-		slog.Error("password_reset.confirm_failed: audit", "error", err, "reason", reason)
-	}
+	bestEffortAudit(ctx, h.pool, h.auditStore, event)
 }
 
 func (h *PasswordResetHandler) sendPasswordChangedEmail(to string) {

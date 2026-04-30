@@ -104,7 +104,7 @@ func (h *Handler) emitExported(r *http.Request, format string, q ListQuery, rowC
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if err := h.audit.Log(ctx, tx, Entry{
+	if err := h.audit.Emit(ctx, tx, Event{
 		EventType:  "audit.exported",
 		ActorID:    &user.ID,
 		ActorEmail: user.Email,
