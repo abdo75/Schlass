@@ -70,3 +70,7 @@ web/test-results/
 # Walkthrough lives in docs/operator/oidc-rp-integration.md.
 /uat/
 .codex
+
+# Local milestone tracker on long-lived feature branches. Never travels
+# to main on squash-merge — subagents read + update it during work.
+internal/audit/MILESTONE.md
