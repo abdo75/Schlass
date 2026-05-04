@@ -24,6 +24,8 @@ type AnchorJob struct {
 	anchorFactory func(context.Context, string, string, string) (anchor.Anchor, error)
 }
 
+const defaultHotRetentionDays = 365
+
 func NewAnchorJob(pool *pgxpool.Pool, cfg *instanceconfig.Service, auditStore Logger) *AnchorJob {
 	return &AnchorJob{
 		pool:          pool,
@@ -43,6 +45,10 @@ func StartAnchorJob(ctx context.Context, pool *pgxpool.Pool, cfg *instanceconfig
 	if interval <= 0 {
 		interval = 3600
 	}
+	// tickEvery is the polling resolution. Actual anchor frequency is gated by
+	// dueByEvents and dueByTime inside anchorTenant against audit.anchor.events_per_anchor
+	// and audit.anchor.interval_secs. Cap at 1 minute so short interval_secs values
+	// don't busy-poll the DB.
 	tickEvery := min(time.Duration(interval)*time.Second, time.Minute)
 	ticker := time.NewTicker(tickEvery)
 	defer ticker.Stop()
@@ -86,6 +92,7 @@ func (j *AnchorJob) RunOnce(ctx context.Context) error {
 		slog.Warn("audit anchor: failed to read interval_secs, falling back to default", "error", err)
 		intervalSecs = 3600
 	}
+	hotRetentionDays := j.hotRetentionDays(ctx)
 	dest, err := j.anchorFactory(ctx, backend, bucket, path)
 	if err != nil {
 		return err
@@ -101,15 +108,34 @@ func (j *AnchorJob) RunOnce(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	var firstErr error
 	for _, tenantID := range tenants {
-		if err := j.anchorTenant(ctx, dest, backend, tenantID, eventsPerAnchor, time.Duration(intervalSecs)*time.Second); err != nil {
-			return err
+		if err := j.anchorTenant(ctx, dest, backend, tenantID, eventsPerAnchor, time.Duration(intervalSecs)*time.Second, hotRetentionDays); err != nil {
+			slog.Error("audit anchor: tenant failed", "tenant_id", tenantID, "error", err)
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
 		}
 	}
-	return nil
+	return firstErr
 }
 
-func (j *AnchorJob) anchorTenant(ctx context.Context, dest anchor.Anchor, backend string, tenantID uuid.UUID, eventsPerAnchor int, interval time.Duration) error {
+func (j *AnchorJob) hotRetentionDays(ctx context.Context) int {
+	days, err := j.cfg.GetInt(ctx, j.pool, "audit.retention.security_hot_days")
+	if err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			slog.Warn("audit anchor: failed to read hot retention days, falling back to default", "error", err)
+		}
+		return defaultHotRetentionDays
+	}
+	if days <= 0 {
+		return defaultHotRetentionDays
+	}
+	return days
+}
+
+func (j *AnchorJob) anchorTenant(ctx context.Context, dest anchor.Anchor, backend string, tenantID uuid.UUID, eventsPerAnchor int, interval time.Duration, hotRetentionDays int) error {
 	head, err := (&Chain{}).Head(ctx, j.pool, tenantID)
 	if err != nil {
 		return err
@@ -130,6 +156,13 @@ func (j *AnchorJob) anchorTenant(ctx context.Context, dest anchor.Anchor, backen
 		return nil
 	}
 	head.AnchoredAt = time.Now().UTC()
+	head.RetainUntil = head.AnchoredAt.AddDate(0, 0, hotRetentionDays)
+	// We Submit to the cloud anchor BEFORE inserting the DB row. This guarantees
+	// at-least-once cloud delivery: a transient DB error after a successful Submit
+	// causes a retry that re-Submits, producing a duplicate cloud object (S3
+	// Object Lock requires versioning, so duplicates are locked siblings, not lost
+	// writes). The reverse order would let a successful DB row reference a cloud
+	// object that never landed: silent loss of SOC 2 evidence, which is worse.
 	proof, err := dest.Submit(ctx, head)
 	if err != nil {
 		slog.Error("audit anchor: submit failed", "tenant_id", tenantID, "backend", backend, "error", err)
@@ -223,6 +256,9 @@ func (j *AnchorJob) emitCreated(ctx context.Context, head anchor.ChainHead, proo
 		TargetType:    "audit_anchor",
 		TargetID:      fmt.Sprintf("%s:%d", head.TenantID, head.SequenceNo),
 		Outcome:       "success",
+		// proof_ref is intentionally operator-visible in the audit event metadata.
+		// It points at the anchor backend (file path with offset, S3 URI, or GCS URI)
+		// so operators can verify the anchor independently. It contains no PII.
 		Metadata: map[string]any{
 			"tenant_id":   head.TenantID.String(),
 			"sequence_no": head.SequenceNo,

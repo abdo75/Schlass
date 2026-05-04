@@ -49,6 +49,10 @@ func (s *S3) Submit(ctx context.Context, head ChainHead) (ProofRef, error) {
 	if s.bucket == "" {
 		return ProofRef{}, errors.New("s3 anchor: bucket is required")
 	}
+	retainUntil := head.RetainUntil
+	if retainUntil.IsZero() {
+		retainUntil = time.Now().UTC().AddDate(0, 0, 365)
+	}
 	body, err := json.Marshal(head)
 	if err != nil {
 		return ProofRef{}, fmt.Errorf("s3 anchor: marshal: %w", err)
@@ -60,7 +64,7 @@ func (s *S3) Submit(ctx context.Context, head ChainHead) (ProofRef, error) {
 		Body:                      bytes.NewReader(body),
 		ContentType:               aws.String("application/json"),
 		ObjectLockMode:            types.ObjectLockModeCompliance,
-		ObjectLockRetainUntilDate: aws.Time(time.Now().UTC().AddDate(0, 0, s.hotRetentionDays)),
+		ObjectLockRetainUntilDate: aws.Time(retainUntil),
 	})
 	if err != nil {
 		return ProofRef{}, fmt.Errorf("s3 anchor: put object: %w", err)

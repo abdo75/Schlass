@@ -160,6 +160,9 @@ func (s *Service) stringWithDefault(ctx context.Context, q database.Querier, key
 		}
 		return def, err
 	}
+	// An empty stored value is treated as unset when a non-empty default exists.
+	// Operators wanting to explicitly disable a string-valued key must use the
+	// sentinel value (e.g. "none"), not the empty string.
 	if v == "" && def != "" {
 		return def, nil
 	}

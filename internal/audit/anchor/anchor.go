@@ -20,10 +20,11 @@ type Anchor interface {
 }
 
 type ChainHead struct {
-	TenantID   uuid.UUID
-	SequenceNo int64
-	RowHash    []byte
-	AnchoredAt time.Time
+	TenantID    uuid.UUID
+	SequenceNo  int64
+	RowHash     []byte
+	AnchoredAt  time.Time
+	RetainUntil time.Time
 }
 
 type ProofRef struct {
