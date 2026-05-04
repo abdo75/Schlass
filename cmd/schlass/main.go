@@ -112,6 +112,7 @@ func main() {
 	// Nightly cleanup of expired reset tokens + auth codes. Bound to ctx so
 	// graceful shutdown cancels cleanly. 0 interval disables.
 	go server.StartSweeper(ctx, pool, time.Duration(cfg.SweeperIntervalSecs)*time.Second, auditStore)
+	go audit.StartAnchorJob(ctx, pool, instanceConfig, auditStore)
 
 	// Create a test OIDC client when running in dev mode. Skipped in prod.
 	if err := server.SeedDevClient(ctx, pool, os.Getenv("SCHLASS_DEV"), os.Getenv("SCHLASS_DEV_SECRET"), cfg.SchlassPublicURL); err != nil {

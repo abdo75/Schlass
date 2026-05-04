@@ -24,7 +24,7 @@ import (
 
 	"github.com/abdo75/Schlass/internal/audit"
 	"github.com/abdo75/Schlass/internal/auth"
-	
+
 	"github.com/abdo75/Schlass/internal/clients"
 	"github.com/abdo75/Schlass/internal/config"
 	"github.com/abdo75/Schlass/internal/crypto"
@@ -149,6 +149,7 @@ func resetState(t *testing.T, migrPool *pgxpool.Pool) {
 	// good/tampered/truncated/concurrency fixtures.
 	_, err := migrPool.Exec(context.Background(), `
 		TRUNCATE TABLE
+			audit_anchors,
 			audit_logs,
 			totp_recovery_codes,
 			users,

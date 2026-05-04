@@ -42,6 +42,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/abdo75/Schlass/internal/audit/anchor"
+	"github.com/abdo75/Schlass/internal/database"
 	"github.com/abdo75/Schlass/internal/middleware"
 )
 
@@ -315,6 +317,27 @@ func (c *Chain) Append(ctx context.Context, tx pgx.Tx, s *Store, e Event) error 
 	}
 
 	return nil
+}
+
+func (c *Chain) Head(ctx context.Context, q database.Querier, tenantID uuid.UUID) (anchor.ChainHead, error) {
+	if tenantID == uuid.Nil {
+		tenantID = SingleTenant
+	}
+	var head anchor.ChainHead
+	if err := q.QueryRow(ctx,
+		`SELECT tenant_id, sequence_no, row_hash, recorded_at
+		   FROM audit_logs
+		  WHERE tenant_id = $1
+		  ORDER BY sequence_no DESC
+		  LIMIT 1`,
+		tenantID,
+	).Scan(&head.TenantID, &head.SequenceNo, &head.RowHash, &head.AnchoredAt); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return anchor.ChainHead{TenantID: tenantID}, nil
+		}
+		return anchor.ChainHead{}, fmt.Errorf("chain: head: %w", err)
+	}
+	return head, nil
 }
 
 func uuidPtrString(u *uuid.UUID) string {

@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
 
@@ -105,6 +106,86 @@ func (s *Service) AuditClientIPMode(ctx context.Context, q database.Querier) (st
 	}
 	if v == "" {
 		return "coarse", nil
+	}
+	return v, nil
+}
+
+func (s *Service) AuditAnchorBackend(ctx context.Context, q database.Querier) (string, error) {
+	v, err := s.stringWithDefault(ctx, q, "audit.anchor.backend", "none")
+	if err != nil {
+		return "none", err
+	}
+	if v == "append_only_file" {
+		return "appendfile", nil
+	}
+	switch v {
+	case "none", "appendfile", "s3", "gcs":
+		return v, nil
+	default:
+		return "none", fmt.Errorf("instance_config: invalid audit.anchor.backend %q", v)
+	}
+}
+
+func (s *Service) AuditAnchorBucket(ctx context.Context, q database.Querier) (string, error) {
+	return s.stringWithDefault(ctx, q, "audit.anchor.bucket", "")
+}
+
+func (s *Service) AuditAnchorPath(ctx context.Context, q database.Querier) (string, error) {
+	return s.stringWithDefault(ctx, q, "audit.anchor.path", "")
+}
+
+func (s *Service) AuditAnchorEventsPerAnchor(ctx context.Context, q database.Querier) (int, error) {
+	return s.intWithDefault(ctx, q, "audit.anchor.events_per_anchor", 10000)
+}
+
+func (s *Service) AuditAnchorIntervalSecs(ctx context.Context, q database.Querier) (int, error) {
+	return s.intWithDefault(ctx, q, "audit.anchor.interval_secs", 3600)
+}
+
+func (s *Service) stringWithDefault(ctx context.Context, q database.Querier, key, def string) (string, error) {
+	isNull, err := s.store.IsNull(ctx, q, key)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return def, nil
+		}
+		return def, err
+	}
+	if isNull {
+		return def, nil
+	}
+	v, err := s.store.GetString(ctx, q, key)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return def, nil
+		}
+		return def, err
+	}
+	if v == "" && def != "" {
+		return def, nil
+	}
+	return v, nil
+}
+
+func (s *Service) intWithDefault(ctx context.Context, q database.Querier, key string, def int) (int, error) {
+	isNull, err := s.store.IsNull(ctx, q, key)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return def, nil
+		}
+		return def, err
+	}
+	if isNull {
+		return def, nil
+	}
+	v, err := s.store.GetInt(ctx, q, key)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return def, nil
+		}
+		return def, err
+	}
+	if v <= 0 {
+		return def, nil
 	}
 	return v, nil
 }
