@@ -178,12 +178,26 @@ func Verify(ctx context.Context, conn VerifierConn, opts VerifyOptions) (*Verify
 			continue
 		}
 
-		// Non-legacy: rebuild the chainRow input and recompute row_hash.
+		// Non-legacy: parse metadata before deciding whether the row is a
+		// pseudonymized sentinel or should be re-derived from its body.
 		var metadata map[string]any
 		if len(metadataJSON) > 0 {
 			if err := json.Unmarshal(metadataJSON, &metadata); err != nil {
 				return nil, fmt.Errorf("verify: unmarshal metadata for seq %d: %w", sequenceNo, err)
 			}
+		}
+		if _, ok := metadata["pseudonymized_at"]; ok {
+			want := PseudonymizedRowHash(id)
+			if !bytes.Equal(want, rowHash) {
+				report.Mismatch = &VerifyMismatch{
+					SequenceNo:  sequenceNo,
+					EventID:     id,
+					ExpectedHex: hex.EncodeToString(want),
+					GotHex:      hex.EncodeToString(rowHash),
+				}
+				return report, nil
+			}
+			continue
 		}
 
 		ipCoarse := ""

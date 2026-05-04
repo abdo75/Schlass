@@ -3,6 +3,7 @@
 package integration
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"sync"
@@ -40,9 +41,9 @@ func seedChain(t *testing.T, env *TestEnv, n int) uuid.UUID {
 	actorID := uuid.New()
 	for i := 0; i < n; i++ {
 		emitOne(t, env, store, audit.Event{
-			EventType: "login.succeeded",
-			Outcome:   "success",
-			ActorID:   &actorID,
+			EventType:  "login.succeeded",
+			Outcome:    "success",
+			ActorID:    &actorID,
 			TargetType: "user",
 			TargetID:   actorID.String(),
 			Metadata:   map[string]any{"i": i},
@@ -288,6 +289,40 @@ func TestChain_LegacyRowsAcceptedAsOpaque(t *testing.T) {
 	}
 	if report.RowsChecked != 2 {
 		t.Fatalf("rows_checked = %d, want 2", report.RowsChecked)
+	}
+}
+
+func TestChain_PseudonymizedRowsAcceptedAsSentinel(t *testing.T) {
+	env := NewTestEnv(t)
+	defer env.Cleanup()
+
+	actorID := seedChain(t, env, 3)
+	store := audit.NewStore()
+	rows, err := store.PseudonymizeUser(context.Background(), env.Pool, actorID)
+	if err != nil {
+		t.Fatalf("pseudonymize: %v", err)
+	}
+	if rows != 3 {
+		t.Fatalf("pseudonymized rows = %d, want 3", rows)
+	}
+
+	var id uuid.UUID
+	var rowHash []byte
+	if err := env.Pool.QueryRow(context.Background(),
+		`SELECT id, row_hash FROM audit_logs WHERE metadata->>'pseudonymized_at' IS NOT NULL ORDER BY sequence_no LIMIT 1`).
+		Scan(&id, &rowHash); err != nil {
+		t.Fatalf("read pseudonymized row: %v", err)
+	}
+	if !bytes.Equal(rowHash, audit.PseudonymizedRowHash(id)) {
+		t.Fatalf("row_hash is not pseudonymized sentinel")
+	}
+
+	report, err := audit.Verify(context.Background(), env.Pool, audit.VerifyOptions{})
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if report.Mismatch != nil || report.Gap != nil {
+		t.Fatalf("pseudonymized chain not clean: mismatch=%+v gap=%+v", report.Mismatch, report.Gap)
 	}
 }
 

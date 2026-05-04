@@ -49,21 +49,30 @@ GRANT SELECT, INSERT ON audit_logs TO schlass_app;
 
 DO $$
 DECLARE
-    month_start DATE := date_trunc('month', now())::date;
-    part_start DATE;
+    oldest DATE;
+    cur_month DATE := date_trunc('month', now())::date;
     part_name TEXT;
 BEGIN
-    FOR i IN 0..12 LOOP
-        part_start := month_start - (i || ' months')::interval;
-        part_name := 'audit_logs_' || to_char(part_start, 'YYYYMM');
+    SELECT date_trunc('month', MIN(event_timestamp))::date INTO oldest
+      FROM audit_logs_old;
+    IF oldest IS NULL THEN
+        oldest := cur_month - interval '12 months';
+    END IF;
+
+    -- Create through next month so inserts immediately after upgrade have a
+    -- future partition. Operators must run audit-purge on schedule to keep
+    -- creating future monthly partitions before the current partition closes.
+    WHILE oldest <= cur_month + interval '1 month' LOOP
+        part_name := 'audit_logs_' || to_char(oldest, 'YYYYMM');
         EXECUTE format(
             'CREATE TABLE IF NOT EXISTS %I PARTITION OF audit_logs FOR VALUES FROM (%L) TO (%L)',
             part_name,
-            part_start,
-            (part_start + interval '1 month')::date
+            oldest,
+            (oldest + interval '1 month')::date
         );
         EXECUTE format('GRANT SELECT, INSERT ON TABLE %I TO schlass_app', part_name);
         EXECUTE format('REVOKE UPDATE, DELETE ON TABLE %I FROM PUBLIC', part_name);
+        oldest := oldest + interval '1 month';
     END LOOP;
 END;
 $$;
@@ -123,23 +132,18 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-    actor_count INTEGER;
-    target_count INTEGER;
+    updated_count INTEGER;
 BEGIN
     UPDATE audit_logs
     SET actor_id = NULL,
-        metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('pseudonymized_at', now())
+        target_id = NULL,
+        metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('pseudonymized_at', now()),
+        row_hash = digest('pseudonymized:' || id::text, 'sha256')
     WHERE actor_id = p_user_id
-      AND (metadata->>'pseudonymized_at') IS NULL;
-    GET DIAGNOSTICS actor_count = ROW_COUNT;
+       OR target_id = p_user_id::text;
+    GET DIAGNOSTICS updated_count = ROW_COUNT;
 
-    UPDATE audit_logs
-    SET target_id = NULL,
-        metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('pseudonymized_at', now())
-    WHERE target_id = p_user_id::text;
-    GET DIAGNOSTICS target_count = ROW_COUNT;
-
-    RETURN actor_count + target_count;
+    RETURN updated_count;
 END;
 $$;
 

@@ -96,8 +96,9 @@ func TestGDPR_ActorPseudonymizedOnDelete(t *testing.T) {
 	var deleteActor string
 	if err := env.Pool.QueryRow(ctx,
 		`SELECT actor_id::text FROM audit_logs
-		 WHERE target_id IS NULL AND event_type = 'user.deleted'
-		 ORDER BY created_at DESC LIMIT 1`,
+			 WHERE target_id = $1 AND event_type = 'user.deleted'
+			 ORDER BY created_at DESC LIMIT 1`,
+		victimID,
 	).Scan(&deleteActor); err != nil {
 		t.Fatalf("query user.deleted row: %v", err)
 	}
@@ -112,9 +113,10 @@ func TestGDPR_ActorPseudonymizedOnDelete(t *testing.T) {
 	var rowsUpdated int
 	if err := env.Pool.QueryRow(ctx,
 		`SELECT actor_id::text, COALESCE((metadata->>'rows_updated')::int, 0)
-		 FROM audit_logs
-		 WHERE target_id IS NULL AND event_type = 'user.audit_pseudonymized'
-		 ORDER BY created_at DESC LIMIT 1`,
+			 FROM audit_logs
+			 WHERE target_id = $1 AND event_type = 'user.audit_pseudonymized'
+			 ORDER BY created_at DESC LIMIT 1`,
+		victimID,
 	).Scan(&pseudoActorID, &rowsUpdated); err != nil {
 		t.Fatalf("query user.audit_pseudonymized: %v", err)
 	}
@@ -131,14 +133,14 @@ func TestGDPR_ActorPseudonymizedOnDelete(t *testing.T) {
 }
 
 // TestGDPR_PseudonymizeIdempotent: calling the function twice on the same
-// user returns 0 rows on the second call (the metadata.pseudonymized_at
-// guard makes the second pass a no-op).
+// user returns 0 rows on the second call because the first pass nulls the
+// actor_id/target_id match keys.
 func TestGDPR_PseudonymizeIdempotent(t *testing.T) {
 	ctx := t.Context()
 	env := NewTestEnv(t)
 
 	env.SeedAdmin(t, "admin@example.com", "CorrectHorse42Battery")
-	adminCookie := env.LoginAsAdmin(t, "admin@example.com", "CorrectHorse42Battery")
+	_ = env.LoginAsAdmin(t, "admin@example.com", "CorrectHorse42Battery")
 
 	const victimEmail = "idem@example.com"
 	const victimPassword = "IdempotentPass42Battery"
@@ -154,21 +156,17 @@ func TestGDPR_PseudonymizeIdempotent(t *testing.T) {
 	victimID := userIDByEmail(t, env, victimEmail)
 	_ = env.LoginAsAdmin(t, victimEmail, victimPassword)
 
-	req := httptest.NewRequestWithContext(ctx, "DELETE", "/api/users/"+victimID, nil)
-	req.AddCookie(adminCookie)
-	req.Header.Set("Origin", "http://localhost:3000")
-	rec := httptest.NewRecorder()
-	env.Router.ServeHTTP(rec, req)
-	if rec.Code != http.StatusNoContent {
-		t.Fatalf("delete: got %d — body=%s", rec.Code, rec.Body.String())
-	}
-
-	// Second invocation — call the SQL function directly. After the first
-	// run all matching rows have actor_id NULL, so the WHERE clause
-	// (actor_id = p_user_id) matches nothing.
 	qctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	var rows int
+	if err := env.Pool.QueryRow(qctx,
+		`SELECT audit_log_pseudonymize_user($1)`, victimID,
+	).Scan(&rows); err != nil {
+		t.Fatalf("first pseudonymize call: %v", err)
+	}
+	if rows < 1 {
+		t.Fatalf("first call returned %d rows, want >= 1", rows)
+	}
 	if err := env.Pool.QueryRow(qctx,
 		`SELECT audit_log_pseudonymize_user($1)`, victimID,
 	).Scan(&rows); err != nil {

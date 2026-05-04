@@ -47,6 +47,7 @@ func TestMain(m *testing.M) {
 	pgPort, _ := pgContainer.MappedPort(ctx, "5432")
 	sharedMigrConnString = fmt.Sprintf("postgres://schlass_migrations:schlass_migrations@%s:%s/schlass_test?sslmode=disable", pgHost, pgPort.Port())
 	sharedAppConnString = fmt.Sprintf("postgres://schlass_app:schlass_app@%s:%s/schlass_test?sslmode=disable", pgHost, pgPort.Port())
+	sharedPurgeConnString = fmt.Sprintf("postgres://audit_purge_runner:audit_purge_runner@%s:%s/schlass_test?sslmode=disable", pgHost, pgPort.Port())
 
 	if err := database.RunMigrations(sharedMigrConnString); err != nil {
 		_ = pgContainer.Terminate(ctx)

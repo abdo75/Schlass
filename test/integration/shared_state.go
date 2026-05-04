@@ -12,5 +12,6 @@ var (
 	sharedValkeyContainer testcontainers.Container
 	sharedMigrConnString  string
 	sharedAppConnString   string
+	sharedPurgeConnString string
 	sharedValkeyAddr      string
 )

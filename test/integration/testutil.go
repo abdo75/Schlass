@@ -42,6 +42,7 @@ type TestEnv struct {
 	Valkey            *redis.Client // alias for ValkeyClient — MFA tests use this spelling
 	AppConnString     string
 	MigrConnString    string
+	PurgeConnString   string
 	Router            http.Handler
 	Cfg               *config.Env
 	UserStore         *users.Store
@@ -112,6 +113,7 @@ func NewTestEnv(t *testing.T) *TestEnv {
 		Valkey:            valkeyClient,
 		AppConnString:     sharedAppConnString,
 		MigrConnString:    sharedMigrConnString,
+		PurgeConnString:   sharedPurgeConnString,
 		Cfg:               cfg,
 		UserStore:         users.NewStore(),
 		RecoveryCodeStore: auth.NewRecoveryCodeStore(),

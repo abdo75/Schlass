@@ -984,8 +984,9 @@ func TestUsers_Delete_RemovesUserAndPreservesAuditTrail(t *testing.T) {
 	var meta []byte
 	if err := env.Pool.QueryRow(ctx,
 		`SELECT metadata FROM audit_logs
-		 WHERE event_type = 'user.deleted' AND target_id IS NULL
-		 ORDER BY created_at DESC LIMIT 1`,
+			 WHERE event_type = 'user.deleted' AND target_id = $1
+			 ORDER BY created_at DESC LIMIT 1`,
+		targetID,
 	).Scan(&meta); err != nil {
 		t.Fatalf("fetch audit: %v", err)
 	}

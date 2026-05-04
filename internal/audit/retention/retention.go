@@ -1,5 +1,9 @@
 // Package retention implements M5 cold-tier export and partition purge.
 // CLIs are thin wrappers so integration tests can call this package directly.
+//
+// Cold-tier audit_anchors rows use sequence_no = -YYYYMM as a sentinel. Real
+// audit_logs.sequence_no values are positive, so cold partition anchors cannot
+// collide with chain-head anchors for the same tenant.
 package retention
 
 import (
@@ -9,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -24,6 +29,7 @@ import (
 	"github.com/xitongsys/parquet-go/writer"
 
 	"github.com/abdo75/Schlass/internal/audit"
+	"github.com/abdo75/Schlass/internal/audit/anchor"
 	"github.com/abdo75/Schlass/internal/database"
 	"github.com/abdo75/Schlass/internal/instanceconfig"
 )
@@ -68,6 +74,13 @@ type Partition struct {
 	Until time.Time
 }
 
+type exportFileResult struct {
+	path      string
+	sum       []byte
+	rows      int64
+	tenantMax map[uuid.UUID]int64
+}
+
 type parquetAuditRow struct {
 	ID              string `parquet:"name=id, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"`
 	EventType       string `parquet:"name=event_type, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"`
@@ -91,32 +104,62 @@ type parquetAuditRow struct {
 	RequestID       string `parquet:"name=request_id, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"`
 	CorrelationID   string `parquet:"name=correlation_id, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"`
 	SequenceNo      int64  `parquet:"name=sequence_no, type=INT64"`
-	PrevHash        string `parquet:"name=prev_hash, type=BYTE_ARRAY"`
-	RowHash         string `parquet:"name=row_hash, type=BYTE_ARRAY"`
+	PrevHash        string `parquet:"name=prev_hash, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"`
+	RowHash         string `parquet:"name=row_hash, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"`
 	ClientIPCoarse  string `parquet:"name=client_ip_coarse, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"`
 	RetentionBucket string `parquet:"name=retention_bucket, type=BYTE_ARRAY, convertedtype=UTF8, encoding=PLAIN_DICTIONARY"`
 }
 
-var partitionNameRE = regexp.MustCompile(`^audit_logs_[0-9]{6}$`)
+var (
+	partitionNameRE  = regexp.MustCompile(`^audit_logs_[0-9]{6}$`)
+	partitionBoundRE = regexp.MustCompile(`FROM \('([^']+)'\) TO \('([^']+)'\)`)
+)
 
 func ExportCold(ctx context.Context, q database.Querier, opts ExportOptions) (ExportResult, error) {
-	if !partitionNameRE.MatchString(opts.Partition) {
-		return ExportResult{}, fmt.Errorf("audit cold export: invalid partition %q", opts.Partition)
-	}
-	if opts.Output == "" {
-		return ExportResult{}, errors.New("audit cold export: output path is required")
-	}
-	if err := os.MkdirAll(filepath.Dir(opts.Output), 0o750); err != nil {
-		return ExportResult{}, fmt.Errorf("audit cold export: mkdir: %w", err)
-	}
-	fw, err := local.NewLocalFileWriter(opts.Output)
+	file, err := exportColdFile(ctx, q, opts.Partition, opts.Output)
 	if err != nil {
-		return ExportResult{}, fmt.Errorf("audit cold export: open parquet: %w", err)
+		return ExportResult{}, err
+	}
+	anchorSeq, err := coldAnchorSequence(opts.Partition)
+	if err != nil {
+		return ExportResult{}, err
+	}
+	backend := opts.Backend
+	if backend == "" {
+		backend = "local"
+	}
+	proofRef := opts.Output
+	for tenantID := range file.tenantMax {
+		if _, err := q.Exec(ctx, `
+			INSERT INTO audit_anchors (tenant_id, sequence_no, row_hash, backend, proof_ref, anchored_at)
+			VALUES ($1, $2, $3, $4, $5, now())
+			ON CONFLICT (tenant_id, sequence_no) DO NOTHING`,
+			tenantID, anchorSeq, file.sum, backend+":parquet", proofRef,
+		); err != nil {
+			return ExportResult{}, fmt.Errorf("audit cold export: insert anchor: %w", err)
+		}
+	}
+	return ExportResult{Path: opts.Output, SHA256: file.sum, Rows: file.rows, ProofRef: proofRef, Backend: backend + ":parquet", AnchorSeq: anchorSeq}, nil
+}
+
+func exportColdFile(ctx context.Context, q database.Querier, partition, output string) (exportFileResult, error) {
+	if !partitionNameRE.MatchString(partition) {
+		return exportFileResult{}, fmt.Errorf("audit cold export: invalid partition %q", partition)
+	}
+	if output == "" {
+		return exportFileResult{}, errors.New("audit cold export: output path is required")
+	}
+	if err := os.MkdirAll(filepath.Dir(output), 0o750); err != nil {
+		return exportFileResult{}, fmt.Errorf("audit cold export: mkdir: %w", err)
+	}
+	fw, err := local.NewLocalFileWriter(output)
+	if err != nil {
+		return exportFileResult{}, fmt.Errorf("audit cold export: open parquet: %w", err)
 	}
 	pw, err := writer.NewParquetWriter(fw, new(parquetAuditRow), 4)
 	if err != nil {
 		_ = fw.Close()
-		return ExportResult{}, fmt.Errorf("audit cold export: parquet writer: %w", err)
+		return exportFileResult{}, fmt.Errorf("audit cold export: parquet writer: %w", err)
 	}
 	pw.CompressionType = parquetCompression()
 
@@ -128,11 +171,11 @@ func ExportCold(ctx context.Context, q database.Querier, opts ExportOptions) (Ex
 		       request_id, correlation_id::text, sequence_no, prev_hash, row_hash,
 		       host(client_ip_coarse), retention_bucket
 		  FROM %s
-		 ORDER BY sequence_no ASC`, pgx.Identifier{opts.Partition}.Sanitize()))
+		 ORDER BY sequence_no ASC`, pgx.Identifier{partition}.Sanitize()))
 	if err != nil {
 		_ = pw.WriteStop()
 		_ = fw.Close()
-		return ExportResult{}, fmt.Errorf("audit cold export: query: %w", err)
+		return exportFileResult{}, fmt.Errorf("audit cold export: query: %w", err)
 	}
 	defer rows.Close()
 	var exported int64
@@ -142,14 +185,21 @@ func ExportCold(ctx context.Context, q database.Querier, opts ExportOptions) (Ex
 		if err != nil {
 			_ = pw.WriteStop()
 			_ = fw.Close()
-			return ExportResult{}, err
+			return exportFileResult{}, err
 		}
 		if err := pw.Write(rec); err != nil {
 			_ = pw.WriteStop()
 			_ = fw.Close()
-			return ExportResult{}, fmt.Errorf("audit cold export: write row: %w", err)
+			return exportFileResult{}, fmt.Errorf("audit cold export: write row: %w", err)
 		}
 		exported++
+		if exported%100000 == 0 {
+			if err := pw.Flush(true); err != nil {
+				_ = pw.WriteStop()
+				_ = fw.Close()
+				return exportFileResult{}, fmt.Errorf("audit cold export: flush parquet: %w", err)
+			}
+		}
 		if seq > tenantMax[tenantID] {
 			tenantMax[tenantID] = seq
 		}
@@ -157,36 +207,20 @@ func ExportCold(ctx context.Context, q database.Querier, opts ExportOptions) (Ex
 	if err := rows.Err(); err != nil {
 		_ = pw.WriteStop()
 		_ = fw.Close()
-		return ExportResult{}, fmt.Errorf("audit cold export: rows: %w", err)
+		return exportFileResult{}, fmt.Errorf("audit cold export: rows: %w", err)
 	}
 	if err := pw.WriteStop(); err != nil {
 		_ = fw.Close()
-		return ExportResult{}, fmt.Errorf("audit cold export: close parquet writer: %w", err)
+		return exportFileResult{}, fmt.Errorf("audit cold export: close parquet writer: %w", err)
 	}
 	if err := fw.Close(); err != nil {
-		return ExportResult{}, fmt.Errorf("audit cold export: close parquet: %w", err)
+		return exportFileResult{}, fmt.Errorf("audit cold export: close parquet: %w", err)
 	}
-	sum, err := fileSHA256(opts.Output)
+	sum, err := fileSHA256(output)
 	if err != nil {
-		return ExportResult{}, err
+		return exportFileResult{}, err
 	}
-	anchorSeq := coldAnchorSequence(opts.Partition)
-	backend := opts.Backend
-	if backend == "" {
-		backend = "local"
-	}
-	proofRef := opts.Output
-	for tenantID := range tenantMax {
-		if _, err := q.Exec(ctx, `
-			INSERT INTO audit_anchors (tenant_id, sequence_no, row_hash, backend, proof_ref, anchored_at)
-			VALUES ($1, $2, $3, $4, $5, now())
-			ON CONFLICT (tenant_id, sequence_no) DO NOTHING`,
-			tenantID, anchorSeq, sum, backend+":parquet", proofRef,
-		); err != nil {
-			return ExportResult{}, fmt.Errorf("audit cold export: insert anchor: %w", err)
-		}
-	}
-	return ExportResult{Path: opts.Output, SHA256: sum, Rows: exported, ProofRef: proofRef, Backend: backend + ":parquet", AnchorSeq: anchorSeq}, nil
+	return exportFileResult{path: output, sum: sum, rows: exported, tenantMax: tenantMax}, nil
 }
 
 func Purge(ctx context.Context, pool *pgxpool.Pool, opts PurgeOptions) ([]PurgeResult, error) {
@@ -226,8 +260,11 @@ func Purge(ctx context.Context, pool *pgxpool.Pool, opts PurgeOptions) ([]PurgeR
 	if operationalDays <= 0 {
 		operationalDays = 90
 	}
-	if backend == "" || backend == "same_as_anchor" {
+	if backend == "" {
 		backend = "local"
+	}
+	if backend == "none" {
+		return nil, errors.New("audit purge: cold-tier backend is none; refusing cold export")
 	}
 	if opts.OutputDir == "" {
 		opts.OutputDir = filepath.Join(os.TempDir(), "schlass-audit-cold")
@@ -285,23 +322,146 @@ func ListPartitions(ctx context.Context, q database.Querier) ([]Partition, error
 	return parts, rows.Err()
 }
 
+// purgeSecurityPartition writes the Parquet file to a .tmp path, then inserts
+// audit_anchors rows and calls audit_purge_expired inside one transaction.
+// PostgreSQL permits ALTER TABLE ... DETACH PARTITION in a normal transaction
+// on the supported version, so a DETACH/DROP failure rolls back the anchor row.
+// Only after commit do we rename .tmp to the final path.
 func purgeSecurityPartition(ctx context.Context, pool *pgxpool.Pool, part Partition, opts PurgeOptions, backend string) (PurgeResult, error) {
 	out := filepath.Join(opts.OutputDir, part.Name+".parquet")
 	if opts.DryRun {
 		return PurgeResult{PartitionName: part.Name, Action: "would_export_detach_drop", ProofRef: out}, nil
 	}
-	exp, err := ExportCold(ctx, pool, ExportOptions{Partition: part.Name, Output: out, Backend: backend})
+	tmpOut := out + ".tmp"
+	_ = os.Remove(tmpOut)
+	file, err := exportColdFile(ctx, pool, part.Name, tmpOut)
 	if err != nil {
 		return PurgeResult{}, err
 	}
-	rows, err := dropPartition(ctx, pool, part.Name, "detach_drop")
+	anchorSeq, err := coldAnchorSequence(part.Name)
 	if err != nil {
+		_ = os.Remove(tmpOut)
 		return PurgeResult{}, err
 	}
-	if err := emitPurgeEvent(ctx, pool, "security_cold_exported", part.Name, rows, exp.ProofRef); err != nil {
+	proofRef, anchorBackend, err := coldProofRef(ctx, pool, opts, backend, file, anchorSeq)
+	if err != nil {
+		_ = os.Remove(tmpOut)
 		return PurgeResult{}, err
 	}
-	return PurgeResult{PartitionName: part.Name, Action: "security_cold_exported", RowsAffected: rows, ProofRef: exp.ProofRef}, nil
+	rows, err := insertAnchorsAndDropPartition(ctx, pool, part.Name, "detach_drop", file.tenantMax, anchorSeq, file.sum, anchorBackend, proofRef)
+	if err != nil {
+		_ = os.Remove(tmpOut)
+		return PurgeResult{}, err
+	}
+	if err := os.Rename(tmpOut, out); err != nil {
+		slog.Error("audit purge: partition dropped but cold file rename failed", "partition", part.Name, "tmp_path", tmpOut, "final_path", out, "sha256", SHA256Hex(file.sum), "error", err)
+		return PurgeResult{}, fmt.Errorf("audit purge: finalize cold file %s: %w", out, err)
+	}
+	for tenantID := range file.tenantMax {
+		if err := emitAnchorCreated(ctx, pool, tenantID, anchorSeq, anchorBackend, proofRef, "cold_partition"); err != nil {
+			slog.Error("audit purge: cold anchor event emit failed after anchor insert", "partition", part.Name, "tenant_id", tenantID, "sequence_no", anchorSeq, "proof_ref", proofRef, "error", err)
+			return PurgeResult{}, err
+		}
+	}
+	if err := emitPurgeEvent(ctx, pool, "security_cold_exported", part.Name, rows, proofRef); err != nil {
+		slog.Error("audit purge: event emit failed after partition drop", "partition", part.Name, "dropped_at", time.Now().UTC().Format(time.RFC3339Nano), "rows", rows, "error", err)
+		return PurgeResult{}, err
+	}
+	return PurgeResult{PartitionName: part.Name, Action: "security_cold_exported", RowsAffected: rows, ProofRef: proofRef}, nil
+}
+
+func coldProofRef(ctx context.Context, pool *pgxpool.Pool, opts PurgeOptions, backend string, file exportFileResult, anchorSeq int64) (string, string, error) {
+	switch backend {
+	case "local", "":
+		return strings.TrimSuffix(file.path, ".tmp"), "local:parquet", nil
+	case "same_as_anchor":
+		if opts.InstanceConfig == nil {
+			return strings.TrimSuffix(file.path, ".tmp"), "local:parquet", nil
+		}
+		anchorBackend, err := opts.InstanceConfig.AuditAnchorBackend(ctx, pool)
+		if err != nil {
+			return "", "", fmt.Errorf("audit cold export: read anchor backend: %w", err)
+		}
+		if anchorBackend == anchor.NoneBackend {
+			return strings.TrimSuffix(file.path, ".tmp"), "local:parquet", nil
+		}
+		bucket, err := opts.InstanceConfig.AuditAnchorBucket(ctx, pool)
+		if err != nil {
+			return "", "", fmt.Errorf("audit cold export: read anchor bucket: %w", err)
+		}
+		path, err := opts.InstanceConfig.AuditAnchorPath(ctx, pool)
+		if err != nil {
+			return "", "", fmt.Errorf("audit cold export: read anchor path: %w", err)
+		}
+		dest, err := coldAnchorDestination(ctx, anchorBackend, bucket, path)
+		if err != nil {
+			return "", "", err
+		}
+		if closer, ok := dest.(interface{ Close() error }); ok {
+			defer func() {
+				if err := closer.Close(); err != nil {
+					slog.Warn("audit cold export: close anchor backend", "backend", anchorBackend, "error", err)
+				}
+			}()
+		}
+		var proof anchor.ProofRef
+		for tenantID := range file.tenantMax {
+			proof, err = dest.Submit(ctx, anchor.ChainHead{
+				TenantID:   tenantID,
+				SequenceNo: anchorSeq,
+				RowHash:    file.sum,
+				AnchoredAt: time.Now().UTC(),
+			})
+			if err != nil {
+				return "", "", fmt.Errorf("audit cold export: submit cold anchor: %w", err)
+			}
+		}
+		if proof.Ref == "" {
+			return strings.TrimSuffix(file.path, ".tmp"), "local:parquet", nil
+		}
+		return proof.Ref, proof.Backend + ":parquet", nil
+	default:
+		return "", "", fmt.Errorf("audit purge: unsupported cold-tier backend %q", backend)
+	}
+}
+
+func coldAnchorDestination(ctx context.Context, backend, bucket, path string) (anchor.Anchor, error) {
+	switch backend {
+	case anchor.AppendFileBackend:
+		return anchor.NewAppendFile(path), nil
+	case anchor.S3Backend:
+		return anchor.NewS3FromDefaultConfig(ctx, bucket, 365)
+	case anchor.GCSBackend:
+		return anchor.NewGCSFromDefaultConfig(ctx, bucket)
+	default:
+		return nil, fmt.Errorf("audit cold export: unsupported anchor backend %q", backend)
+	}
+}
+
+func insertAnchorsAndDropPartition(ctx context.Context, pool *pgxpool.Pool, partition, action string, tenants map[uuid.UUID]int64, anchorSeq int64, sum []byte, backend, proofRef string) (int64, error) {
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	for tenantID := range tenants {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO audit_anchors (tenant_id, sequence_no, row_hash, backend, proof_ref, anchored_at)
+			VALUES ($1, $2, $3, $4, $5, now())
+			ON CONFLICT (tenant_id, sequence_no) DO NOTHING`,
+			tenantID, anchorSeq, sum, backend, proofRef,
+		); err != nil {
+			return 0, fmt.Errorf("audit cold export: insert anchor: %w", err)
+		}
+	}
+	rows, err := dropPartition(ctx, tx, partition, action)
+	if err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("audit purge: commit anchor/drop: %w", err)
+	}
+	return rows, nil
 }
 
 func purgeOperationalPartition(ctx context.Context, pool *pgxpool.Pool, part Partition, opts PurgeOptions) (PurgeResult, error) {
@@ -351,6 +511,31 @@ func emitPurgeEvent(ctx context.Context, pool *pgxpool.Pool, action, partition s
 	return tx.Commit(ctx)
 }
 
+func emitAnchorCreated(ctx context.Context, pool *pgxpool.Pool, tenantID uuid.UUID, sequenceNo int64, backend, proofRef, kind string) error {
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := audit.NewStore().Emit(ctx, tx, audit.Event{
+		EventType:  "audit.anchor.created",
+		Outcome:    "success",
+		ActorType:  audit.ActorTypeService,
+		TargetType: "audit_anchor",
+		TargetID:   proofRef,
+		Metadata: map[string]any{
+			"tenant_id":   tenantID.String(),
+			"sequence_no": sequenceNo,
+			"backend":     backend,
+			"proof_ref":   proofRef,
+			"kind":        kind,
+		},
+	}); err != nil {
+		return fmt.Errorf("audit cold export: emit anchor created: %w", err)
+	}
+	return tx.Commit(ctx)
+}
+
 func scanParquetAuditRow(rows pgx.Rows) (*parquetAuditRow, uuid.UUID, int64, error) {
 	var (
 		id, eventType, outcome, actorType, tenantID, sourceService, retentionBucket string
@@ -384,7 +569,7 @@ func scanParquetAuditRow(rows pgx.Rows) (*parquetAuditRow, uuid.UUID, int64, err
 		ReasonCode: deref(reasonCode), ActorType: actorType, ActorSessionID: deref(actorSessionID),
 		TenantID: tenantID, SourceService: sourceService, ClientUAFamily: deref(clientUAFamily),
 		ClientGeoCoarse: deref(clientGeoCoarse), RequestID: deref(requestID), CorrelationID: deref(correlationID),
-		SequenceNo: sequenceNo, PrevHash: string(prevHash), RowHash: string(rowHash),
+		SequenceNo: sequenceNo, PrevHash: hex.EncodeToString(prevHash), RowHash: hex.EncodeToString(rowHash),
 		ClientIPCoarse: deref(clientIPCoarse), RetentionBucket: retentionBucket,
 	}, tid, sequenceNo, nil
 }
@@ -397,8 +582,7 @@ func deref(p *string) string {
 }
 
 func parseBounds(bound string) (time.Time, time.Time, error) {
-	re := regexp.MustCompile(`FROM \('([^']+)'\) TO \('([^']+)'\)`)
-	m := re.FindStringSubmatch(bound)
+	m := partitionBoundRE.FindStringSubmatch(bound)
 	if len(m) != 3 {
 		return time.Time{}, time.Time{}, errors.New("unexpected partition bound")
 	}
@@ -414,6 +598,8 @@ func parseBounds(bound string) (time.Time, time.Time, error) {
 }
 
 func parsePGTime(s string) (time.Time, error) {
+	// PostgreSQL emits partition bounds with version-dependent timestamp offset
+	// layouts; accept the forms observed across supported PG versions.
 	layouts := []string{"2006-01-02 15:04:05-07", "2006-01-02 15:04:05-07:00", "2006-01-02"}
 	for _, layout := range layouts {
 		if t, err := time.Parse(layout, s); err == nil {
@@ -440,13 +626,13 @@ func fileSHA256(path string) ([]byte, error) {
 	return h.Sum(nil), nil
 }
 
-func coldAnchorSequence(partition string) int64 {
+func coldAnchorSequence(partition string) (int64, error) {
 	suffix := strings.TrimPrefix(partition, "audit_logs_")
 	n, err := strconv.ParseInt(suffix, 10, 64)
 	if err != nil {
-		return 0
+		return 0, fmt.Errorf("audit cold export: parse partition sequence %q: %w", partition, err)
 	}
-	return -n
+	return -n, nil
 }
 
 func parquetCompression() parquet.CompressionCodec {

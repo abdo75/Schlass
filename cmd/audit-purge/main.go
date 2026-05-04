@@ -17,10 +17,14 @@ func main() {
 	securityHotDays := flag.Int("security-hot-days", 0, "override security hot retention days")
 	outputDir := flag.String("output-dir", "", "directory for local Parquet cold exports")
 	flag.Parse()
-	dbURL := os.Getenv("DATABASE_URL")
+	dbURL := os.Getenv("SCHLASS_PURGE_DATABASE_URL")
 	if dbURL == "" {
-		fmt.Fprintln(os.Stderr, "DATABASE_URL is not set")
-		os.Exit(2)
+		dbURL = os.Getenv("DATABASE_URL")
+		if dbURL == "" {
+			fmt.Fprintln(os.Stderr, "SCHLASS_PURGE_DATABASE_URL is not set")
+			os.Exit(2)
+		}
+		fmt.Fprintln(os.Stderr, "warning: SCHLASS_PURGE_DATABASE_URL is not set; falling back to DATABASE_URL")
 	}
 	ctx := context.Background()
 	pool, err := database.NewPool(ctx, dbURL)
@@ -41,8 +45,17 @@ func main() {
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "purge: %v\n", err)
+		printResults(results)
 		os.Exit(1)
 	}
+	if len(results) == 0 {
+		fmt.Println("no partitions qualified")
+		return
+	}
+	printResults(results)
+}
+
+func printResults(results []retention.PurgeResult) {
 	for _, res := range results {
 		if res.Warning != "" {
 			fmt.Printf("partition=%s action=%s warning=%q\n", res.PartitionName, res.Action, res.Warning)

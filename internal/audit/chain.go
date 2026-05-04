@@ -105,6 +105,13 @@ func LegacyRowHash(id uuid.UUID) []byte {
 	return sum[:]
 }
 
+// PseudonymizedRowHash is the sentinel scheme used when GDPR erasure mutates
+// actor_id, target_id, and metadata.pseudonymized_at on existing audit rows.
+func PseudonymizedRowHash(id uuid.UUID) []byte {
+	sum := sha256.Sum256([]byte("pseudonymized:" + id.String()))
+	return sum[:]
+}
+
 // Append serialises per-tenant emits, computes row_hash, and INSERTs.
 // MUST run inside an existing transaction; the advisory lock survives
 // only as long as the tx and is released on COMMIT or ROLLBACK.
