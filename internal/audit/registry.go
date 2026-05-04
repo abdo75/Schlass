@@ -137,6 +137,7 @@ var EventTypes = map[string]EventTypeSpec{
 	// --- Privacy / audit-of-audit (REQ-AUD-006) ---
 	"audit.anchor.created": {Category: CategoryPrivacy, RetentionBucket: BucketSecurity},
 	"audit.exported":       {Category: CategoryPrivacy, RetentionBucket: BucketSecurity},
+	"audit.purge.executed": {Category: CategoryPrivacy, RetentionBucket: BucketSecurity, IsCritical: true},
 	"audit.viewed":         {Category: CategoryPrivacy, RetentionBucket: BucketOperational},
 
 	// --- Setup (REQ-AUD-008) ---
@@ -155,8 +156,12 @@ var configChangeKeys = []string{
 	"audit.anchor.interval_secs",
 	"audit.anchor.path",
 	"audit.client_ip_mode",
+	"audit.cold_tier.backend",
 	"audit_export_max_rows",
 	"audit_view_logging_enabled",
+	"audit.retention.operational_days",
+	"audit.retention.security_cold_years",
+	"audit.retention.security_hot_days",
 	"instance_name",
 	"lockout_duration_secs",
 	"lockout_threshold",

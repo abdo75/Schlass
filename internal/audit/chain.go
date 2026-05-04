@@ -79,6 +79,7 @@ type chainRow struct {
 	ClientGeoCoarse string         `json:"client_geo_coarse,omitempty"`
 	RequestID       string         `json:"request_id,omitempty"`
 	CorrelationID   string         `json:"correlation_id,omitempty"`
+	RetentionBucket string         `json:"retention_bucket,omitempty"`
 	Metadata        map[string]any `json:"metadata,omitempty"`
 	SequenceNo      int64          `json:"sequence_no"`
 	PrevHash        string         `json:"prev_hash,omitempty"` // hex-encoded; empty for first row
@@ -133,9 +134,21 @@ func (c *Chain) Append(ctx context.Context, tx pgx.Tx, s *Store, e Event) error 
 		tenantID = SingleTenant
 	}
 
+	spec, ok := Lookup(e.EventType)
+	if !ok {
+		return fmt.Errorf("%w: %q", ErrUnknownEventType, e.EventType)
+	}
+
 	sourceService := e.SourceService
 	if sourceService == "" {
 		sourceService = sourceServiceFromEventType(e.EventType)
+	}
+	retentionBucket := e.RetentionBucket
+	if retentionBucket == "" {
+		retentionBucket = spec.RetentionBucket
+	}
+	if retentionBucket == "" {
+		retentionBucket = BucketSecurity
 	}
 
 	// correlation_id mirroring (kept identical to pre-M3 store.Emit).
@@ -264,6 +277,7 @@ func (c *Chain) Append(ctx context.Context, tx pgx.Tx, s *Store, e Event) error 
 		ClientGeoCoarse: geoCoarse,
 		RequestID:       e.RequestID,
 		CorrelationID:   uuidPtrString(correlationID),
+		RetentionBucket: string(retentionBucket),
 		Metadata:        metadata,
 		SequenceNo:      sequenceNo,
 		PrevHash:        hex.EncodeToString(prevHash),
@@ -283,13 +297,13 @@ func (c *Chain) Append(ctx context.Context, tx pgx.Tx, s *Store, e Event) error 
 			target_type, target_id, tenant_id, source_service,
 			client_id, client_ip_coarse, client_ua_family, client_geo_coarse,
 			request_id, correlation_id, metadata,
-			sequence_no, prev_hash, row_hash
+			sequence_no, prev_hash, row_hash, retention_bucket
 		) VALUES ($1, $2, $3, $4, $5,
 		          $6, $7, $8,
 		          $9, $10, $11, $12,
 		          $13, $14, $15, $16,
 		          $17, $18, $19,
-		          $20, $21, $22)`,
+		          $20, $21, $22, $23)`,
 		e.EventType,
 		SchemaVersion,
 		eventTimestamp,
@@ -312,6 +326,7 @@ func (c *Chain) Append(ctx context.Context, tx pgx.Tx, s *Store, e Event) error 
 		sequenceNo,
 		nullableBytes(prevHash),
 		rowHash,
+		string(retentionBucket),
 	); err != nil {
 		return fmt.Errorf("chain: insert: %w", err)
 	}

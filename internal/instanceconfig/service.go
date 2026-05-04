@@ -142,6 +142,31 @@ func (s *Service) AuditAnchorIntervalSecs(ctx context.Context, q database.Querie
 	return s.intWithDefault(ctx, q, "audit.anchor.interval_secs", 3600)
 }
 
+func (s *Service) AuditRetentionSecurityHotDays(ctx context.Context, q database.Querier) (int, error) {
+	return s.intWithDefault(ctx, q, "audit.retention.security_hot_days", 365)
+}
+
+func (s *Service) AuditRetentionSecurityColdYears(ctx context.Context, q database.Querier) (int, error) {
+	return s.intWithDefault(ctx, q, "audit.retention.security_cold_years", 6)
+}
+
+func (s *Service) AuditRetentionOperationalDays(ctx context.Context, q database.Querier) (int, error) {
+	return s.intWithDefault(ctx, q, "audit.retention.operational_days", 90)
+}
+
+func (s *Service) AuditColdTierBackend(ctx context.Context, q database.Querier) (string, error) {
+	v, err := s.stringWithDefault(ctx, q, "audit.cold_tier.backend", "same_as_anchor")
+	if err != nil {
+		return "same_as_anchor", err
+	}
+	switch v {
+	case "same_as_anchor", "local", "none":
+		return v, nil
+	default:
+		return "same_as_anchor", fmt.Errorf("instance_config: invalid audit.cold_tier.backend %q", v)
+	}
+}
+
 func (s *Service) stringWithDefault(ctx context.Context, q database.Querier, key, def string) (string, error) {
 	isNull, err := s.store.IsNull(ctx, q, key)
 	if err != nil {

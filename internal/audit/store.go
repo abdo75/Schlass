@@ -33,7 +33,7 @@ import (
 
 // SchemaVersion is the current row schema. Bumped on breaking field
 // changes per REQ-AUD-010.
-const SchemaVersion = 1
+const SchemaVersion = 2
 
 // SingleTenant is the deployment-wide tenant_id constant. Multi-tenant
 // deployments override per-row at emit time once tenancy is wired.
@@ -109,6 +109,7 @@ type Event struct {
 	ClientGeoCoarse string
 	RequestID       string
 	CorrelationID   *uuid.UUID
+	RetentionBucket RetentionBucket
 	Metadata        map[string]any
 }
 

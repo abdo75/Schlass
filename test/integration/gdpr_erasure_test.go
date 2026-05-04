@@ -79,8 +79,9 @@ func TestGDPR_ActorPseudonymizedOnDelete(t *testing.T) {
 	if err := env.Pool.QueryRow(ctx,
 		`SELECT actor_id::text, metadata->>'pseudonymized_at' FROM audit_logs
 		 WHERE event_type = 'login.succeeded'
-		   AND target_id = $1
-		 ORDER BY created_at DESC LIMIT 1`, victimID,
+		   AND actor_id IS NULL
+		   AND target_id IS NULL
+		 ORDER BY created_at DESC LIMIT 1`,
 	).Scan(&scrubbedActor, &pseudoAt); err != nil {
 		t.Fatalf("query scrubbed row: %v", err)
 	}
@@ -95,8 +96,8 @@ func TestGDPR_ActorPseudonymizedOnDelete(t *testing.T) {
 	var deleteActor string
 	if err := env.Pool.QueryRow(ctx,
 		`SELECT actor_id::text FROM audit_logs
-		 WHERE target_id = $1 AND event_type = 'user.deleted'
-		 ORDER BY created_at DESC LIMIT 1`, victimID,
+		 WHERE target_id IS NULL AND event_type = 'user.deleted'
+		 ORDER BY created_at DESC LIMIT 1`,
 	).Scan(&deleteActor); err != nil {
 		t.Fatalf("query user.deleted row: %v", err)
 	}
@@ -112,8 +113,8 @@ func TestGDPR_ActorPseudonymizedOnDelete(t *testing.T) {
 	if err := env.Pool.QueryRow(ctx,
 		`SELECT actor_id::text, COALESCE((metadata->>'rows_updated')::int, 0)
 		 FROM audit_logs
-		 WHERE target_id = $1 AND event_type = 'user.audit_pseudonymized'
-		 ORDER BY created_at DESC LIMIT 1`, victimID,
+		 WHERE target_id IS NULL AND event_type = 'user.audit_pseudonymized'
+		 ORDER BY created_at DESC LIMIT 1`,
 	).Scan(&pseudoActorID, &rowsUpdated); err != nil {
 		t.Fatalf("query user.audit_pseudonymized: %v", err)
 	}

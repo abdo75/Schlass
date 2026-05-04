@@ -95,7 +95,7 @@ func Verify(ctx context.Context, conn VerifierConn, opts VerifyOptions) (*Verify
 		       actor_type, actor_id, actor_session_id,
 		       target_type, target_id, tenant_id, source_service,
 		       client_id, host(client_ip_coarse), client_ua_family, client_geo_coarse,
-		       request_id, correlation_id, metadata,
+		       request_id, correlation_id, metadata, retention_bucket,
 		       prev_hash, row_hash
 		  FROM audit_logs
 		 WHERE tenant_id = $1
@@ -136,6 +136,7 @@ func Verify(ctx context.Context, conn VerifierConn, opts VerifyOptions) (*Verify
 			requestID       *string
 			correlationID   *uuid.UUID
 			metadataJSON    []byte
+			retentionBucket *string
 			prevHash        []byte
 			rowHash         []byte
 		)
@@ -145,7 +146,7 @@ func Verify(ctx context.Context, conn VerifierConn, opts VerifyOptions) (*Verify
 			&actorType, &actorID, &actorSessionID,
 			&targetType, &targetID, &tenantID, &sourceService,
 			&clientID, &clientIPCoarse, &clientUAFamily, &clientGeoCoarse,
-			&requestID, &correlationID, &metadataJSON,
+			&requestID, &correlationID, &metadataJSON, &retentionBucket,
 			&prevHash, &rowHash,
 		); err != nil {
 			return nil, fmt.Errorf("verify: scan: %w", err)
@@ -213,6 +214,7 @@ func Verify(ctx context.Context, conn VerifierConn, opts VerifyOptions) (*Verify
 			ClientGeoCoarse: geoCoarse,
 			RequestID:       derefString(requestID),
 			CorrelationID:   uuidPtrString(correlationID),
+			RetentionBucket: retentionBucketForHash(schemaVersion, retentionBucket),
 			Metadata:        metadata,
 			SequenceNo:      sequenceNo,
 			PrevHash:        hex.EncodeToString(prevHash),
@@ -239,6 +241,13 @@ func Verify(ctx context.Context, conn VerifierConn, opts VerifyOptions) (*Verify
 
 func derefString(p *string) string {
 	if p == nil {
+		return ""
+	}
+	return *p
+}
+
+func retentionBucketForHash(schemaVersion int, p *string) string {
+	if schemaVersion < 2 || p == nil {
 		return ""
 	}
 	return *p

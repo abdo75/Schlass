@@ -44,6 +44,15 @@ func TestMigrationsUpDownUp(t *testing.T) {
 		t.Fatalf("first migration up failed: %v", err)
 	}
 
+	// M5-specific gate: roll back the partitioning + purge-role pair and
+	// re-apply them cleanly before exercising the full down/up cycle.
+	if err := database.RunMigrationSteps(connString, -2); err != nil {
+		t.Fatalf("migration down 2 failed: %v", err)
+	}
+	if err := database.RunMigrations(connString); err != nil {
+		t.Fatalf("migration re-up after down 2 failed: %v", err)
+	}
+
 	// Down — should roll back all migrations
 	if err := database.RunMigrationsDown(connString); err != nil {
 		t.Fatalf("migration down failed: %v", err)

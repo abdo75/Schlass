@@ -984,8 +984,8 @@ func TestUsers_Delete_RemovesUserAndPreservesAuditTrail(t *testing.T) {
 	var meta []byte
 	if err := env.Pool.QueryRow(ctx,
 		`SELECT metadata FROM audit_logs
-		 WHERE event_type = 'user.deleted' AND target_id = $1
-		 ORDER BY created_at DESC LIMIT 1`, targetID,
+		 WHERE event_type = 'user.deleted' AND target_id IS NULL
+		 ORDER BY created_at DESC LIMIT 1`,
 	).Scan(&meta); err != nil {
 		t.Fatalf("fetch audit: %v", err)
 	}
@@ -1108,7 +1108,7 @@ func TestUsers_Delete_PreservesAuditTrail(t *testing.T) {
 	var pseudoAt *string
 	if err := env.Pool.QueryRow(ctx,
 		`SELECT actor_id::text, metadata->>'pseudonymized_at' FROM audit_logs
-		 WHERE event_type = 'login.succeeded' AND target_id = $1`, targetID,
+		 WHERE event_type = 'login.succeeded' AND actor_id IS NULL AND target_id IS NULL`,
 	).Scan(&actorID, &pseudoAt); err != nil {
 		t.Fatalf("fetch preserved audit row: %v", err)
 	}

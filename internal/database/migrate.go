@@ -53,3 +53,21 @@ func RunMigrationsDown(databaseURL string) error {
 
 	return nil
 }
+
+func RunMigrationSteps(databaseURL string, steps int) error {
+	source, err := iofs.New(migrationsFS, "migrations")
+	if err != nil {
+		return fmt.Errorf("failed to create migration source: %w", err)
+	}
+
+	m, err := migrate.NewWithSourceInstance("iofs", source, databaseURL)
+	if err != nil {
+		return fmt.Errorf("failed to create migrator: %w", err)
+	}
+	defer func() { _, _ = m.Close() }()
+
+	if err := m.Steps(steps); err != nil && err != migrate.ErrNoChange {
+		return fmt.Errorf("migration steps failed: %w", err)
+	}
+	return nil
+}

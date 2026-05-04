@@ -907,6 +907,12 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if _, err := h.auditStore.PseudonymizeUser(r.Context(), tx, id); err != nil {
+		slog.Error("users.Delete: pseudonymize audit target rows", "error", err, "user_id", id) //nolint:gosec // G706: slog structured logging is not susceptible to log injection
+		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+
 	if err := tx.Commit(r.Context()); err != nil {
 		slog.Error("users.Delete: commit", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
