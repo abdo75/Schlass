@@ -37,7 +37,13 @@ export function AuditPage() {
               Loading...
             </div>
           ) : (
-            <AuditTimeline data={list.data} onSelect={setSelected} />
+            <AuditTimeline
+              data={list.data}
+              onSelect={setSelected}
+              onActorFilter={(actor) => set({ actor, page: 1 })}
+              onEventTypeFilter={(eventType) => set({ event_types: [eventType], page: 1 })}
+              onOutcomeFilter={(outcome) => set({ outcome, page: 1 })}
+            />
           )}
           <Pagination
             totalCount={list.data?.total ?? 0}
@@ -60,9 +66,17 @@ export function AuditPage() {
             setSelected(null);
             set({ target_type: target.target_type, target_id: target.target_id, page: 1 });
           }}
+          onTargetTypeFilter={(targetType) => {
+            setSelected(null);
+            set({ target_type: targetType, target_id: undefined, page: 1 });
+          }}
           onEventTypeFilter={(eventType) => {
             setSelected(null);
             set({ event_types: [eventType], page: 1 });
+          }}
+          onOutcomeFilter={(outcome) => {
+            setSelected(null);
+            set({ outcome, page: 1 });
           }}
         />
       )}

@@ -3,20 +3,24 @@ import { useTranslation } from "react-i18next";
 import { lookupAlert, lookupReason, renderSentence, severity } from "./catalog";
 import { ChangedValuesList, ChangedValuesScalar, ChangedValuesStacked, CountsGrid, ExportSummary, ReasonCard, ScopesList, WhyThisMattersAlert } from "./AuditPanelModules";
 import { OutcomeChip, ParticipantsSection, SeverityBadge, TechnicalDetails, Timestamp } from "./AuditPanelHelpers";
-import type { AuditItem } from "./types";
+import type { AuditItem, Outcome } from "./types";
 
 export function AuditPanel({
   event,
   onClose,
   onActorFilter,
   onTargetFilter,
+  onTargetTypeFilter,
   onEventTypeFilter,
+  onOutcomeFilter,
 }: {
   event: AuditItem;
   onClose: () => void;
   onActorFilter?: (actor: string) => void;
   onTargetFilter?: (target: { target_type: string; target_id: string }) => void;
+  onTargetTypeFilter?: (targetType: string) => void;
   onEventTypeFilter?: (eventType: string) => void;
+  onOutcomeFilter?: (outcome: Outcome) => void;
 }) {
   const { t, i18n } = useTranslation();
   const sentence = renderSentence(event.event_type, event.metadata, event.actor_display, event.target_display);
@@ -38,16 +42,16 @@ export function AuditPanel({
           <section className="panel-block panel-block--hero">
             <div className="panel-eyebrow">{t("audit.panel.event")}</div>
             <div className="panel-badges">
-              <OutcomeChip outcome={event.outcome} />
+              <OutcomeChip outcome={event.outcome} onFilter={onOutcomeFilter} />
               {sev === "critical" && <SeverityBadge>{t("audit.severity.critical")}</SeverityBadge>}
             </div>
             <p className="panel-sentence">{sentence.text}</p>
             <Timestamp at={event.created_at} locale={i18n.language} />
           </section>
           <ActionsBlock event={event} />
-          <ParticipantsSection event={event} onActorFilter={onActorFilter} onTargetFilter={onTargetFilter} />
+          <ParticipantsSection event={event} onActorFilter={onActorFilter} onTargetFilter={onTargetFilter} onTargetTypeFilter={onTargetTypeFilter} />
         <ConditionalContent event={event} alertKey={alertKey} />
-        <TechnicalDetails event={event} onEventTypeFilter={onEventTypeFilter} />
+        <TechnicalDetails event={event} onEventTypeFilter={onEventTypeFilter} onTargetFilter={onTargetFilter} />
       </aside>
     </div>
   );

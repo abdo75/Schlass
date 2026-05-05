@@ -2,11 +2,20 @@ import type React from "react";
 import { useTranslation } from "react-i18next";
 import type { AuditItem, Outcome } from "./types";
 
-export function OutcomeChip({ outcome }: { outcome: Outcome }) {
-  return (
-    <span className={`outcome outcome--${outcome}`}>
+export function OutcomeChip({ outcome, onFilter }: { outcome: Outcome; onFilter?: (outcome: Outcome) => void }) {
+  const content = (
+    <>
       <span className="outcome-dot" aria-hidden="true" />
       {outcome}
+    </>
+  );
+  return onFilter ? (
+    <button type="button" className={`outcome outcome--${outcome} outcome--button`} onClick={() => onFilter(outcome)}>
+      {content}
+    </button>
+  ) : (
+    <span className={`outcome outcome--${outcome}`}>
+      {content}
     </span>
   );
 }
@@ -35,10 +44,12 @@ export function ParticipantsSection({
   event,
   onActorFilter,
   onTargetFilter,
+  onTargetTypeFilter,
 }: {
   event: AuditItem;
   onActorFilter?: (actor: string) => void;
   onTargetFilter?: (target: { target_type: string; target_id: string }) => void;
+  onTargetTypeFilter?: (targetType: string) => void;
 }) {
   const { t } = useTranslation();
   const actor = event.actor_email ?? event.actor_display;
@@ -46,6 +57,7 @@ export function ParticipantsSection({
   const actorIsFormerUser = event.actor_pseudonymized || event.actor_display === "Former user";
   const targetLabel = targetLabelFor(event.target_type);
   const targetTypeLabel = humanizeTargetType(event.target_type);
+  const targetDisplay = event.target_display ?? targetTypeLabel;
   return (
     <section className="panel-block panel-block--section">
       <h4 className="panel-heading">{t("audit.panel.participants")}</h4>
@@ -82,27 +94,42 @@ export function ParticipantsSection({
             </a>
           ) : event.actor_display}
         </dd>
-        {event.target_display && (
+        {targetDisplay && (
           <>
             <dt>{targetLabel}</dt>
             <dd>
-              {onTargetFilter && event.target_type ? (
+              {onTargetFilter && event.target_type && event.target_id ? (
                 <a
-                  href={`?target_type=${encodeURIComponent(event.target_type)}${event.target_id ? `&target_id=${encodeURIComponent(event.target_id)}` : ""}`}
+                  href={`?target_type=${encodeURIComponent(event.target_type)}&target_id=${encodeURIComponent(event.target_id)}`}
                   className="panel-fact-link"
                   onClick={(click) => {
                     click.preventDefault();
-                    onTargetFilter({ target_type: event.target_type!, target_id: event.target_id ?? "" });
+                    onTargetFilter({ target_type: event.target_type!, target_id: event.target_id! });
                   }}
                 >
-                  {event.target_display}
+                  {targetDisplay}
                 </a>
-              ) : event.target_display}
+              ) : (
+                <span className={!event.target_id ? "is-system" : undefined}>{targetDisplay}</span>
+              )}
             </dd>
             {targetTypeLabel && (
               <>
                 <dt>{t("audit.panel.targetType")}</dt>
-                <dd>{targetTypeLabel}</dd>
+                <dd>
+                  {onTargetTypeFilter && event.target_type ? (
+                    <a
+                      href={`?target_type=${encodeURIComponent(event.target_type)}`}
+                      className="panel-fact-link"
+                      onClick={(click) => {
+                        click.preventDefault();
+                        onTargetTypeFilter(event.target_type!);
+                      }}
+                    >
+                      {targetTypeLabel}
+                    </a>
+                  ) : targetTypeLabel}
+                </dd>
               </>
             )}
           </>
@@ -118,7 +145,15 @@ export function ParticipantsSection({
   );
 }
 
-export function TechnicalDetails({ event, onEventTypeFilter }: { event: AuditItem; onEventTypeFilter?: (eventType: string) => void }) {
+export function TechnicalDetails({
+  event,
+  onEventTypeFilter,
+  onTargetFilter,
+}: {
+  event: AuditItem;
+  onEventTypeFilter?: (eventType: string) => void;
+  onTargetFilter?: (target: { target_type: string; target_id: string }) => void;
+}) {
   const { t, i18n } = useTranslation();
   return (
     <section className="panel-block panel-block--tech">
@@ -139,7 +174,20 @@ export function TechnicalDetails({ event, onEventTypeFilter }: { event: AuditIte
         ) : event.event_type}
       </dd></dl>
       <dl className="panel-tech-row"><dt>{t("audit.panel.actorId")}</dt><dd>{event.actor_id ?? "-"}</dd></dl>
-      {event.target_id && <dl className="panel-tech-row"><dt>{t("audit.panel.targetId")}</dt><dd>{event.target_id}</dd></dl>}
+      {event.target_id && <dl className="panel-tech-row"><dt>{t("audit.panel.targetId")}</dt><dd>
+        {onTargetFilter && event.target_type ? (
+          <a
+            href={`?target_type=${encodeURIComponent(event.target_type)}&target_id=${encodeURIComponent(event.target_id)}`}
+            className="panel-fact-link"
+            onClick={(click) => {
+              click.preventDefault();
+              onTargetFilter({ target_type: event.target_type!, target_id: event.target_id! });
+            }}
+          >
+            {event.target_id}
+          </a>
+        ) : event.target_id}
+      </dd></dl>}
       <dl className="panel-tech-row"><dt>{t("audit.panel.recordedAt")}</dt><dd>{formatLocalDateTime(event.created_at, i18n.language)}</dd></dl>
     </section>
   );

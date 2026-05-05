@@ -1,0 +1,51 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`AuditPanel > snapshots the actor filter link cell 1`] = `
+<a
+  class="panel-fact-link"
+  href="?actor=alice%40example.com"
+>
+  alice@example.com
+</a>
+`;
+
+exports[`AuditPanel > snapshots the event type filter link cell 1`] = `
+<a
+  class="panel-fact-link"
+  href="?event_types=login.succeeded"
+>
+  login.succeeded
+</a>
+`;
+
+exports[`AuditPanel > snapshots the null target cell 1`] = `
+<dd>
+  <span
+    class="is-system"
+  >
+    Audit log
+  </span>
+</dd>
+`;
+
+exports[`AuditPanel > snapshots the outcome filter badge 1`] = `
+<button
+  class="outcome outcome--denied outcome--button"
+  type="button"
+>
+  <span
+    aria-hidden="true"
+    class="outcome-dot"
+  />
+  denied
+</button>
+`;
+
+exports[`AuditPanel > snapshots the target filter link cell 1`] = `
+<a
+  class="panel-fact-link"
+  href="?target_type=client&target_id=client-1"
+>
+  Grafana
+</a>
+`;

@@ -20,7 +20,7 @@ export function AuditFilterBar({
   const { t } = useTranslation();
   const [open, setOpen] = useState<Picker>(null);
   const [targetDisplay, setTargetDisplay] = useState<string | null>(null);
-  const hasRefinements = Boolean(state.actor || state.target_id || state.event_types?.length);
+  const hasRefinements = Boolean(state.actor || state.target_type || state.target_id || state.event_types?.length || state.outcome || state.q);
 
   // When URL state has a target_id but we don't know the display label yet (e.g.
   // page just loaded from a shareable URL), fetch it once.
@@ -102,9 +102,9 @@ export function AuditFilterBar({
         active={open === "target"}
         onClose={() => setOpen(null)}
         chip={
-          state.target_id ? (
+          state.target_type ? (
             <ActiveChip
-              label={`${t("audit.panel.target")}: ${state.target_type ?? ""} — ${targetDisplay ?? "selected"}`}
+              label={`${t("audit.panel.target")}: ${state.target_type}${state.target_id ? ` — ${targetDisplay ?? "selected"}` : ""}`}
               onClear={() => {
                 patch({ target_type: undefined, target_id: undefined });
                 setTargetDisplay(null);
@@ -163,12 +163,19 @@ export function AuditFilterBar({
         )}
       </PickerSlot>
 
+      {state.outcome && (
+        <ActiveChip
+          label={`Outcome: ${state.outcome}`}
+          onClear={() => patch({ outcome: undefined })}
+        />
+      )}
+
       {hasRefinements && (
         <button
           type="button"
           className="ml-auto rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
           onClick={() => {
-            patch({ actor: undefined, target_type: undefined, target_id: undefined, event_types: undefined });
+            patch({ actor: undefined, target_type: undefined, target_id: undefined, event_types: undefined, outcome: undefined, q: undefined });
             setTargetDisplay(null);
           }}
         >

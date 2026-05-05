@@ -45,4 +45,30 @@ describe("AuditPanel", () => {
 
     expect(onClose).toHaveBeenCalledTimes(1);
   });
+
+  it("snapshots the actor filter link cell", () => {
+    render(<AuditPanel event={fakeEvent()} onClose={vi.fn()} onActorFilter={vi.fn()} />);
+    expect(screen.getByRole("link", { name: "alice@example.com" })).toMatchSnapshot();
+  });
+
+  it("snapshots the target filter link cell", () => {
+    render(<AuditPanel event={fakeEvent()} onClose={vi.fn()} onTargetFilter={vi.fn()} />);
+    expect(screen.getByRole("link", { name: "Grafana" })).toMatchSnapshot();
+  });
+
+  it("snapshots the null target cell", () => {
+    render(<AuditPanel event={fakeEvent({ target_type: "audit_log", target_id: null, target_display: "Audit log" })} onClose={vi.fn()} onTargetFilter={vi.fn()} />);
+    const cell = screen.getAllByText("Audit log")[0].closest("dd");
+    expect(cell).toMatchSnapshot();
+  });
+
+  it("snapshots the event type filter link cell", () => {
+    render(<AuditPanel event={fakeEvent()} onClose={vi.fn()} onEventTypeFilter={vi.fn()} />);
+    expect(screen.getByRole("link", { name: "login.succeeded" })).toMatchSnapshot();
+  });
+
+  it("snapshots the outcome filter badge", () => {
+    render(<AuditPanel event={fakeEvent({ outcome: "denied" })} onClose={vi.fn()} onOutcomeFilter={vi.fn()} />);
+    expect(screen.getByRole("button", { name: "denied" })).toMatchSnapshot();
+  });
 });

@@ -50,6 +50,31 @@ func TestAuditViewerEndpoints(t *testing.T) {
 		t.Fatalf("view=client returned non-client event %q (actor=%v)", item.EventType, item.ActorID)
 	}
 
+	badParam := auditViewerRequest(t, env, cookie, "GET", "/api/audit?bogus=1")
+	if badParam.Code != http.StatusBadRequest {
+		t.Fatalf("unknown query param status = %d, want 400: %s", badParam.Code, badParam.Body.String())
+	}
+	if !strings.Contains(badParam.Body.String(), "VALIDATION_ERROR") {
+		t.Fatalf("unknown query param did not return VALIDATION_ERROR: %s", badParam.Body.String())
+	}
+	badOutcome := auditViewerRequest(t, env, cookie, "GET", "/api/audit?outcome=blocked")
+	if badOutcome.Code != http.StatusBadRequest {
+		t.Fatalf("invalid outcome status = %d, want 400: %s", badOutcome.Code, badOutcome.Body.String())
+	}
+
+	qToken := "m7-contract-search-token"
+	insertAuditViewerMetadataRow(t, env, "config.audit_view_logging_enabled.changed", &adminID, "instance_config", "audit_view_logging_enabled", "success", `{"reason_code":"`+qToken+`"}`)
+	searchOnly := auditViewerGetList(t, env, cookie, "/api/audit?q="+qToken)
+	foundSearch := false
+	for _, item := range searchOnly.Items {
+		if item.EventType == "config.audit_view_logging_enabled.changed" {
+			foundSearch = true
+		}
+	}
+	if !foundSearch {
+		t.Fatalf("q search did not return metadata match %q", qToken)
+	}
+
 	_ = auditViewerGetList(t, env, cookie, "/api/audit")
 	var viewedCount int
 	if err := env.Pool.QueryRow(context.Background(), `SELECT COUNT(*) FROM audit_logs WHERE event_type = 'audit.viewed'`).Scan(&viewedCount); err != nil {
@@ -178,6 +203,21 @@ func insertAuditViewerRow(t *testing.T, env *TestEnv, eventType string, actorID 
 		        (SELECT COALESCE(MAX(sequence_no), 0) + 1 FROM audit_logs))
 	`, eventType, actor, targetType, targetID, outcome, metadata); err != nil {
 		t.Fatalf("insert audit row %s: %v", eventType, err)
+	}
+}
+
+func insertAuditViewerMetadataRow(t *testing.T, env *TestEnv, eventType string, actorID *uuid.UUID, targetType, targetID, outcome, metadata string) {
+	t.Helper()
+	var actor any
+	if actorID != nil {
+		actor = *actorID
+	}
+	if _, err := env.Pool.Exec(context.Background(), `
+		INSERT INTO audit_logs (event_type, actor_id, target_type, target_id, outcome, metadata, sequence_no)
+		VALUES ($1, $2, $3, $4, $5, $6::jsonb,
+		        (SELECT COALESCE(MAX(sequence_no), 0) + 1 FROM audit_logs))
+	`, eventType, actor, targetType, targetID, outcome, metadata); err != nil {
+		t.Fatalf("insert audit metadata row %s: %v", eventType, err)
 	}
 }
 

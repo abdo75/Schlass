@@ -1,9 +1,22 @@
+import type React from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { renderSentence, severity } from "./catalog";
-import type { AuditItem, ListResponse } from "./types";
+import type { AuditItem, ListResponse, Outcome } from "./types";
 
-export function AuditTimeline({ data, onSelect }: { data: ListResponse | null; onSelect: (event: AuditItem) => void }) {
+export function AuditTimeline({
+  data,
+  onSelect,
+  onActorFilter,
+  onEventTypeFilter,
+  onOutcomeFilter,
+}: {
+  data: ListResponse | null;
+  onSelect: (event: AuditItem) => void;
+  onActorFilter?: (actor: string) => void;
+  onEventTypeFilter?: (eventType: string) => void;
+  onOutcomeFilter?: (outcome: Outcome) => void;
+}) {
   const items = data?.items ?? [];
 
   if (items.length === 0) {
@@ -23,7 +36,14 @@ export function AuditTimeline({ data, onSelect }: { data: ListResponse | null; o
         </TableHeader>
         <TableBody>
           {items.map((item) => (
-            <TimelineRow key={item.id} item={item} onSelect={onSelect} />
+            <TimelineRow
+              key={item.id}
+              item={item}
+              onSelect={onSelect}
+              onActorFilter={onActorFilter}
+              onEventTypeFilter={onEventTypeFilter}
+              onOutcomeFilter={onOutcomeFilter}
+            />
           ))}
         </TableBody>
       </Table>
@@ -31,40 +51,107 @@ export function AuditTimeline({ data, onSelect }: { data: ListResponse | null; o
   );
 }
 
-function TimelineRow({ item, onSelect }: { item: AuditItem; onSelect: (event: AuditItem) => void }) {
+function TimelineRow({
+  item,
+  onSelect,
+  onActorFilter,
+  onEventTypeFilter,
+  onOutcomeFilter,
+}: {
+  item: AuditItem;
+  onSelect: (event: AuditItem) => void;
+  onActorFilter?: (actor: string) => void;
+  onEventTypeFilter?: (eventType: string) => void;
+  onOutcomeFilter?: (outcome: Outcome) => void;
+}) {
   const sentence = renderSentence(item.event_type, item.metadata, item.actor_display, item.target_display);
   const sev = severity(item.event_type, item.metadata);
+  // Filter on email when present, "system" for null actor. A signed-in actor
+  // whose email has been deleted/pseudonymized cannot be filtered uniquely —
+  // the cell renders as a static span (matches the pseudonymized branch
+  // below).
+  const actorFilterValue = item.actor_id ? item.actor_email : "system";
+  const actorIsUnfilterable = item.actor_pseudonymized || (item.actor_id !== null && !item.actor_email);
   return (
     <TableRow
       data-testid="audit-event-row"
       className="cursor-pointer hover:bg-muted/35"
       onClick={() => onSelect(item)}
     >
-      <TableCell className="px-4 py-3"><OutcomeChip outcome={item.outcome} /></TableCell>
+      <TableCell className="px-4 py-3">
+        <OutcomeChip
+          outcome={item.outcome}
+          onClick={onOutcomeFilter ? (event) => {
+            event.stopPropagation();
+            onOutcomeFilter(item.outcome);
+          } : undefined}
+        />
+      </TableCell>
       <TableCell className="px-4 py-3 text-xs text-muted-foreground">{formatRelative(item.created_at)}</TableCell>
       <TableCell className="min-w-[280px] whitespace-normal px-4 py-3 text-sm">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-foreground">{sentence.text}</span>
+          {onEventTypeFilter ? (
+            <button
+              type="button"
+              className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground underline decoration-dotted underline-offset-2 hover:text-foreground"
+              onClick={(event) => {
+                event.stopPropagation();
+                onEventTypeFilter(item.event_type);
+              }}
+            >
+              {item.event_type}
+            </button>
+          ) : (
+            <span className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">{item.event_type}</span>
+          )}
           {item.actor_pseudonymized && <span className="rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-900">GDPR-erased</span>}
           {sev === "critical" && <span className="rounded-md bg-destructive/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.04em] text-destructive">Critical</span>}
         </div>
       </TableCell>
-      <TableCell className="px-4 py-3 text-xs text-muted-foreground">{item.actor_id ? item.actor_display : "System"}</TableCell>
+      <TableCell className="px-4 py-3 text-xs text-muted-foreground">
+        {actorIsUnfilterable ? (
+          <span>{item.actor_display}</span>
+        ) : onActorFilter && actorFilterValue ? (
+          <button
+            type="button"
+            className="text-left underline decoration-dotted underline-offset-2 hover:text-foreground"
+            onClick={(event) => {
+              event.stopPropagation();
+              onActorFilter(actorFilterValue);
+            }}
+          >
+            {item.actor_id ? item.actor_display : "System"}
+          </button>
+        ) : (
+          item.actor_id ? item.actor_display : "System"
+        )}
+      </TableCell>
     </TableRow>
   );
 }
 
-function OutcomeChip({ outcome }: { outcome: AuditItem["outcome"] }) {
+function OutcomeChip({ outcome, onClick }: { outcome: AuditItem["outcome"]; onClick?: React.MouseEventHandler<HTMLButtonElement> }) {
   const ok = outcome === "success";
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold",
-        ok ? "bg-accent text-accent-foreground" : "bg-destructive/10 text-destructive",
-      )}
-    >
-      <span className={cn("size-1.5 rounded-full", ok ? "bg-primary" : "bg-destructive")} />
+  const denied = outcome === "denied";
+  const className = cn(
+    "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold",
+    ok ? "bg-accent text-accent-foreground" : denied ? "bg-amber-100 text-amber-900" : "bg-destructive/10 text-destructive",
+    onClick && "hover:ring-1 hover:ring-current",
+  );
+  const content = (
+    <>
+      <span className={cn("size-1.5 rounded-full", ok ? "bg-primary" : denied ? "bg-amber-600" : "bg-destructive")} />
       {outcome}
+    </>
+  );
+  return onClick ? (
+    <button type="button" className={className} onClick={onClick}>{content}</button>
+  ) : (
+    <span
+      className={className}
+    >
+      {content}
     </span>
   );
 }

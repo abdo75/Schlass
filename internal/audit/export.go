@@ -21,9 +21,13 @@ func (h *Handler) Export(w http.ResponseWriter, r *http.Request) {
 		TargetType string   `json:"target_type"`
 		TargetID   string   `json:"target_id"`
 		EventTypes []string `json:"event_types"`
+		Outcome    string   `json:"outcome"`
+		Search     string   `json:"q"`
 		Format     string   `json:"format"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil {
 		httputil.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body.")
 		return
 	}
@@ -34,10 +38,16 @@ func (h *Handler) Export(w http.ResponseWriter, r *http.Request) {
 	values.Set("actor", req.Actor)
 	values.Set("target_type", req.TargetType)
 	values.Set("target_id", req.TargetID)
+	values.Set("outcome", req.Outcome)
+	values.Set("q", req.Search)
 	if len(req.EventTypes) > 0 {
 		values.Set("event_types", joinEventTypes(req.EventTypes))
 	}
-	q := parseListQuery(values)
+	q, err := parseListQuery(values)
+	if err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return
+	}
 	format := req.Format
 	if format != "csv" && format != "jsonl" {
 		httputil.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "format must be csv or jsonl")

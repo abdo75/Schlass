@@ -1,7 +1,7 @@
 package audit
 
-// REQ-AUD-011 (M2): actor_email is no longer a column. The viewer
-// derives the actor display via a LEFT JOIN on users at read time.
+// REQ-AUD-011/REQ-AUD-070: actor_email is no longer a column. The viewer
+// derives display fields via live joins and CASE expressions at read time.
 // Pseudonymized rows (actor_id NULL + metadata.pseudonymized_at set)
 // render as the literal 'pseudonymized' so the side panel never shows
 // a raw NULL.
@@ -31,6 +31,17 @@ SELECT a.id::text, a.event_type, a.outcome,
        ) AS actor_pseudonymized,
        a.target_type, a.target_id,
        CASE
+         WHEN a.target_id IS NULL OR a.target_id = '' THEN
+           CASE
+             WHEN a.target_type = 'user' THEN 'User'
+             WHEN a.target_type = 'client' THEN 'Client'
+             WHEN a.target_type = 'config' OR a.target_type = 'instance_config' THEN 'Setting'
+             WHEN a.target_type = 'permission' THEN 'Permission'
+             WHEN a.target_type = 'signing_key' THEN 'Signing key'
+             WHEN a.target_type = 'instance' THEN 'Instance'
+             WHEN a.target_type = 'audit_log' THEN 'Audit log'
+             ELSE a.target_type
+           END
          WHEN a.target_type = 'user' THEN COALESCE(u.email, 'Former user')
          WHEN a.target_type = 'client' THEN COALESCE(c.name, a.target_id)
          WHEN a.target_type = 'config' OR a.target_type = 'instance_config' THEN a.target_id

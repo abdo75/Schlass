@@ -70,7 +70,11 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusUnauthorized, "INVALID_SESSION", "Not authenticated.")
 		return
 	}
-	q := parseListQuery(r.URL.Query())
+	q, err := parseListQuery(r.URL.Query())
+	if err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return
+	}
 	where, args := q.toSQLWithSelfAudit(user.ID)
 	ctx := r.Context()
 
@@ -125,7 +129,11 @@ type ActorBucket struct {
 }
 
 func (h *Handler) Actors(w http.ResponseWriter, r *http.Request) {
-	q := parseListQuery(r.URL.Query())
+	q, err := parseListQuery(r.URL.Query())
+	if err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return
+	}
 	where, args := q.toSQL()
 	ctx := r.Context()
 	// REQ-AUD-011 (M2): actor_email is no longer a column. Resolve via
@@ -176,10 +184,16 @@ type TargetBucket struct {
 }
 
 func (h *Handler) Targets(w http.ResponseWriter, r *http.Request) {
-	q := parseListQuery(r.URL.Query())
 	targetType := r.URL.Query().Get("type")
 	if targetType == "" {
 		httputil.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "type required")
+		return
+	}
+	values := r.URL.Query()
+	values.Del("type")
+	q, err := parseListQuery(values)
+	if err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
 		return
 	}
 

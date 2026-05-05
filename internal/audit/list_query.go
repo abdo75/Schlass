@@ -1,6 +1,7 @@
 package audit
 
 import (
+	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
@@ -17,11 +18,34 @@ type ListQuery struct {
 	TargetType string
 	TargetID   string
 	EventTypes []string
+	Outcome    string
+	Search     string
 	Page       int
 	PageSize   int
 }
 
-func parseListQuery(v url.Values) ListQuery {
+func parseListQuery(v url.Values) (ListQuery, error) {
+	// Stable viewer filter contract. Keep the current SPA names
+	// (event_types/actor/since/until) and add the spec-mandated outcome + q.
+	// Unknown query parameters are rejected so filter drift fails closed.
+	accepted := map[string]struct{}{
+		"actor":       {},
+		"event_types": {},
+		"outcome":     {},
+		"page":        {},
+		"page_size":   {},
+		"q":           {},
+		"since":       {},
+		"target_id":   {},
+		"target_type": {},
+		"until":       {},
+		"view":        {},
+	}
+	for key := range v {
+		if _, ok := accepted[key]; !ok {
+			return ListQuery{}, fmt.Errorf("unknown query parameter %q", key)
+		}
+	}
 	until := parseTimeOrNow(v.Get("until"))
 	q := ListQuery{
 		Until:      until,
@@ -29,8 +53,13 @@ func parseListQuery(v url.Values) ListQuery {
 		Actor:      v.Get("actor"),
 		TargetType: v.Get("target_type"),
 		TargetID:   v.Get("target_id"),
+		Outcome:    v.Get("outcome"),
+		Search:     strings.TrimSpace(v.Get("q")),
 		Page:       clamp(parseIntOr(v.Get("page"), 1), 1, 1_000_000),
 		PageSize:   clamp(parseIntOr(v.Get("page_size"), 25), 1, 100),
+	}
+	if q.Outcome != "" && q.Outcome != "success" && q.Outcome != "failure" && q.Outcome != "denied" {
+		return ListQuery{}, fmt.Errorf("outcome must be success, failure, or denied")
 	}
 	q.Since = parseSinceOr(v.Get("since"), until.Add(-24*time.Hour), until)
 	if et := v.Get("event_types"); et != "" {
@@ -40,7 +69,7 @@ func parseListQuery(v url.Values) ListQuery {
 			}
 		}
 	}
-	return q
+	return q, nil
 }
 
 func (q ListQuery) toSQL() (string, []any) {
@@ -73,6 +102,19 @@ func (q ListQuery) toSQL() (string, []any) {
 	if len(q.EventTypes) > 0 {
 		parts = append(parts, "a.event_type = ANY($"+strconv.Itoa(len(args)+1)+")")
 		args = append(args, q.EventTypes)
+	}
+	if q.Outcome != "" {
+		parts = append(parts, "a.outcome = $"+strconv.Itoa(len(args)+1))
+		args = append(args, q.Outcome)
+	}
+	if q.Search != "" {
+		// v1 free-text implementation: simple ILIKE over reason_code and the
+		// JSON metadata payload. Full-text indexes are intentionally out of M7.
+		// User-supplied `_` and `%` are LIKE wildcards; escape them so a
+		// search for `audit_log` matches the literal underscore, not any-char.
+		escaped := likeEscape(q.Search)
+		parts = append(parts, "(COALESCE(a.reason_code, '') ILIKE $"+strconv.Itoa(len(args)+1)+" ESCAPE '\\' OR COALESCE(a.metadata::text, '') ILIKE $"+strconv.Itoa(len(args)+1)+" ESCAPE '\\')")
+		args = append(args, "%"+escaped+"%")
 	}
 	return strings.Join(parts, " AND "), args
 }
@@ -168,4 +210,12 @@ func defaultString(v, fallback string) string {
 
 func systemTargetTypes() []string {
 	return []string{"config", "instance_config", "audit_log", "signing_key", "instance", "permission"}
+}
+
+// likeEscape escapes the LIKE meta-characters `\`, `%`, `_` so user-supplied
+// `q` is matched literally. Paired with `ESCAPE '\\'` in the SQL fragment.
+var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+
+func likeEscape(s string) string {
+	return likeEscaper.Replace(s)
 }

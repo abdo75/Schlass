@@ -227,6 +227,13 @@
   font-size: 11.5px;
   font-weight: 600;
 }
+.audit-panel button.outcome {
+  border: 0;
+  cursor: pointer;
+}
+.audit-panel button.outcome:hover {
+  box-shadow: 0 0 0 1px currentColor;
+}
 .audit-panel .outcome--success { background: var(--color-accent); color: var(--color-accent-foreground); }
 .audit-panel .outcome--success .outcome-dot {
   width: 6px; height: 6px; border-radius: 50%;
@@ -239,6 +246,14 @@
 .audit-panel .outcome--failure .outcome-dot {
   width: 6px; height: 6px; border-radius: 50%;
   background: var(--color-destructive);
+}
+.audit-panel .outcome--denied {
+  background: oklch(0.68 0.16 55 / 0.16);
+  color: oklch(0.45 0.13 55);
+}
+.audit-panel .outcome--denied .outcome-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: oklch(0.58 0.16 55);
 }
 .audit-panel .severity-badge {
   border-radius: 999px;

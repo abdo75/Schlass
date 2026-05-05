@@ -1,4 +1,4 @@
-export type Outcome = "success" | "failure";
+export type Outcome = "success" | "failure" | "denied";
 
 export interface AuditItem {
   id: string;
@@ -54,6 +54,8 @@ export interface AuditState {
   target_type?: string;
   target_id?: string;
   event_types?: string[];
+  outcome?: Outcome;
+  q?: string;
   page: number;
   pageSize: number;
   selectedEventId?: string;
