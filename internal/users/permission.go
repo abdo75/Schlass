@@ -22,7 +22,9 @@ type DenialHandler func(ctx context.Context, user *User, requiredPerm string, r 
 // themselves don't change, so handler gates + SPA usePermission() survive.
 var rolePermissions = map[string][]string{
 	"super_admin": {
-		"audit.list",
+		"audit.view",
+		"audit.export",
+		"audit.admin",
 		"users.list",
 		"users.read",
 		"users.create",
@@ -61,12 +63,22 @@ func PermissionsForRole(role string) []string {
 	return out
 }
 
+func expandAlias(perm string) string {
+	// M6 compatibility: audit.list is a one-release alias for audit.view.
+	// Keep it out of the canonical role map; M10 removes this shim.
+	if perm == "audit.list" {
+		return "audit.view"
+	}
+	return perm
+}
+
 // RequirePermission must chain AFTER the session-auth middleware. Returns 403
 // FORBIDDEN on role miss, 401 INVALID_SESSION on no-user-in-context (wiring
 // bug). Optional onDenied callback fires on the 403 path before the response
 // is written; callers persist denials to audit_logs there. Pass nil in tests
 // or for endpoints that should not audit denials.
 func RequirePermission(perm string, onDenied DenialHandler) func(http.Handler) http.Handler {
+	perm = expandAlias(perm)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			user, ok := CurrentUser(r.Context())

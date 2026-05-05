@@ -104,11 +104,35 @@ func TestPermissionsForRole(t *testing.T) {
 	}
 }
 
-func TestPermissions_SuperAdminGetsAuditList(t *testing.T) {
-	if !slices.Contains(users.PermissionsForRole("super_admin"), "audit.list") {
-		t.Fatal("super_admin should have audit.list")
+func TestPermissions_SuperAdminGetsSplitAuditPermissions(t *testing.T) {
+	for _, perm := range []string{"audit.view", "audit.export", "audit.admin"} {
+		if !slices.Contains(users.PermissionsForRole("super_admin"), perm) {
+			t.Fatalf("super_admin should have %s", perm)
+		}
 	}
-	if slices.Contains(users.PermissionsForRole("user"), "audit.list") {
-		t.Fatal("plain user must not have audit.list")
+	if slices.Contains(users.PermissionsForRole("super_admin"), "audit.list") {
+		t.Fatal("audit.list should not be in the canonical super_admin permissions")
+	}
+	for _, perm := range []string{"audit.view", "audit.export", "audit.admin", "audit.list"} {
+		if slices.Contains(users.PermissionsForRole("user"), perm) {
+			t.Fatalf("plain user must not have %s", perm)
+		}
+	}
+}
+
+func TestRequirePermission_AuditListAliasAllowsAuditView(t *testing.T) {
+	user := &users.User{ID: uuid.New(), Email: "admin@example.com", Role: "super_admin"}
+	ctx := users.WithCurrentUser(context.Background(), user)
+
+	handler := users.RequirePermission("audit.list", nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequestWithContext(ctx, "GET", "/api/audit", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 }

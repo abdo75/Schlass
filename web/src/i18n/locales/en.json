@@ -326,6 +326,15 @@
   "audit": {
     "title": "Audit log",
     "subtitle": "Append-only record of system activity.",
+    "stepup": {
+      "title": "Verify with MFA",
+      "description": "This audit action requires a recent MFA check.",
+      "totp_label": "Authenticator code",
+      "recovery_link": "Use a recovery code",
+      "submit": "Verify",
+      "cancel": "Cancel",
+      "too_old": "MFA verification failed. Try again."
+    },
     "tabs": {
       "all": "All events",
       "signIn": "Sign-in activity",

@@ -123,6 +123,9 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 	gated := func(perm string, h http.Handler) http.Handler {
 		return authMW(users.RequirePermission(perm, auditPermissionDenied)(h))
 	}
+	gatedStepUp := func(perm string, h http.Handler) http.Handler {
+		return authMW(users.RequirePermission(perm, auditPermissionDenied)(auth.RequireRecentMFA(5*time.Minute, sessionStore, d.AuditStore, d.Pool)(h)))
+	}
 
 	// Setup tied to login cap so E2E raising login doesn't hit tiny setup defaults.
 	setupGetLimit := d.LoginRateLimit
@@ -168,10 +171,14 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 	mux.Handle("DELETE /api/users/{id}/sessions", gated("users.sessions.terminate", http.HandlerFunc(usersHandler.TerminateAllSessions)))
 	mux.Handle("DELETE /api/users/{id}/sessions/{token}", gated("users.sessions.terminate", http.HandlerFunc(usersHandler.TerminateSession)))
 
-	mux.Handle("GET /api/audit", gated("audit.list", http.HandlerFunc(auditHandler.List)))
-	mux.Handle("GET /api/audit/actors", gated("audit.list", http.HandlerFunc(auditHandler.Actors)))
-	mux.Handle("GET /api/audit/targets", gated("audit.list", http.HandlerFunc(auditHandler.Targets)))
-	mux.Handle("GET /api/audit/export", gated("audit.list", http.HandlerFunc(auditHandler.Export)))
+	mux.Handle("GET /api/audit", gated("audit.view", http.HandlerFunc(auditHandler.List)))
+	mux.Handle("GET /api/audit/actors", gated("audit.view", http.HandlerFunc(auditHandler.Actors)))
+	mux.Handle("GET /api/audit/targets", gated("audit.view", http.HandlerFunc(auditHandler.Targets)))
+	mux.Handle("POST /api/audit/export", gatedStepUp("audit.export", http.HandlerFunc(auditHandler.Export)))
+	mux.Handle("PUT /api/audit/retention", gatedStepUp("audit.admin", http.HandlerFunc(auditHandler.PutRetention)))
+	mux.Handle("POST /api/audit/purge", gatedStepUp("audit.admin", http.HandlerFunc(auditHandler.PostPurge)))
+	mux.Handle("PUT /api/audit/anchor", gatedStepUp("audit.admin", http.HandlerFunc(auditHandler.PutAnchor)))
+	mux.Handle("POST /api/audit/erase", gatedStepUp("audit.admin", http.HandlerFunc(auditHandler.PostErase)))
 
 	mux.Handle("GET /api/clients", gated("clients.list", http.HandlerFunc(d.ClientsHandler.GetList)))
 	mux.Handle("POST /api/clients", gated("clients.create", http.HandlerFunc(d.ClientsHandler.PostCreate)))
@@ -215,6 +222,7 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 	mux.Handle("POST /api/mfa/enrollment/complete", http.HandlerFunc(mfaHandler.PostEnrollmentComplete))
 
 	mux.Handle("POST /api/mfa/challenge", mfaChallengeRL.Middleware(http.HandlerFunc(mfaHandler.PostChallenge)))
+	mux.Handle("POST /api/auth/stepup/challenge", authMW(mfaChallengeRL.Middleware(http.HandlerFunc(mfaHandler.PostStepUpChallenge))))
 
 	resetPepper, err := crypto.DeriveTokenPepper(d.Cfg.EncryptionKey)
 	if err != nil {

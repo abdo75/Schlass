@@ -1,6 +1,6 @@
 -- 000002_audit_log_viewer.up.sql
 -- Two new instance_config keys for the audit-log viewer (Sprint 7).
--- audit.list permission is added in Go (rolePermissions map), not here.
+-- Audit permissions are added in Go (rolePermissions map), not here.
 -- audit_viewed_in_session is a Valkey Session field, not a SQL column.
 
 INSERT INTO instance_config (key, value)

@@ -5,24 +5,60 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
+
+	"github.com/abdo75/Schlass/internal/httputil"
 )
 
 func (h *Handler) Export(w http.ResponseWriter, r *http.Request) {
-	q := parseListQuery(r.URL.Query())
-	format := r.URL.Query().Get("format")
+	var req struct {
+		Since      string   `json:"since"`
+		Until      string   `json:"until"`
+		View       string   `json:"view"`
+		Actor      string   `json:"actor"`
+		TargetType string   `json:"target_type"`
+		TargetID   string   `json:"target_id"`
+		EventTypes []string `json:"event_types"`
+		Format     string   `json:"format"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body.")
+		return
+	}
+	values := url.Values{}
+	values.Set("since", req.Since)
+	values.Set("until", req.Until)
+	values.Set("view", req.View)
+	values.Set("actor", req.Actor)
+	values.Set("target_type", req.TargetType)
+	values.Set("target_id", req.TargetID)
+	if len(req.EventTypes) > 0 {
+		values.Set("event_types", joinEventTypes(req.EventTypes))
+	}
+	q := parseListQuery(values)
+	format := req.Format
 	if format != "csv" && format != "jsonl" {
-		httputilWriteValidation(w, "format must be csv or jsonl")
+		httputil.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "format must be csv or jsonl")
 		return
 	}
 
 	ctx := r.Context()
+	user, ok := h.currentUser(ctx)
+	if !ok {
+		// Defense-in-depth: Export runs behind authMW + RequirePermission +
+		// RequireRecentMFA, so missing user is a wiring bug. REQ-AUD-041
+		// self-include must always fire.
+		httputil.WriteError(w, http.StatusUnauthorized, "INVALID_SESSION", "Not authenticated.")
+		return
+	}
 	capRows, err := h.cfg.GetInt(ctx, h.pool, "audit_export_max_rows")
 	if err != nil {
 		writeErr(w, "audit.Export cap", err)
 		return
 	}
-	where, args := q.toSQL()
+	where, args := q.toSQLWithSelfAudit(user.ID)
 
 	var totalMatching int
 	if err := h.pool.QueryRow(ctx, "SELECT COUNT(*) FROM audit_logs a WHERE "+where, args...).Scan(&totalMatching); err != nil {
@@ -133,6 +169,12 @@ func ptrStr(v *string) string {
 	return *v
 }
 
-func httputilWriteValidation(w http.ResponseWriter, msg string) {
-	http.Error(w, msg, http.StatusBadRequest)
+func joinEventTypes(v []string) string {
+	out := make([]string, 0, len(v))
+	for _, item := range v {
+		if item != "" {
+			out = append(out, item)
+		}
+	}
+	return strings.Join(out, ",")
 }

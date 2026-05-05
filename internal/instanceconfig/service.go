@@ -230,6 +230,10 @@ func (s *Service) GetInt(ctx context.Context, q database.Querier, key string) (i
 	return s.store.GetInt(ctx, q, key)
 }
 
+func (s *Service) Set(ctx context.Context, q database.Querier, key string, value any) error {
+	return s.store.Set(ctx, q, key, value)
+}
+
 func (s *Service) EncryptedValue(ctx context.Context, q database.Querier, key string) (string, error) {
 	isNull, err := s.store.IsNull(ctx, q, key)
 	if err != nil {

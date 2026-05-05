@@ -69,6 +69,9 @@ var EventTypes = map[string]EventTypeSpec{
 	// --- Authentication (REQ-AUD-001) ---
 	"account.locked":                 {Category: CategoryAuth, RetentionBucket: BucketSecurity, IsCritical: true, OutboundCAEP: caepAccountDisabled},
 	"auth.permission_denied":         {Category: CategoryDenial, RetentionBucket: BucketSecurity},
+	"auth.stepup.failed":             {Category: CategoryAuth, RetentionBucket: BucketSecurity},
+	"auth.stepup.required":           {Category: CategoryAuth, RetentionBucket: BucketSecurity},
+	"auth.stepup.satisfied":          {Category: CategoryAuth, RetentionBucket: BucketSecurity},
 	"login.failed":                   {Category: CategoryAuth, RetentionBucket: BucketSecurity},
 	"login.succeeded":                {Category: CategoryAuth, RetentionBucket: BucketSecurity},
 	"logout.completed":               {Category: CategoryAuth, RetentionBucket: BucketSecurity},
@@ -135,10 +138,12 @@ var EventTypes = map[string]EventTypeSpec{
 	"user.updated":                {Category: CategoryAdmin, RetentionBucket: BucketOperational},
 
 	// --- Privacy / audit-of-audit (REQ-AUD-006) ---
-	"audit.anchor.created": {Category: CategoryPrivacy, RetentionBucket: BucketSecurity},
-	"audit.exported":       {Category: CategoryPrivacy, RetentionBucket: BucketSecurity},
-	"audit.purge.executed": {Category: CategoryPrivacy, RetentionBucket: BucketSecurity, IsCritical: true},
-	"audit.viewed":         {Category: CategoryPrivacy, RetentionBucket: BucketOperational},
+	"audit.anchor.created":  {Category: CategoryPrivacy, RetentionBucket: BucketSecurity},
+	"audit.exported":        {Category: CategoryPrivacy, RetentionBucket: BucketSecurity},
+	"audit.purge.executed":  {Category: CategoryPrivacy, RetentionBucket: BucketSecurity, IsCritical: true},
+	"audit.purge.requested": {Category: CategoryPrivacy, RetentionBucket: BucketSecurity},
+	"audit.viewed":          {Category: CategoryPrivacy, RetentionBucket: BucketOperational},
+	"privacy.user.erased":   {Category: CategoryPrivacy, RetentionBucket: BucketSecurity, IsCritical: true},
 
 	// --- Setup (REQ-AUD-008) ---
 	"setup.completed": {Category: CategorySetup, RetentionBucket: BucketSecurity},

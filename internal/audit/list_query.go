@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type ListQuery struct {
@@ -73,6 +75,16 @@ func (q ListQuery) toSQL() (string, []any) {
 		args = append(args, q.EventTypes)
 	}
 	return strings.Join(parts, " AND "), args
+}
+
+func (q ListQuery) toSQLWithSelfAudit(callerID uuid.UUID) (string, []any) {
+	where, args := q.toSQL()
+	args = append(args, callerID)
+	// REQ-AUD-041 applies to the concrete list/export result set. Actors and
+	// Targets intentionally use toSQL() because they are bucket helpers for the
+	// same UI; the rows remain visible in List/Export even under hostile filters.
+	selfClause := "(a.event_type = 'audit.viewed' AND a.actor_id = $" + strconv.Itoa(len(args)) + " AND a.created_at >= $1 AND a.created_at <= $2)"
+	return "((" + where + ") OR " + selfClause + ")", args
 }
 
 func viewClause(view string) string {

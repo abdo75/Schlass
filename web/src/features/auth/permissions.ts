@@ -5,6 +5,9 @@
 // v2"). Consumers import constants from here rather than typing raw strings
 // so rename migrations are a single-file change.
 export const PERMISSIONS = {
+  AUDIT_VIEW: "audit.view",
+  AUDIT_EXPORT: "audit.export",
+  AUDIT_ADMIN: "audit.admin",
   USERS_LIST: "users.list",
   USERS_READ: "users.read",
   USERS_CREATE: "users.create",

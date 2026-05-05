@@ -326,6 +326,15 @@
   "audit": {
     "title": "Auditprotokoll",
     "subtitle": "Unveränderliche Aufzeichnung der Systemaktivität.",
+    "stepup": {
+      "title": "Mit MFA bestätigen",
+      "description": "Diese Audit-Aktion erfordert eine aktuelle MFA-Prüfung.",
+      "totp_label": "Authenticator-Code",
+      "recovery_link": "Recovery-Code verwenden",
+      "submit": "Bestätigen",
+      "cancel": "Abbrechen",
+      "too_old": "MFA-Bestätigung fehlgeschlagen. Versuchen Sie es erneut."
+    },
     "tabs": {
       "all": "Alle Ereignisse",
       "signIn": "Anmeldeaktivität",

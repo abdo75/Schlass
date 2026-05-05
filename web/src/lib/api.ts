@@ -32,10 +32,10 @@ export async function apiFetch<T>(
   });
 
   if (!response.ok) {
-    if (response.status === 401) {
+    const body = (await response.json()) as ApiError;
+    if (response.status === 401 && body.error !== "STEPUP_REQUIRED") {
       window.dispatchEvent(new CustomEvent("schlass:unauthorized"));
     }
-    const body = (await response.json()) as ApiError;
     throw new ApiRequestError(response.status, body);
   }
 

@@ -490,7 +490,16 @@ func (h *MFAHandler) PostEnrollmentComplete(w http.ResponseWriter, r *http.Reque
 			httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 			return
 		}
+		if err := h.sessionStore.MarkMFAVerified(r.Context(), sessionToken); err != nil {
+			slog.Error("mfa complete: MarkMFAVerified failed", "error", err)
+			httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+			return
+		}
 		session.SetCookie(w, sessionToken, h.secureCookie)
+	} else if sessionCookie, err := r.Cookie("schlass_session"); err == nil && sessionCookie.Value != "" {
+		if err := h.sessionStore.MarkMFAVerified(r.Context(), sessionCookie.Value); err != nil {
+			slog.Warn("mfa complete: MarkMFAVerified session-authed failed", "error", err)
+		}
 	}
 
 	resp := map[string]any{"user": userDTO(u)}
@@ -654,12 +663,94 @@ func (h *MFAHandler) PostChallenge(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 		return
 	}
+	if err := h.sessionStore.MarkMFAVerified(r.Context(), sessionToken); err != nil {
+		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
 	session.SetCookie(w, sessionToken, h.secureCookie)
 	resp := map[string]any{"user": userDTO(u)}
 	if returnTo != "" {
 		resp["redirect_to"] = returnTo
 	}
 	httputil.WriteJSON(w, http.StatusOK, resp)
+}
+
+func (h *MFAHandler) PostStepUpChallenge(w http.ResponseWriter, r *http.Request) {
+	user, ok := CurrentUser(r.Context())
+	if !ok {
+		httputil.WriteError(w, http.StatusUnauthorized, "INVALID_SESSION", "Not authenticated.")
+		return
+	}
+	sessionToken, ok := session.TokenFromContext(r.Context())
+	if !ok {
+		httputil.WriteError(w, http.StatusUnauthorized, "INVALID_SESSION", "Not authenticated.")
+		return
+	}
+	var req struct {
+		Code         string `json:"code"`
+		RecoveryCode string `json:"recovery_code"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body.")
+		return
+	}
+	if req.RecoveryCode != "" {
+		h.verifyStepUpRecoveryCode(w, r, user, req.RecoveryCode, sessionToken)
+		return
+	}
+	if len(req.Code) != 6 || user.TOTPEnrolledAt == nil {
+		h.writeStepUpAudit(r, user, "auth.stepup.failed", "failure", "invalid_code")
+		httputil.WriteError(w, http.StatusUnauthorized, "MFA_INVALID_CODE", "Invalid code.")
+		return
+	}
+	secret, err := crypto.Decrypt(user.TOTPSecretEncrypted, h.encryptionKey, totpSecretAAD(user.ID.String()))
+	if err != nil {
+		slog.Error("step-up challenge: Decrypt failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	matched, step, err := crypto.ValidateTOTP(req.Code, string(secret), user.LastUsedTOTPCounter)
+	if err != nil {
+		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if !matched {
+		h.writeStepUpAudit(r, user, "auth.stepup.failed", "failure", "invalid_code")
+		httputil.WriteError(w, http.StatusUnauthorized, "MFA_INVALID_CODE", "Invalid code.")
+		return
+	}
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	defer func() { _ = tx.Rollback(r.Context()) }()
+	if err := h.userStore.AdvanceTOTPCounter(r.Context(), tx, user.ID, step); err != nil {
+		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if err := h.auditStore.Emit(r.Context(), tx, audit.Event{
+		EventType:  "auth.stepup.satisfied",
+		ActorID:    &user.ID,
+		ActorEmail: user.Email,
+		TargetType: "session",
+		TargetID:   sessionToken,
+		IPAddress:  extractClientIP(r),
+		Outcome:    "success",
+		Metadata:   map[string]any{"method": "totp"},
+	}); err != nil {
+		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if err := h.sessionStore.MarkMFAVerified(r.Context(), sessionToken); err != nil {
+		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 // writeChallengeFailedAudit is best-effort (own tx; logs on failure but
@@ -809,6 +900,10 @@ func (h *MFAHandler) verifyRecoveryCode(w http.ResponseWriter, r *http.Request, 
 		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
 		return
 	}
+	if err := h.sessionStore.MarkMFAVerified(r.Context(), sessionToken); err != nil {
+		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
 	session.SetCookie(w, sessionToken, h.secureCookie)
 	resp := map[string]any{"user": userDTO(u)}
 	if returnTo != "" {
@@ -817,9 +912,90 @@ func (h *MFAHandler) verifyRecoveryCode(w http.ResponseWriter, r *http.Request, 
 	httputil.WriteJSON(w, http.StatusOK, resp)
 }
 
+func (h *MFAHandler) verifyStepUpRecoveryCode(w http.ResponseWriter, r *http.Request, u *users.User, plaintext, sessionToken string) {
+	codes, err := h.recoveryCodeStore.ListUnused(r.Context(), h.pool, u.ID)
+	if err != nil {
+		slog.Error("step-up challenge: ListUnused failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	var matchedID *uuid.UUID
+	for _, c := range codes {
+		ok, err := crypto.VerifyPassword(plaintext, string(c.CodeHash))
+		if err != nil {
+			slog.Error("step-up challenge: VerifyPassword failed", "error", err)
+			continue
+		}
+		if ok && matchedID == nil {
+			id := c.ID
+			matchedID = &id
+		}
+	}
+	if matchedID == nil {
+		h.writeStepUpAudit(r, u, "auth.stepup.failed", "failure", "invalid_recovery_code")
+		httputil.WriteError(w, http.StatusUnauthorized, "MFA_INVALID_RECOVERY_CODE", "Invalid recovery code.")
+		return
+	}
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	defer func() { _ = tx.Rollback(r.Context()) }()
+	if err := h.recoveryCodeStore.MarkUsed(r.Context(), tx, *matchedID); err != nil {
+		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if err := h.auditStore.Emit(r.Context(), tx, audit.Event{
+		EventType:  "auth.stepup.satisfied",
+		ActorID:    &u.ID,
+		ActorEmail: u.Email,
+		TargetType: "session",
+		TargetID:   sessionToken,
+		IPAddress:  extractClientIP(r),
+		Outcome:    "success",
+		Metadata:   map[string]any{"method": "recovery_code", "code_id": matchedID.String()},
+	}); err != nil {
+		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	if err := h.sessionStore.MarkMFAVerified(r.Context(), sessionToken); err != nil {
+		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (h *MFAHandler) writeStepUpAudit(r *http.Request, u *users.User, eventType, outcome, reason string) {
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		slog.Error("step-up challenge: audit tx begin failed", "error", err)
+		return
+	}
+	defer func() { _ = tx.Rollback(r.Context()) }()
+	if err := h.auditStore.Emit(r.Context(), tx, audit.Event{
+		EventType:  eventType,
+		ActorID:    &u.ID,
+		ActorEmail: u.Email,
+		TargetType: "session",
+		IPAddress:  extractClientIP(r),
+		Outcome:    outcome,
+		Metadata:   map[string]any{"reason": reason},
+	}); err != nil {
+		slog.Error("step-up challenge: audit write failed", "error", err)
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		slog.Error("step-up challenge: audit tx commit failed", "error", err)
+	}
+}
+
 // totpSecretAAD binds encrypted TOTP secrets to the owning user so a blob
 // swapped between user rows at the DB layer fails decryption.
 func totpSecretAAD(userID string) []byte {
 	return []byte("user_totp_secret:" + userID)
 }
-

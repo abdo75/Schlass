@@ -3,6 +3,7 @@
 package integration
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -36,10 +37,17 @@ func TestAuditViewerEndpoints(t *testing.T) {
 	if len(clientOnly.Items) == 0 {
 		t.Fatal("client view returned no rows")
 	}
+	// REQ-AUD-041 (M6): caller's own `audit.viewed` rows pass through any
+	// filter — assert event_type matches the filter OR is the caller's own
+	// audit.viewed self-record.
 	for _, item := range clientOnly.Items {
-		if !strings.HasPrefix(item.EventType, "client.") {
-			t.Fatalf("view=client returned non-client event %q", item.EventType)
+		if strings.HasPrefix(item.EventType, "client.") {
+			continue
 		}
+		if item.EventType == "audit.viewed" && item.ActorID != nil && *item.ActorID == adminID.String() {
+			continue
+		}
+		t.Fatalf("view=client returned non-client event %q (actor=%v)", item.EventType, item.ActorID)
 	}
 
 	_ = auditViewerGetList(t, env, cookie, "/api/audit")
@@ -54,14 +62,20 @@ func TestAuditViewerEndpoints(t *testing.T) {
 	if _, err := env.Pool.Exec(context.Background(), `UPDATE instance_config SET value = '1'::jsonb WHERE key = 'audit_export_max_rows'`); err != nil {
 		t.Fatalf("set export cap: %v", err)
 	}
-	rec := auditViewerRequest(t, env, cookie, "GET", "/api/audit/export?format=csv")
+	if err := env.SessionStore.MarkMFAVerified(t.Context(), cookie.Value); err != nil {
+		t.Fatalf("MarkMFAVerified: %v", err)
+	}
+	rec := auditViewerPostExport(t, env, cookie, "csv")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("csv export status = %d: %s", rec.Code, rec.Body.String())
 	}
 	if got := rec.Header().Get("X-Audit-Truncated"); got != "true" {
 		t.Fatalf("X-Audit-Truncated = %q, want true", got)
 	}
-	rec = auditViewerRequest(t, env, cookie, "GET", "/api/audit/export?format=jsonl")
+	if err := env.SessionStore.MarkMFAVerified(t.Context(), cookie.Value); err != nil {
+		t.Fatalf("MarkMFAVerified: %v", err)
+	}
+	rec = auditViewerPostExport(t, env, cookie, "jsonl")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("jsonl export status = %d: %s", rec.Code, rec.Body.String())
 	}
@@ -77,11 +91,19 @@ func TestAuditViewerEndpoints(t *testing.T) {
 	// and metadata.pseudonymized_at set. The viewer renders the literal
 	// 'pseudonymized' as actor_display, and the row drops out of any
 	// actor=email filter (no actor_id to join on).
+	//
+	// Post-M6 (REQ-AUD-041): the caller's own `audit.viewed` rows are
+	// force-included by the audit-the-auditor escape even when the filter
+	// would exclude them — so we assert specifically that no row with
+	// actor_id == formerID survives the email filter, rather than 0 rows
+	// total.
 	formerID := env.DirectCreateUser(t, "former@example.com", "user")
 	insertAuditViewerRow(t, env, "login.succeeded", &formerID, "", nil, nil, "success")
 	pseudo := auditViewerGetList(t, env, cookie, "/api/audit?actor=former@example.com")
-	if len(pseudo.Items) != 0 {
-		t.Fatalf("pseudonymized actor must not match old email, got %d rows", len(pseudo.Items))
+	for _, item := range pseudo.Items {
+		if item.ActorID != nil && *item.ActorID == formerID.String() {
+			t.Fatalf("pseudonymized actor must not match old email, got row with actor_id=%s", *item.ActorID)
+		}
 	}
 	all := auditViewerGetList(t, env, cookie, "/api/audit")
 	foundPseudo := false
@@ -98,6 +120,17 @@ func TestAuditViewerEndpoints(t *testing.T) {
 func auditViewerRequest(t *testing.T, env *TestEnv, cookie *http.Cookie, method, path string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequestWithContext(t.Context(), method, path, nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	env.Router.ServeHTTP(rec, req)
+	return rec
+}
+
+func auditViewerPostExport(t *testing.T, env *TestEnv, cookie *http.Cookie, format string) *httptest.ResponseRecorder {
+	t.Helper()
+	body := bytes.NewBufferString(`{"since":"24h","view":"all","format":"` + format + `"}`)
+	req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/audit/export", body)
+	req.Header.Set("Content-Type", "application/json")
 	req.AddCookie(cookie)
 	rec := httptest.NewRecorder()
 	env.Router.ServeHTTP(rec, req)

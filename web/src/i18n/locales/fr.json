@@ -326,6 +326,15 @@
   "audit": {
     "title": "Journal d'audit",
     "subtitle": "Historique append-only de l'activité du système.",
+    "stepup": {
+      "title": "Vérification MFA",
+      "description": "Cette action d'audit exige une vérification MFA récente.",
+      "totp_label": "Code d'authentification",
+      "recovery_link": "Utiliser un code de récupération",
+      "submit": "Vérifier",
+      "cancel": "Annuler",
+      "too_old": "La vérification MFA a échoué. Réessayez."
+    },
     "tabs": {
       "all": "Tous les événements",
       "signIn": "Connexions",

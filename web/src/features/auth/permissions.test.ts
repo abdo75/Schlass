@@ -2,10 +2,14 @@ import { describe, it, expect } from "vitest";
 import { PERMISSIONS, permissionsForRole } from "./permissions";
 
 describe("permissions catalog", () => {
-  it("defines 15 permission strings", () => {
+  it("defines 18 permission strings", () => {
     const values = Object.values(PERMISSIONS);
-    expect(values.length).toBe(15);
-    expect(new Set(values).size).toBe(15); // all unique
+    expect(values.length).toBe(18);
+    expect(new Set(values).size).toBe(18); // all unique
+  });
+
+  it("includes split audit permissions", () => {
+    expect(Object.values(PERMISSIONS)).toEqual(expect.arrayContaining(["audit.view", "audit.export", "audit.admin"]));
   });
 
   it("includes signing_keys.rotate", () => {
@@ -32,8 +36,11 @@ describe("permissions catalog", () => {
 });
 
 describe("permissionsForRole", () => {
-  it("super_admin holds all 15 permissions", () => {
-    expect(permissionsForRole("super_admin").length).toBe(15);
+  it("super_admin holds all 18 permissions", () => {
+    expect(permissionsForRole("super_admin").length).toBe(18);
+    expect(permissionsForRole("super_admin")).toContain("audit.view");
+    expect(permissionsForRole("super_admin")).toContain("audit.export");
+    expect(permissionsForRole("super_admin")).toContain("audit.admin");
     expect(permissionsForRole("super_admin")).toContain("signing_keys.rotate");
     expect(permissionsForRole("super_admin")).toContain("signing_keys.retire");
     expect(permissionsForRole("super_admin")).toContain("settings.read");

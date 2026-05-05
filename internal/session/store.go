@@ -25,6 +25,7 @@ type Session struct {
 	UserAgent            string    `json:"user_agent"`
 	PendingReturnTo      string    `json:"pending_return_to,omitempty"`
 	AuditViewedInSession bool      `json:"audit_viewed_in_session,omitempty"`
+	LastMFAAt            time.Time `json:"last_mfa_at,omitempty"`
 }
 
 // SessionWithToken carries the opaque token (Valkey key) alongside so
@@ -51,6 +52,7 @@ type Store interface {
 	CreateWithPendingReturnTo(ctx context.Context, userID, ipAddress, userAgent, returnTo string) (token string, err error)
 	ClearPendingReturnTo(ctx context.Context, token string) error
 	MarkAuditViewed(ctx context.Context, token string) error
+	MarkMFAVerified(ctx context.Context, token string) error
 }
 
 var ErrNotFound = errors.New("session: not found")
@@ -245,6 +247,30 @@ func (s *valkeyStore) MarkAuditViewed(ctx context.Context, token string) error {
 	}
 	if err := s.client.SetArgs(ctx, key, payload, redis.SetArgs{KeepTTL: true}).Err(); err != nil {
 		return fmt.Errorf("session: mark audit viewed set: %w", err)
+	}
+	return nil
+}
+
+func (s *valkeyStore) MarkMFAVerified(ctx context.Context, token string) error {
+	key := sessionKey(token)
+	raw, err := s.client.Get(ctx, key).Bytes()
+	if errors.Is(err, redis.Nil) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("session: mark mfa verified get: %w", err)
+	}
+	var sess Session
+	if err := json.Unmarshal(raw, &sess); err != nil {
+		return fmt.Errorf("session: mark mfa verified unmarshal: %w", err)
+	}
+	sess.LastMFAAt = time.Now().UTC()
+	payload, err := json.Marshal(sess)
+	if err != nil {
+		return fmt.Errorf("session: mark mfa verified marshal: %w", err)
+	}
+	if err := s.client.SetArgs(ctx, key, payload, redis.SetArgs{KeepTTL: true}).Err(); err != nil {
+		return fmt.Errorf("session: mark mfa verified set: %w", err)
 	}
 	return nil
 }

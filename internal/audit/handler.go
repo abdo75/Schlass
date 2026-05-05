@@ -24,7 +24,7 @@ type Handler struct {
 	pool        *pgxpool.Pool
 	sessions    session.Store
 	cfg         *instanceconfig.Service
-	audit       Logger
+	audit       PseudonymizingLogger
 	currentUser func(context.Context) (CurrentUser, bool)
 }
 
@@ -33,7 +33,7 @@ type CurrentUser struct {
 	Email string
 }
 
-func NewHandler(pool *pgxpool.Pool, sessions session.Store, cfg *instanceconfig.Service, audit Logger, currentUser func(context.Context) (CurrentUser, bool)) *Handler {
+func NewHandler(pool *pgxpool.Pool, sessions session.Store, cfg *instanceconfig.Service, audit PseudonymizingLogger, currentUser func(context.Context) (CurrentUser, bool)) *Handler {
 	return &Handler{pool: pool, sessions: sessions, cfg: cfg, audit: audit, currentUser: currentUser}
 }
 
@@ -62,8 +62,16 @@ type ItemDTO struct {
 }
 
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
+	user, ok := h.currentUser(r.Context())
+	if !ok {
+		// Defense-in-depth: List runs behind authMW + RequirePermission, so
+		// missing user is a wiring bug. REQ-AUD-041 self-include must always
+		// fire — silently falling back to toSQL() would mask the regression.
+		httputil.WriteError(w, http.StatusUnauthorized, "INVALID_SESSION", "Not authenticated.")
+		return
+	}
 	q := parseListQuery(r.URL.Query())
-	where, args := q.toSQL()
+	where, args := q.toSQLWithSelfAudit(user.ID)
 	ctx := r.Context()
 
 	tx, err := h.pool.Begin(ctx)
