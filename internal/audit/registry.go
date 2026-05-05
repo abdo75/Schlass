@@ -142,7 +142,7 @@ var EventTypes = map[string]EventTypeSpec{
 	"audit.exported":        {Category: CategoryPrivacy, RetentionBucket: BucketSecurity},
 	"audit.purge.executed":  {Category: CategoryPrivacy, RetentionBucket: BucketSecurity, IsCritical: true},
 	"audit.purge.requested": {Category: CategoryPrivacy, RetentionBucket: BucketSecurity},
-	"audit.stream.dropped":  {Category: CategoryPrivacy, RetentionBucket: BucketSecurity},
+	"audit.stream.dropped":  {Category: CategoryPrivacy, RetentionBucket: BucketSecurity, IsCritical: true},
 	"audit.viewed":          {Category: CategoryPrivacy, RetentionBucket: BucketOperational},
 	"privacy.user.erased":   {Category: CategoryPrivacy, RetentionBucket: BucketSecurity, IsCritical: true},
 

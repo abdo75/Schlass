@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -39,29 +40,38 @@ type PendingEntry struct {
 // and next_retry_at=now+Backoff(1). If a row already exists for
 // (tenant_id, sequence_no) — a concurrent worker is already retrying it —
 // the insert is a no-op via ON CONFLICT.
+//
+// Single multi-row INSERT (one round-trip) instead of a per-row loop:
+// at batch_size = 1000 this is 1 RTT vs 1000 RTTs.
 func (d *DLQ) Enqueue(ctx context.Context, entries []PendingEntry, lastError string) error {
 	if len(entries) == 0 {
 		return nil
 	}
-	tx, err := d.Pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("audit dlq: begin: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
 	nextRetry := time.Now().Add(Backoff(1))
-	for _, e := range entries {
-		if _, err := tx.Exec(ctx,
-			`INSERT INTO audit_stream_dlq
-			   (audit_id, tenant_id, sequence_no, attempt_count, last_error, next_retry_at)
-			 VALUES ($1, $2, $3, 1, $4, $5)
-			 ON CONFLICT (tenant_id, sequence_no) DO NOTHING`,
-			e.AuditID, e.TenantID, e.SequenceNo, truncateError(lastError), nextRetry,
-		); err != nil {
-			return fmt.Errorf("audit dlq: insert: %w", err)
+	errMsg := truncateError(lastError)
+
+	// Build a multi-row VALUES clause + the matching arg slice.
+	// attempt_count = 1 (the row has been tried once and failed) is
+	// explicit per row; column default in the schema is 0, which is
+	// wrong for fresh-failure rows.
+	const colsPerRow = 6
+	args := make([]any, 0, colsPerRow*len(entries))
+	var values strings.Builder
+	for i, e := range entries {
+		if i > 0 {
+			values.WriteByte(',')
 		}
+		fmt.Fprintf(&values, "($%d,$%d,$%d,$%d,$%d,$%d)",
+			colsPerRow*i+1, colsPerRow*i+2, colsPerRow*i+3, colsPerRow*i+4, colsPerRow*i+5, colsPerRow*i+6,
+		)
+		args = append(args, e.AuditID, e.TenantID, e.SequenceNo, 1, errMsg, nextRetry)
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("audit dlq: commit: %w", err)
+	stmt := `INSERT INTO audit_stream_dlq
+	           (audit_id, tenant_id, sequence_no, attempt_count, last_error, next_retry_at)
+	         VALUES ` + values.String() + `
+	         ON CONFLICT (tenant_id, sequence_no) DO NOTHING`
+	if _, err := d.Pool.Exec(ctx, stmt, args...); err != nil {
+		return fmt.Errorf("audit dlq: insert: %w", err)
 	}
 	return nil
 }
@@ -150,21 +160,6 @@ func (d *DLQ) BumpFailure(ctx context.Context, tenantID uuid.UUID, sequenceNo in
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("audit dlq: commit bump: %w", err)
-	}
-	return nil
-}
-
-// MarkDropped sets attempt_count = -1 (the permanent-drop sentinel).
-// Called when the row's age exceeds MaxRetainAge.
-func (d *DLQ) MarkDropped(ctx context.Context, tenantID uuid.UUID, sequenceNo int64) error {
-	if _, err := d.Pool.Exec(ctx,
-		`UPDATE audit_stream_dlq
-		    SET attempt_count = -1,
-		        next_retry_at = NULL
-		  WHERE tenant_id = $1 AND sequence_no = $2`,
-		tenantID, sequenceNo,
-	); err != nil {
-		return fmt.Errorf("audit dlq: mark dropped: %w", err)
 	}
 	return nil
 }

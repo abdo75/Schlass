@@ -6,13 +6,10 @@ package audit
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
-	"net"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -38,8 +35,14 @@ type StreamWorker struct {
 // Boot-time wiring uses StartStreamWorker (which calls this internally);
 // integration tests use it directly so they can call RunOnce against a
 // fake streamer without standing up a ticker goroutine.
+//
+// DLQ-size gauge registration is intentionally NOT done here — the
+// Prometheus default registry is process-global and the gauge closure
+// captures whatever pool is passed first. In tests each NewTestEnv
+// rebuilds the pool, so a test-side registration would leave the gauge
+// querying a closed pool. StartStreamWorker (production boot) owns the
+// registration; tests don't need the gauge.
 func NewStreamWorker(pool *pgxpool.Pool, cfg *instanceconfig.Service, auditStore Logger, streamer stream.Streamer, backend string) *StreamWorker {
-	RegisterDLQGauge(pool)
 	return &StreamWorker{
 		pool:       pool,
 		cfg:        cfg,
@@ -79,6 +82,8 @@ func StartStreamWorker(ctx context.Context, pool *pgxpool.Pool, cfg *instancecon
 		pollSecs = 5
 	}
 	w := NewStreamWorker(pool, cfg, auditStore, streamer, backend)
+	// Production boot owns the gauge registration — see NewStreamWorker doc.
+	RegisterDLQGauge(pool)
 
 	ticker := time.NewTicker(time.Duration(pollSecs) * time.Second)
 	defer ticker.Stop()
@@ -102,25 +107,40 @@ func (w *StreamWorker) RunOnce(ctx context.Context) error {
 	if err != nil || batchSize <= 0 {
 		batchSize = 100
 	}
+	hotDays := w.hotRetentionDays(ctx)
 	tenants, err := w.tenants(ctx)
 	if err != nil {
 		return err
 	}
 	for _, tenantID := range tenants {
-		if err := w.runTenant(ctx, tenantID, batchSize); err != nil {
+		if err := w.runTenant(ctx, tenantID, batchSize, hotDays); err != nil {
 			slog.Error("audit stream: tenant cycle", "tenant_id", tenantID, "error", err)
 		}
 	}
 	return nil
 }
 
-func (w *StreamWorker) runTenant(ctx context.Context, tenantID uuid.UUID, batchSize int) error {
+func (w *StreamWorker) runTenant(ctx context.Context, tenantID uuid.UUID, batchSize, hotDays int) error {
 	if err := w.drainDLQ(ctx, tenantID, batchSize); err != nil {
 		// Continue to forward stream — a transient DLQ failure must not
 		// block fresh events.
 		slog.Warn("audit stream: dlq drain", "tenant_id", tenantID, "error", err)
 	}
-	return w.forwardStream(ctx, tenantID, batchSize)
+	return w.forwardStream(ctx, tenantID, batchSize, hotDays)
+}
+
+// hotRetentionDays reads audit.retention.security_hot_days for partition
+// pruning of the forward-stream query. M5 partitioned audit_logs by
+// event_timestamp, so any predicate that does not reference
+// event_timestamp scans every partition. Falls back to 365 (the
+// migration default) on read error so a transient instance_config
+// glitch never silently disables pruning.
+func (w *StreamWorker) hotRetentionDays(ctx context.Context) int {
+	d, err := w.cfg.AuditRetentionSecurityHotDays(ctx, w.pool)
+	if err != nil || d <= 0 {
+		return 365
+	}
+	return d
 }
 
 // drainDLQ retries every due DLQ row for a tenant, bumping or dropping
@@ -172,11 +192,18 @@ func (w *StreamWorker) drainDLQ(ctx context.Context, tenantID uuid.UUID, limit i
 }
 
 // forwardStream reads new audit_logs rows ahead of the watermark and
-// pushes them. On success the watermark advances to max(seq) in the
-// batch. On failure the whole batch lands in the DLQ and the watermark
-// still advances past it — retries are exclusively driven by the DLQ
-// so the forward path never re-reads the same rows.
-func (w *StreamWorker) forwardStream(ctx context.Context, tenantID uuid.UUID, batchSize int) error {
+// pushes them. Outcomes:
+//   - Push success → watermark advances to max(seq) in the batch.
+//   - Push failure + DLQ enqueue success → watermark advances past the
+//     failed batch so retries are exclusively driven by the DLQ.
+//   - Push failure + DLQ enqueue failure → watermark stays put, return
+//     error; the next cycle re-reads the same rows.
+//
+// The query is bounded by `event_timestamp >= now() - <hot_days> days`
+// so the planner can prune cold partitions (M5 partitioned audit_logs
+// by event_timestamp). Without this bound, every poll scans the full
+// table including years of cold security data.
+func (w *StreamWorker) forwardStream(ctx context.Context, tenantID uuid.UUID, batchSize, hotDays int) error {
 	lastSeq, err := w.readWatermark(ctx, tenantID)
 	if err != nil {
 		return fmt.Errorf("audit stream: read watermark: %w", err)
@@ -189,6 +216,7 @@ func (w *StreamWorker) forwardStream(ctx context.Context, tenantID uuid.UUID, ba
 		   FROM audit_logs
 		  WHERE tenant_id = $1
 		    AND sequence_no > $2
+		    AND event_timestamp >= now() - ($4 * INTERVAL '1 day')
 		    AND NOT EXISTS (
 		      SELECT 1 FROM audit_stream_dlq d
 		       WHERE d.tenant_id = audit_logs.tenant_id
@@ -196,7 +224,7 @@ func (w *StreamWorker) forwardStream(ctx context.Context, tenantID uuid.UUID, ba
 		    )
 		  ORDER BY sequence_no
 		  LIMIT $3`,
-		tenantID, lastSeq, batchSize,
+		tenantID, lastSeq, batchSize, hotDays,
 	)
 	if err != nil {
 		return fmt.Errorf("audit stream: query forward: %w", err)
@@ -350,13 +378,16 @@ func scanEvent(r scanRow) (stream.Event, error) {
 	return e, nil
 }
 
+// markDroppedAndAudit atomically (a) writes the audit.stream.dropped
+// audit-of-audit row and (b) flips the DLQ row to attempt_count=-1.
+// Both run in the same tx so a partial outcome — DLQ marked dropped
+// but no corresponding audit row, or vice versa — is impossible. On
+// commit failure the row stays retryable; the next cycle re-detects
+// the age and re-attempts the drop.
 func (w *StreamWorker) markDroppedAndAudit(ctx context.Context, r stream.DLQRow) error {
-	if err := w.dlq.MarkDropped(ctx, r.TenantID, r.SequenceNo); err != nil {
-		return err
-	}
 	tx, err := w.pool.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("audit stream: begin dropped audit: %w", err)
+		return fmt.Errorf("audit stream: begin dropped: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	if err := w.auditStore.Emit(ctx, tx, Event{
@@ -376,6 +407,15 @@ func (w *StreamWorker) markDroppedAndAudit(ctx context.Context, r stream.DLQRow)
 		},
 	}); err != nil {
 		return fmt.Errorf("audit stream: emit dropped: %w", err)
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE audit_stream_dlq
+		    SET attempt_count = -1,
+		        next_retry_at = NULL
+		  WHERE tenant_id = $1 AND sequence_no = $2`,
+		r.TenantID, r.SequenceNo,
+	); err != nil {
+		return fmt.Errorf("audit stream: mark dropped: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("audit stream: commit dropped: %w", err)
@@ -406,16 +446,10 @@ func buildStreamer(ctx context.Context, cfg *instanceconfig.Service, pool *pgxpo
 	}
 	switch backend {
 	case "syslog":
-		// Resolve ServerName from the endpoint host so the TLS handshake
-		// validates the certificate against the receiver's actual name.
-		host, _, splitErr := net.SplitHostPort(strings.TrimPrefix(strings.TrimPrefix(endpoint, "tcp://"), "tls://"))
-		if splitErr != nil {
-			return nil, fmt.Errorf("audit stream: syslog endpoint %q: %w", endpoint, splitErr)
-		}
-		return stream.NewSyslogStreamer(endpoint, &tls.Config{
-			ServerName: host,
-			MinVersion: tls.VersionTLS12,
-		})
+		// nil tlsCfg → NewSyslogStreamer fills in ServerName from the
+		// endpoint host + MinVersion TLS 1.2. Operators wanting pinned
+		// CAs or mTLS will need a future config knob.
+		return stream.NewSyslogStreamer(endpoint, nil)
 	case "otlp":
 		token, err := cfg.AuditStreamTokenRef(ctx, pool)
 		if err != nil {

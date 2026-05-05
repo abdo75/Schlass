@@ -34,33 +34,58 @@ type SyslogStreamer struct {
 	conn net.Conn
 }
 
-// NewSyslogStreamer constructs a streamer pointed at host:port.
-// dialer (the connection setup) is lazy: the first Push opens the
-// connection and re-opens it after any write error.
+// NewSyslogStreamer constructs a streamer pointed at the given
+// endpoint. The endpoint accepts an optional `tls://` scheme prefix
+// and must resolve to host:port. Plain `tcp://` is rejected — TLS is
+// mandatory because audit events identify users and resources.
+//
+// Caller may pass tlsCfg=nil to get a baseline `&tls.Config{ServerName:
+// <endpoint host>, MinVersion: tls.VersionTLS12}`. Pass an explicit
+// tls.Config when operators need pinned root CAs or client certs.
 func NewSyslogStreamer(endpoint string, tlsCfg *tls.Config) (*SyslogStreamer, error) {
-	if endpoint == "" {
-		return nil, errors.New("syslog: empty endpoint")
+	hostPort, host, err := parseSyslogEndpoint(endpoint)
+	if err != nil {
+		return nil, err
 	}
-	if strings.HasPrefix(endpoint, "tcp://") {
-		return nil, errors.New("syslog: plain tcp:// is not supported, use TLS-only host:port")
+	if tlsCfg == nil {
+		tlsCfg = &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}
 	}
-	endpoint = strings.TrimPrefix(endpoint, "tls://")
-	if _, _, err := net.SplitHostPort(endpoint); err != nil {
-		return nil, fmt.Errorf("syslog: invalid endpoint %q: %w", endpoint, err)
-	}
-	host, _ := os.Hostname()
+	hn, _ := os.Hostname()
 	return &SyslogStreamer{
-		endpoint: endpoint,
+		endpoint: hostPort,
 		tlsCfg:   tlsCfg,
-		hostname: nilToHyphen(host),
+		hostname: nilToHyphen(hn),
 		pid:      strconv.Itoa(os.Getpid()),
 	}, nil
 }
 
+// parseSyslogEndpoint normalises an operator-supplied endpoint string
+// into (host:port, host, err). Accepts bare `host:port` and the
+// optional `tls://` scheme. Rejects plain `tcp://` so deployments
+// can't accidentally downgrade.
+func parseSyslogEndpoint(endpoint string) (hostPort, host string, err error) {
+	if endpoint == "" {
+		return "", "", errors.New("syslog: empty endpoint")
+	}
+	if strings.HasPrefix(endpoint, "tcp://") {
+		return "", "", errors.New("syslog: plain tcp:// is not supported, use TLS-only host:port")
+	}
+	endpoint = strings.TrimPrefix(endpoint, "tls://")
+	h, _, err := net.SplitHostPort(endpoint)
+	if err != nil {
+		return "", "", fmt.Errorf("syslog: invalid endpoint %q: %w", endpoint, err)
+	}
+	return endpoint, h, nil
+}
+
 // Push writes every event in batch in order. The whole batch fails on
 // the first write error so the worker re-pushes the same batch after
-// re-connecting; receivers dedupe by event_id.
+// re-connecting; receivers dedupe by event_id. Empty batch is a no-op
+// (does NOT open a connection).
 func (s *SyslogStreamer) Push(ctx context.Context, batch []Event) error {
+	if len(batch) == 0 {
+		return nil
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
