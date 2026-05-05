@@ -154,6 +154,57 @@ func (s *Service) AuditRetentionOperationalDays(ctx context.Context, q database.
 	return s.intWithDefault(ctx, q, "audit.retention.operational_days", 90)
 }
 
+// AuditStreamBackend returns the configured outbound streamer backend.
+// One of "none" (default — streaming disabled), "syslog" (RFC 5424 over
+// TCP+TLS), or "otlp" (OTLP HTTP/JSON). Unknown values return "none"
+// with a fmt-wrapped error so the boot path can log + continue.
+func (s *Service) AuditStreamBackend(ctx context.Context, q database.Querier) (string, error) {
+	v, err := s.stringWithDefault(ctx, q, "audit.stream.backend", "none")
+	if err != nil {
+		return "none", err
+	}
+	switch v {
+	case "none", "syslog", "otlp":
+		return v, nil
+	default:
+		return "none", fmt.Errorf("instance_config: invalid audit.stream.backend %q", v)
+	}
+}
+
+// AuditStreamEndpoint returns the SIEM endpoint URL. For syslog this is
+// `host:port` (TLS is mandatory and assumed; see syslog streamer);
+// for OTLP this is a full https:// URL terminating at the receiver.
+func (s *Service) AuditStreamEndpoint(ctx context.Context, q database.Querier) (string, error) {
+	return s.stringWithDefault(ctx, q, "audit.stream.endpoint", "")
+}
+
+// AuditStreamTokenRef returns the bearer token sent on OTLP requests
+// when non-empty. Plain literal for now — secret-store resolution is
+// out of scope for M8.
+func (s *Service) AuditStreamTokenRef(ctx context.Context, q database.Querier) (string, error) {
+	return s.stringWithDefault(ctx, q, "audit.stream.token_ref", "")
+}
+
+// AuditStreamPollSecs returns the watermark-poll worker tick interval
+// in seconds. Floors at 1; defaults to 5.
+func (s *Service) AuditStreamPollSecs(ctx context.Context, q database.Querier) (int, error) {
+	return s.intWithDefault(ctx, q, "audit.stream.poll_secs", 5)
+}
+
+// AuditStreamBatchSize returns the maximum events per push. Floors at 1,
+// caps at 1000 silently (a runaway value would balloon receiver memory);
+// defaults to 100.
+func (s *Service) AuditStreamBatchSize(ctx context.Context, q database.Querier) (int, error) {
+	v, err := s.intWithDefault(ctx, q, "audit.stream.batch_size", 100)
+	if err != nil {
+		return 100, err
+	}
+	if v > 1000 {
+		return 1000, nil
+	}
+	return v, nil
+}
+
 func (s *Service) AuditColdTierBackend(ctx context.Context, q database.Querier) (string, error) {
 	v, err := s.stringWithDefault(ctx, q, "audit.cold_tier.backend", "same_as_anchor")
 	if err != nil {

@@ -74,3 +74,4 @@ web/test-results/
 # Local milestone tracker on long-lived feature branches. Never travels
 # to main on squash-merge — subagents read + update it during work.
 internal/audit/MILESTONE.md
+internal/audit/CRITICAL_PROPAGATION.md

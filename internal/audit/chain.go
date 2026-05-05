@@ -143,6 +143,7 @@ func (c *Chain) Append(ctx context.Context, tx pgx.Tx, s *Store, e Event) error 
 
 	spec, ok := Lookup(e.EventType)
 	if !ok {
+		IncWriteFailure(e.EventType)
 		return fmt.Errorf("%w: %q", ErrUnknownEventType, e.EventType)
 	}
 
@@ -335,6 +336,7 @@ func (c *Chain) Append(ctx context.Context, tx pgx.Tx, s *Store, e Event) error 
 		rowHash,
 		string(retentionBucket),
 	); err != nil {
+		IncWriteFailure(e.EventType)
 		return fmt.Errorf("chain: insert: %w", err)
 	}
 

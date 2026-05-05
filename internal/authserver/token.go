@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
@@ -184,6 +185,10 @@ func (h *TokenHandler) handleAuthorizationCode(w http.ResponseWriter, r *http.Re
 
 	if row.ClientID != client.ID {
 		// Theft indicator — code was issued for a different client. Burned by ConsumeOnce above.
+		// REQ-AUD-060: oidc.code.client_mismatch is critical. Audit-write
+		// failure aborts the tx (rollback unburns the code) and surfaces
+		// as 500 so the client retries, this time durably recording the
+		// theft indicator.
 		if auditErr := h.auditStore.Emit(r.Context(), tx, audit.Event{
 			EventType:  "oidc.code.client_mismatch",
 			ActorID:    &row.UserID,
@@ -196,6 +201,8 @@ func (h *TokenHandler) handleAuthorizationCode(w http.ResponseWriter, r *http.Re
 			Metadata:   map[string]any{"family_id": row.FamilyID.String()},
 		}); auditErr != nil {
 			slog.Error("token: client_mismatch audit", "error", auditErr)
+			writeTokenError(w, http.StatusInternalServerError, "server_error", "Audit write failed.")
+			return
 		}
 		if err := tx.Commit(r.Context()); err != nil {
 			writeTokenError(w, http.StatusInternalServerError, "server_error", "Could not commit.")
@@ -206,6 +213,8 @@ func (h *TokenHandler) handleAuthorizationCode(w http.ResponseWriter, r *http.Re
 	}
 
 	if row.RedirectURI != redirectURI {
+		// REQ-AUD-060: oidc.code.redirect_mismatch is critical — same
+		// fail-closed contract as client_mismatch above.
 		if auditErr := h.auditStore.Emit(r.Context(), tx, audit.Event{
 			EventType:  "oidc.code.redirect_mismatch",
 			ActorID:    &row.UserID,
@@ -218,6 +227,8 @@ func (h *TokenHandler) handleAuthorizationCode(w http.ResponseWriter, r *http.Re
 			Metadata:   map[string]any{"family_id": row.FamilyID.String()},
 		}); auditErr != nil {
 			slog.Error("token: redirect_mismatch audit", "error", auditErr)
+			writeTokenError(w, http.StatusInternalServerError, "server_error", "Audit write failed.")
+			return
 		}
 		if err := tx.Commit(r.Context()); err != nil {
 			writeTokenError(w, http.StatusInternalServerError, "server_error", "Could not commit.")
@@ -228,6 +239,8 @@ func (h *TokenHandler) handleAuthorizationCode(w http.ResponseWriter, r *http.Re
 	}
 
 	if !oidc.VerifyPKCE(row.CodeChallenge, codeVerifier) {
+		// REQ-AUD-060: oidc.code.pkce_mismatch is critical — same
+		// fail-closed contract as client_mismatch above.
 		if auditErr := h.auditStore.Emit(r.Context(), tx, audit.Event{
 			EventType:  "oidc.code.pkce_mismatch",
 			ActorID:    &row.UserID,
@@ -240,6 +253,8 @@ func (h *TokenHandler) handleAuthorizationCode(w http.ResponseWriter, r *http.Re
 			Metadata:   map[string]any{"family_id": row.FamilyID.String()},
 		}); auditErr != nil {
 			slog.Error("token: pkce_mismatch audit", "error", auditErr)
+			writeTokenError(w, http.StatusInternalServerError, "server_error", "Audit write failed.")
+			return
 		}
 		if err := tx.Commit(r.Context()); err != nil {
 			writeTokenError(w, http.StatusInternalServerError, "server_error", "Could not commit.")
@@ -478,6 +493,9 @@ func (h *TokenHandler) handleCodeReplay(r *http.Request, w http.ResponseWriter, 
 		return
 	}
 	defer func() { _ = tx.Rollback(r.Context()) }()
+	// REQ-AUD-060: oidc.code.replay_detected is critical. If the audit
+	// row fails to land, return 500 — the family revoke is idempotent so
+	// a retry will re-detect the replay and try the audit write again.
 	if err := h.auditStore.Emit(r.Context(), tx, audit.Event{
 		EventType:  "oidc.code.replay_detected",
 		TargetType: "authorization_code",
@@ -486,9 +504,13 @@ func (h *TokenHandler) handleCodeReplay(r *http.Request, w http.ResponseWriter, 
 		Metadata:   map[string]any{"family_id": familyID.String()},
 	}); err != nil {
 		slog.Error("token: replay audit log", "error", err)
+		writeTokenError(w, http.StatusInternalServerError, "server_error", "Audit write failed.")
+		return
 	}
 	if err := tx.Commit(r.Context()); err != nil {
 		slog.Error("token: replay audit commit", "error", err)
+		writeTokenError(w, http.StatusInternalServerError, "server_error", "Audit commit failed.")
+		return
 	}
 	writeTokenError(w, http.StatusBadRequest, "invalid_grant", "Code already used.")
 }
@@ -532,6 +554,30 @@ func (h *TokenHandler) writeBestEffortAudit(r *http.Request, event audit.Event) 
 	if err := tx.Commit(r.Context()); err != nil {
 		slog.Error("token best-effort audit: commit", "error", err)
 	}
+}
+
+// writeCriticalAudit is the REQ-AUD-060 sibling of writeBestEffortAudit:
+// it returns the error to the caller so the originating op can fail
+// closed. Used for events whose registry entry has IsCritical=true and
+// whose primary tx already committed (so the audit row needs its own
+// short-lived tx). Failure modes the caller MUST handle:
+//   - begin failed → caller returns 500.
+//   - emit failed → caller returns 500. The state mutation that
+//     triggered this audit MUST be reversible or idempotent on retry,
+//     otherwise a fresh tx is required to roll the mutation back.
+func (h *TokenHandler) writeCriticalAudit(r *http.Request, event audit.Event) error {
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		return fmt.Errorf("critical audit: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(r.Context()) }()
+	if err := h.auditStore.Emit(r.Context(), tx, event); err != nil {
+		return fmt.Errorf("critical audit: emit: %w", err)
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		return fmt.Errorf("critical audit: commit: %w", err)
+	}
+	return nil
 }
 
 // handleRefreshToken: OAuth 2.1 §6 rotate-on-every-use. Each rotation
@@ -590,7 +636,11 @@ func (h *TokenHandler) handleRefreshToken(w http.ResponseWriter, r *http.Request
 			if err := h.refreshStore.RevokeFamily(r.Context(), oldPayload.FamilyID); err != nil {
 				slog.Error("token refresh: RevokeFamily on reuse", "error", err)
 			}
-			h.writeBestEffortAudit(r, audit.Event{
+			// REQ-AUD-060: oidc.refresh.reuse_detected is critical. Open
+			// our own tx for the audit row and fail closed if it can't
+			// land — RevokeFamily is idempotent on Valkey, so a 500 →
+			// retry simply re-revokes and re-tries the audit write.
+			if err := h.writeCriticalAudit(r, audit.Event{
 				EventType:  "oidc.refresh.reuse_detected",
 				ActorID:    uuidPtr(oldPayload.UserID),
 				TargetType: "client",
@@ -599,7 +649,11 @@ func (h *TokenHandler) handleRefreshToken(w http.ResponseWriter, r *http.Request
 				IPAddress:  extractClientIP(r),
 				Outcome:    "failure",
 				Metadata:   map[string]any{"family_id": oldPayload.FamilyID},
-			})
+			}); err != nil {
+				slog.Error("token refresh: reuse_detected audit", "error", err)
+				writeTokenError(w, http.StatusInternalServerError, "server_error", "Audit write failed.")
+				return
+			}
 		}
 		writeTokenError(w, http.StatusBadRequest, "invalid_grant", "Refresh token already used (family revoked).")
 		return

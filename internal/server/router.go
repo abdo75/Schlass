@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
 
 	"github.com/abdo75/Schlass/internal/audit"
@@ -149,6 +150,9 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", healthHandler.GetHealth)
+	// /metrics is unauthenticated by design — operators expose it on a
+	// management network only. M8 audit_*_total counters live here.
+	mux.Handle("GET /metrics", promhttp.Handler())
 	mux.Handle("GET /api/setup", setupGetRL.Middleware(http.HandlerFunc(setupHandler.GetSetup)))
 	mux.Handle("POST /api/setup", setupPostRL.Middleware(http.HandlerFunc(setupHandler.PostSetup)))
 

@@ -152,6 +152,8 @@ func resetState(t *testing.T, migrPool *pgxpool.Pool) {
 	_, err := migrPool.Exec(context.Background(), `
 		TRUNCATE TABLE
 			audit_anchors,
+			audit_stream_state,
+			audit_stream_dlq,
 			audit_logs,
 			totp_recovery_codes,
 			users,
