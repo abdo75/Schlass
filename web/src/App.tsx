@@ -22,6 +22,7 @@ import { SettingsPage } from "@/features/settings/SettingsPage";
 import { AuditPage } from "@/features/audit/AuditPage";
 import { ForgotPasswordPage } from "@/features/auth/ForgotPasswordPage";
 import { ResetPasswordPage } from "@/features/auth/ResetPasswordPage";
+import { Toaster } from "@/components/ui/sonner";
 
 // GET /api/setup returns 200 when setup is incomplete (with a body) and 404
 // when setup is complete — matches the existing setup handler contract.
@@ -75,6 +76,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
+        <Toaster position="bottom-right" />
         <Routes>
           <Route path="/setup" element={<SetupPage />} />
           <Route

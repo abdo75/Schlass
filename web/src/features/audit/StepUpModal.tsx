@@ -32,6 +32,18 @@ export function StepUpModal({ open, onCancel, onVerified }: Props) {
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [open, onCancel]);
 
+  // Reset on (re)open. The component renders null while closed but state
+  // survives the null-render, so without this, a previously typed code or
+  // stale error would re-appear next time the modal opens.
+  useEffect(() => {
+    if (open) {
+      setCode("");
+      setRecoveryCode("");
+      setError("");
+      setRecoveryMode(false);
+    }
+  }, [open]);
+
   if (!open) return null;
 
   async function submit(event: FormEvent) {

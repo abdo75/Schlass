@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ActorPicker } from "./ActorPicker";
 import { AuditTimePicker } from "./AuditTimePicker";
 import { EventTypePicker } from "./EventTypePicker";
+import { Pill } from "./Pill";
 import { TargetPicker } from "./TargetPicker";
 import { useOutsideClick } from "./useOutsideClick";
+import { usePickerFetch } from "./usePickerFetch";
 import type { AuditState, TargetsResponse } from "./types";
 import { stateToParams } from "./useUrlState";
 
@@ -16,6 +18,11 @@ const POPOVER_IDS: Record<Exclude<Picker, null>, { id: string; popup: "dialog" }
   target: { id: "audit-target-popover", popup: "dialog" },
   "event-type": { id: "audit-event-type-popover", popup: "dialog" },
 };
+
+function isTargetsResponse(body: unknown): body is TargetsResponse {
+  if (!body || typeof body !== "object") return false;
+  return Array.isArray((body as { items?: unknown }).items);
+}
 
 export function AuditFilterBar({
   state,
@@ -29,22 +36,32 @@ export function AuditFilterBar({
   const [targetDisplay, setTargetDisplay] = useState<string | null>(null);
   const hasRefinements = Boolean(state.actor || state.target_type || state.target_id || state.event_types?.length || state.outcome || state.q);
 
-  // When URL state has a target_id but we don't know the display label yet (e.g.
-  // page just loaded from a shareable URL), fetch it once.
+  const hydrated = useRef(false);
+  // Hydrate the target display label exactly once when the URL arrives with
+  // both target_type and target_id but no remembered display string. The
+  // `hydrated` ref guard runs inside the effect (refs cannot be read in
+  // render). The fetch is gated by the URL state alone — usePickerFetch
+  // dedupes by query, so a redundant skip=false on a re-mount is harmless.
+  const needsLookup = Boolean(state.target_type && state.target_id && !targetDisplay);
+  const hydrateParams = useMemo(() => {
+    const p = stateToParams({ ...state, target_type: undefined, target_id: undefined, page: 1 });
+    if (state.target_type) p.set("type", state.target_type);
+    return p;
+  }, [state]);
+  const hydrate = usePickerFetch<TargetsResponse>("/api/audit/targets", hydrateParams, {
+    skip: !needsLookup,
+    validate: isTargetsResponse,
+  });
+
   useEffect(() => {
-    if (!state.target_type || !state.target_id || targetDisplay) return;
-    const controller = new AbortController();
-    const params = stateToParams({ ...state, target_type: undefined, target_id: undefined, page: 1 });
-    params.set("type", state.target_type);
-    fetch(`/api/audit/targets?${params}`, { signal: controller.signal })
-      .then((res) => (res.ok ? res.json() : Promise.reject(new Error("targets fetch failed"))))
-      .then((body: TargetsResponse) => {
-        const match = body.items.find((it) => it.target_id === state.target_id);
-        if (match) setTargetDisplay(match.display);
-      })
-      .catch(() => undefined);
-    return () => controller.abort();
-  }, [state, targetDisplay]);
+    if (hydrated.current || !needsLookup || !hydrate.data) return;
+    const match = hydrate.data.items.find(
+      (it) => it.target_id === state.target_id && (it.target_type ?? state.target_type) === state.target_type,
+    );
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (match) setTargetDisplay(match.display);
+    hydrated.current = true;
+  }, [needsLookup, hydrate.data, state.target_id, state.target_type]);
 
   function patch(next: Partial<AuditState>) {
     onChange({ ...next, page: 1 });
@@ -58,13 +75,15 @@ export function AuditFilterBar({
         active={open === "time"}
         onClose={() => setOpen(null)}
         chip={
-          <Opener
-            label={state.until ? t("audit.timepicker.customRange") : presetLabel(state.since, t)}
+          <Pill
+            variant="dashed"
             active={open === "time"}
             popoverId={POPOVER_IDS.time.id}
             popup={POPOVER_IDS.time.popup}
             onClick={() => setOpen(open === "time" ? null : "time")}
-          />
+          >
+            {state.until ? t("audit.timepicker.customRange") : presetLabel(state.since, t)}
+          </Pill>
         }
       >
         {open === "time" && (
@@ -82,19 +101,28 @@ export function AuditFilterBar({
         active={open === "actor"}
         onClose={() => setOpen(null)}
         chip={
-          state.actor ? (
-            <ActiveChip
-              label={`${t("audit.panel.actor")}: ${state.actor === "system" ? t("audit.panel.system") : state.actor}`}
-              onClear={() => patch({ actor: undefined })}
-            />
-          ) : (
-            <Opener
-              label={t("audit.refine.actorOpener")}
+          state.actor ? (() => {
+            const label = `${t("audit.panel.actor")}: ${state.actor === "system" ? t("audit.panel.system") : state.actor}`;
+            return (
+              <Pill
+                variant="active"
+                title={t("audit.refine.clearTitle")}
+                ariaLabel={t("audit.refine.clearFilterAria", { label })}
+                onClick={() => patch({ actor: undefined })}
+              >
+                {label}
+              </Pill>
+            );
+          })() : (
+            <Pill
+              variant="dashed"
               active={open === "actor"}
               popoverId={POPOVER_IDS.actor.id}
               popup={POPOVER_IDS.actor.popup}
               onClick={() => setOpen(open === "actor" ? null : "actor")}
-            />
+            >
+              {t("audit.refine.actorOpener")}
+            </Pill>
           )
         }
       >
@@ -114,30 +142,35 @@ export function AuditFilterBar({
         onClose={() => setOpen(null)}
         chip={
           state.target_type ? (
-            <ActiveChip
-              label={
-                state.target_id
-                  ? t("audit.refine.targetChipFull", {
-                      type: t(`audit.panel.targetTypeLabel.${state.target_type}`, { defaultValue: state.target_type }),
-                      display: targetDisplay ?? t("audit.refine.targetChipSelected"),
-                    })
-                  : t("audit.refine.targetChipType", {
-                      type: t(`audit.panel.targetTypeLabel.${state.target_type}`, { defaultValue: state.target_type }),
-                    })
-              }
-              onClear={() => {
+            <Pill
+              variant="active"
+              title={t("audit.refine.clearTitle")}
+              ariaLabel={t("audit.refine.clearFilterAria", { label: state.target_type })}
+              onClick={() => {
                 patch({ target_type: undefined, target_id: undefined });
                 setTargetDisplay(null);
+                hydrated.current = false;
               }}
-            />
+            >
+              {state.target_id
+                ? t("audit.refine.targetChipFull", {
+                    type: t(`audit.panel.targetTypeLabel.${state.target_type}`, { defaultValue: state.target_type }),
+                    display: targetDisplay ?? t("audit.refine.targetChipSelected"),
+                  })
+                : t("audit.refine.targetChipType", {
+                    type: t(`audit.panel.targetTypeLabel.${state.target_type}`, { defaultValue: state.target_type }),
+                  })}
+            </Pill>
           ) : (
-            <Opener
-              label={t("audit.refine.targetOpener")}
+            <Pill
+              variant="dashed"
               active={open === "target"}
               popoverId={POPOVER_IDS.target.id}
               popup={POPOVER_IDS.target.popup}
               onClick={() => setOpen(open === "target" ? null : "target")}
-            />
+            >
+              {t("audit.refine.targetOpener")}
+            </Pill>
           )
         }
       >
@@ -147,6 +180,7 @@ export function AuditFilterBar({
             onSelect={(target) => {
               patch({ target_type: target.target_type, target_id: target.target_id });
               setTargetDisplay(target.display ?? null);
+              hydrated.current = true;
               setOpen(null);
             }}
           />
@@ -158,23 +192,26 @@ export function AuditFilterBar({
         onClose={() => setOpen(null)}
         chip={
           state.event_types?.length ? (
-            // Multi-select: click re-opens picker; clearing happens via the
-            // picker's Clear button (single-value chips below clear on click).
-            <ActiveOpener
-              label={t("audit.refine.eventTypeCountChip", { count: state.event_types.length })}
+            <Pill
+              variant="openerActive"
               active={open === "event-type"}
               popoverId={POPOVER_IDS["event-type"].id}
               popup={POPOVER_IDS["event-type"].popup}
+              title={t("audit.refine.editSelectionTitle")}
               onClick={() => setOpen(open === "event-type" ? null : "event-type")}
-            />
+            >
+              {t("audit.refine.eventTypeCountChip", { count: state.event_types.length })}
+            </Pill>
           ) : (
-            <Opener
-              label={t("audit.refine.eventTypeOpener")}
+            <Pill
+              variant="dashed"
               active={open === "event-type"}
               popoverId={POPOVER_IDS["event-type"].id}
               popup={POPOVER_IDS["event-type"].popup}
               onClick={() => setOpen(open === "event-type" ? null : "event-type")}
-            />
+            >
+              {t("audit.refine.eventTypeOpener")}
+            </Pill>
           )
         }
       >
@@ -190,10 +227,14 @@ export function AuditFilterBar({
       </PickerSlot>
 
       {state.outcome && (
-        <ActiveChip
-          label={t("audit.refine.outcomeChip", { outcome: t(`audit.timeline.outcome.${state.outcome}`, { defaultValue: state.outcome }) })}
-          onClear={() => patch({ outcome: undefined })}
-        />
+        <Pill
+          variant="active"
+          title={t("audit.refine.clearTitle")}
+          ariaLabel={t("audit.refine.clearFilterAria", { label: state.outcome })}
+          onClick={() => patch({ outcome: undefined })}
+        >
+          {t("audit.refine.outcomeChip", { outcome: t(`audit.timeline.outcome.${state.outcome}`, { defaultValue: state.outcome }) })}
+        </Pill>
       )}
 
       {hasRefinements && (
@@ -203,6 +244,7 @@ export function AuditFilterBar({
           onClick={() => {
             patch({ actor: undefined, target_type: undefined, target_id: undefined, event_types: undefined, outcome: undefined, q: undefined });
             setTargetDisplay(null);
+            hydrated.current = false;
           }}
         >
           {t("audit.refine.clear")}
@@ -230,77 +272,6 @@ function PickerSlot({
       {chip}
       {children}
     </span>
-  );
-}
-
-function Opener({
-  label,
-  active,
-  popoverId,
-  popup,
-  onClick,
-}: {
-  label: string;
-  active: boolean;
-  popoverId: string;
-  popup: "dialog" | "listbox" | "menu";
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      aria-expanded={active}
-      aria-haspopup={popup}
-      aria-controls={popoverId}
-      className="rounded-full border border-dashed border-border bg-background px-3 py-1.5 text-xs font-medium text-muted-foreground hover:border-primary/40 hover:text-foreground"
-      onClick={onClick}
-    >
-      {label}
-    </button>
-  );
-}
-
-function ActiveChip({ label, onClear }: { label: string; onClear: () => void }) {
-  const { t } = useTranslation();
-  return (
-    <button
-      type="button"
-      title={t("audit.refine.clearTitle")}
-      aria-label={t("audit.refine.clearFilterAria", { label })}
-      className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-accent px-3 py-1.5 text-xs font-medium text-accent-foreground transition-colors hover:bg-accent/70"
-      onClick={onClear}
-    >
-      {label}
-    </button>
-  );
-}
-
-function ActiveOpener({
-  label,
-  active,
-  popoverId,
-  popup,
-  onClick,
-}: {
-  label: string;
-  active: boolean;
-  popoverId: string;
-  popup: "dialog" | "listbox" | "menu";
-  onClick: () => void;
-}) {
-  const { t } = useTranslation();
-  return (
-    <button
-      type="button"
-      aria-expanded={active}
-      aria-haspopup={popup}
-      aria-controls={popoverId}
-      title={t("audit.refine.editSelectionTitle")}
-      className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-accent px-3 py-1.5 text-xs font-medium text-accent-foreground transition-colors hover:bg-accent/70"
-      onClick={onClick}
-    >
-      {label}
-    </button>
   );
 }
 

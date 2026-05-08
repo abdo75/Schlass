@@ -1,7 +1,6 @@
-import type React from "react";
 import { useTranslation } from "react-i18next";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { cn } from "@/lib/utils";
+import { OutcomeChip } from "./AuditPanelHelpers";
 import { renderSentence, severity } from "./catalog";
 import type { AuditItem, ListResponse, Outcome } from "./types";
 
@@ -94,13 +93,7 @@ function TimelineRow({
       }}
     >
       <TableCell className="px-4 py-3">
-        <OutcomeChip
-          outcome={item.outcome}
-          onClick={onOutcomeFilter ? (event) => {
-            event.stopPropagation();
-            onOutcomeFilter(item.outcome);
-          } : undefined}
-        />
+        <OutcomeChip outcome={item.outcome} variant="timeline" onFilter={onOutcomeFilter} />
       </TableCell>
       <TableCell className="px-4 py-3 text-xs text-muted-foreground">{formatRelative(item.created_at, locale)}</TableCell>
       <TableCell className="min-w-[280px] whitespace-normal px-4 py-3 text-sm">
@@ -143,33 +136,6 @@ function TimelineRow({
         )}
       </TableCell>
     </TableRow>
-  );
-}
-
-function OutcomeChip({ outcome, onClick }: { outcome: AuditItem["outcome"]; onClick?: React.MouseEventHandler<HTMLButtonElement> }) {
-  const { t } = useTranslation();
-  const ok = outcome === "success";
-  const denied = outcome === "denied";
-  const className = cn(
-    "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold",
-    ok ? "bg-accent text-accent-foreground" : denied ? "bg-warning text-warning-foreground" : "bg-destructive/10 text-destructive",
-    onClick && "hover:ring-1 hover:ring-current",
-  );
-  const label = t(`audit.timeline.outcome.${outcome}`, { defaultValue: outcome });
-  const content = (
-    <>
-      <span className={cn("size-1.5 rounded-full", ok ? "bg-primary" : denied ? "bg-warning-border" : "bg-destructive")} />
-      {label}
-    </>
-  );
-  return onClick ? (
-    <button type="button" className={className} onClick={onClick}>{content}</button>
-  ) : (
-    <span
-      className={className}
-    >
-      {content}
-    </span>
   );
 }
 

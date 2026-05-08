@@ -1,24 +1,53 @@
 import type React from "react";
 import { useTranslation } from "react-i18next";
+import { cn } from "@/lib/utils";
 import type { AuditItem, Outcome } from "./types";
 
-export function OutcomeChip({ outcome, onFilter }: { outcome: Outcome; onFilter?: (outcome: Outcome) => void }) {
+export function OutcomeChip({
+  outcome,
+  variant = "panel",
+  onFilter,
+}: {
+  outcome: Outcome;
+  variant?: "panel" | "timeline";
+  onFilter?: (outcome: Outcome) => void;
+}) {
   const { t } = useTranslation();
   const label = t(`audit.timeline.outcome.${outcome}`, { defaultValue: outcome });
+  const isTimeline = variant === "timeline";
+  const ok = outcome === "success";
+  const denied = outcome === "denied";
+  const className = isTimeline
+    ? cn(
+        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold",
+        ok ? "bg-accent text-accent-foreground" : denied ? "bg-warning text-warning-foreground" : "bg-destructive/10 text-destructive",
+        onFilter && "hover:ring-1 hover:ring-current",
+      )
+    : `outcome outcome--${outcome}${onFilter ? " outcome--button" : ""}`;
+  const dot = isTimeline ? (
+    <span className={cn("size-1.5 rounded-full", ok ? "bg-primary" : denied ? "bg-warning-border" : "bg-destructive")} />
+  ) : (
+    <span className="outcome-dot" aria-hidden="true" />
+  );
   const content = (
     <>
-      <span className="outcome-dot" aria-hidden="true" />
+      {dot}
       {label}
     </>
   );
   return onFilter ? (
-    <button type="button" className={`outcome outcome--${outcome} outcome--button`} onClick={() => onFilter(outcome)}>
+    <button
+      type="button"
+      className={className}
+      onClick={(event) => {
+        event.stopPropagation();
+        onFilter(outcome);
+      }}
+    >
       {content}
     </button>
   ) : (
-    <span className={`outcome outcome--${outcome}`}>
-      {content}
-    </span>
+    <span className={className}>{content}</span>
   );
 }
 
@@ -101,16 +130,14 @@ export function ParticipantsSection({
             <dt>{targetLabel}</dt>
             <dd>
               {onTargetFilter && event.target_type && event.target_id ? (
-                <a
-                  href={`?target_type=${encodeURIComponent(event.target_type)}&target_id=${encodeURIComponent(event.target_id)}`}
+                <TargetLink
+                  targetType={event.target_type}
+                  targetId={event.target_id}
                   className="panel-fact-link"
-                  onClick={(click) => {
-                    click.preventDefault();
-                    onTargetFilter({ target_type: event.target_type!, target_id: event.target_id! });
-                  }}
+                  onActivate={onTargetFilter}
                 >
                   {targetDisplay}
-                </a>
+                </TargetLink>
               ) : (
                 <span className={!event.target_id ? "is-system" : undefined}>{targetDisplay}</span>
               )}
@@ -120,16 +147,13 @@ export function ParticipantsSection({
                 <dt>{t("audit.panel.targetType")}</dt>
                 <dd>
                   {onTargetTypeFilter && event.target_type ? (
-                    <a
-                      href={`?target_type=${encodeURIComponent(event.target_type)}`}
+                    <TargetTypeLink
+                      targetType={event.target_type}
                       className="panel-fact-link"
-                      onClick={(click) => {
-                        click.preventDefault();
-                        onTargetTypeFilter(event.target_type!);
-                      }}
+                      onActivate={onTargetTypeFilter}
                     >
                       {targetTypeLabel}
-                    </a>
+                    </TargetTypeLink>
                   ) : targetTypeLabel}
                 </dd>
               </>
@@ -178,20 +202,70 @@ export function TechnicalDetails({
       <dl className="panel-tech-row"><dt>{t("audit.panel.actorId")}</dt><dd>{event.actor_id ?? "-"}</dd></dl>
       {event.target_id && <dl className="panel-tech-row"><dt>{t("audit.panel.targetId")}</dt><dd>
         {onTargetFilter && event.target_type ? (
-          <a
-            href={`?target_type=${encodeURIComponent(event.target_type)}&target_id=${encodeURIComponent(event.target_id)}`}
+          <TargetLink
+            targetType={event.target_type}
+            targetId={event.target_id}
             className="panel-fact-link"
-            onClick={(click) => {
-              click.preventDefault();
-              onTargetFilter({ target_type: event.target_type!, target_id: event.target_id! });
-            }}
+            onActivate={onTargetFilter}
           >
             {event.target_id}
-          </a>
+          </TargetLink>
         ) : event.target_id}
       </dd></dl>}
       <dl className="panel-tech-row"><dt>{t("audit.panel.recordedAt")}</dt><dd>{formatLocalDateTime(event.created_at, i18n.language)}</dd></dl>
     </section>
+  );
+}
+
+function TargetLink({
+  targetType,
+  targetId,
+  className,
+  onActivate,
+  children,
+}: {
+  targetType: string;
+  targetId: string;
+  className?: string;
+  onActivate: (target: { target_type: string; target_id: string }) => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <a
+      href={`?target_type=${encodeURIComponent(targetType)}&target_id=${encodeURIComponent(targetId)}`}
+      className={className}
+      onClick={(click) => {
+        click.preventDefault();
+        onActivate({ target_type: targetType, target_id: targetId });
+      }}
+    >
+      {children}
+    </a>
+  );
+}
+
+function TargetTypeLink({
+  targetType,
+  className,
+  onActivate,
+  children,
+}: {
+  targetType: string;
+  className?: string;
+  onActivate: (targetType: string) => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <a
+      href={`?target_type=${encodeURIComponent(targetType)}`}
+      className={className}
+      onClick={(click) => {
+        click.preventDefault();
+        onActivate(targetType);
+      }}
+    >
+      {children}
+    </a>
   );
 }
 

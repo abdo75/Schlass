@@ -1,31 +1,25 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ActorsResponse, AuditState } from "./types";
 import { stateToParams } from "./useUrlState";
+import { usePickerFetch } from "./usePickerFetch";
+
+function isActorsResponse(body: unknown): body is ActorsResponse {
+  if (!body || typeof body !== "object") return false;
+  const c = body as { users?: unknown; system_count?: unknown };
+  return Array.isArray(c.users);
+}
 
 export function ActorPicker({ state, onSelect }: { state: AuditState; onSelect: (actor: string) => void }) {
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
-  const [data, setData] = useState<ActorsResponse>({ users: [], system_count: 0 });
-
-  useEffect(() => {
-    const controller = new AbortController();
-    const params = stateToParams({ ...state, actor: undefined, page: 1 });
-    fetch(`/api/audit/actors?${params}`, { signal: controller.signal })
-      .then((res) => (res.ok ? res.json() : Promise.reject(new Error("actor fetch failed"))))
-      .then((body: ActorsResponse) =>
-        setData({ users: body.users ?? [], system_count: body.system_count ?? 0 }),
-      )
-      .catch((err: Error) => {
-        if (err.name !== "AbortError") setData({ users: [], system_count: 0 });
-      });
-    return () => controller.abort();
-  }, [state]);
+  const params = useMemo(() => stateToParams({ ...state, actor: undefined, page: 1 }), [state]);
+  const fetched = usePickerFetch<ActorsResponse>("/api/audit/actors", params, { validate: isActorsResponse });
+  const data = fetched.data ?? { users: [], system_count: 0 };
 
   const users = useMemo(() => {
-    const list = data.users ?? [];
     const needle = query.toLowerCase();
-    return list.filter((user) => user.actor_email.toLowerCase().includes(needle));
+    return (data.users ?? []).filter((user) => user.actor_email.toLowerCase().includes(needle));
   }, [data.users, query]);
 
   return (
@@ -55,7 +49,9 @@ export function ActorPicker({ state, onSelect }: { state: AuditState; onSelect: 
             <span className="ml-3 text-xs text-muted-foreground">{user.count}</span>
           </button>
         ))}
-        {users.length === 0 && data.system_count === 0 && <div className="px-2 py-6 text-center text-sm text-muted-foreground">{t("audit.actorPicker.empty")}</div>}
+        {users.length === 0 && data.system_count === 0 && !fetched.loading && (
+          <div className="px-2 py-6 text-center text-sm text-muted-foreground">{t("audit.actorPicker.empty")}</div>
+        )}
       </div>
     </div>
   );

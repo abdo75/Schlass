@@ -1,12 +1,19 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { toast } from "sonner";
 import { ExportMenu } from "./ExportMenu";
 import type { AuditState } from "./types";
+
+vi.mock("sonner", () => ({
+  toast: { success: vi.fn(), error: vi.fn() },
+}));
 
 const state: AuditState = { view: "all", since: "24h", page: 1, pageSize: 25 };
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.mocked(toast.success).mockReset();
+  vi.mocked(toast.error).mockReset();
 });
 
 describe("ExportMenu", () => {
@@ -46,7 +53,7 @@ describe("ExportMenu", () => {
     expect(screen.getByRole("menuitem", { name: "CAEP SET" })).toBeInTheDocument();
   });
 
-  it("downloads a .tar.gz bundle and shows manifest confirmation", async () => {
+  it("downloads a .tar.gz bundle and toasts success", async () => {
     vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:bundle");
     vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
     vi.spyOn(document.body, "append");
@@ -59,7 +66,22 @@ describe("ExportMenu", () => {
     fireEvent.click(screen.getByRole("button", { name: /Export/i }));
     fireEvent.click(screen.getByRole("menuitem", { name: "CSV" }));
 
-    expect(await screen.findByRole("status")).toHaveTextContent("Bundle includes manifest.json with chain proof");
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Export ready."));
+  });
+
+  it("toasts an error and re-enables the trigger when the export call fails", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: "INTERNAL", message: "Disk full" }), { status: 500 }),
+    );
+
+    render(<ExportMenu state={state} />);
+    fireEvent.click(screen.getByRole("button", { name: /Export/i }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "CSV" }));
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    expect(vi.mocked(toast.error).mock.calls[0][0]).toMatch(/Export failed/);
+    // Trigger should re-enable after the failure resolves.
+    await waitFor(() => expect(screen.getByRole("button", { name: /Export/i })).not.toBeDisabled());
   });
 
   it("sends format=caep when CAEP SET is clicked", async () => {

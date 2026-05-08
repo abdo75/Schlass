@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { AuditState, TargetBucket, TargetsResponse } from "./types";
+import type { AuditState, TargetsResponse } from "./types";
 import { stateToParams } from "./useUrlState";
+import { usePickerFetch } from "./usePickerFetch";
 
 const TARGET_TYPES = ["user", "client", "system"] as const;
 
@@ -11,30 +12,32 @@ export type TargetSelection = {
   display?: string;
 };
 
+function isTargetsResponse(body: unknown): body is TargetsResponse {
+  if (!body || typeof body !== "object") return false;
+  return Array.isArray((body as { items?: unknown }).items);
+}
+
 export function TargetPicker({ state, onSelect }: { state: AuditState; onSelect: (target: TargetSelection) => void }) {
   const { t } = useTranslation();
   const [type, setType] = useState<string | null>(state.target_type ?? null);
   const [query, setQuery] = useState("");
-  const [items, setItems] = useState<TargetBucket[]>([]);
 
-  useEffect(() => {
-    if (!type) return;
-    const controller = new AbortController();
-    const params = stateToParams({ ...state, target_type: undefined, target_id: undefined, page: 1 });
-    params.set("type", type);
-    fetch(`/api/audit/targets?${params}`, { signal: controller.signal })
-      .then((res) => (res.ok ? res.json() : Promise.reject(new Error("target fetch failed"))))
-      .then((body: TargetsResponse) => setItems(body.items ?? []))
-      .catch((err: Error) => {
-        if (err.name !== "AbortError") setItems([]);
-      });
-    return () => controller.abort();
+  const params = useMemo(() => {
+    const p = stateToParams({ ...state, target_type: undefined, target_id: undefined, page: 1 });
+    if (type) p.set("type", type);
+    return p;
   }, [state, type]);
 
+  const fetched = usePickerFetch<TargetsResponse>("/api/audit/targets", params, {
+    skip: !type,
+    validate: isTargetsResponse,
+  });
+
   const filtered = useMemo(() => {
+    const items = fetched.data?.items ?? [];
     const needle = query.toLowerCase();
-    return (items ?? []).filter((item) => `${item.display} ${item.target_id} ${item.extra ?? ""}`.toLowerCase().includes(needle));
-  }, [items, query]);
+    return items.filter((item) => `${item.display} ${item.target_id} ${item.extra ?? ""}`.toLowerCase().includes(needle));
+  }, [fetched.data, query]);
 
   return (
     <div
@@ -77,7 +80,9 @@ export function TargetPicker({ state, onSelect }: { state: AuditState; onSelect:
                 {item.extra && <span className="text-xs text-muted-foreground">{item.extra}</span>}
               </button>
             ))}
-            {filtered.length === 0 && <div className="px-2 py-6 text-center text-sm text-muted-foreground">{t("audit.targetPicker.empty")}</div>}
+            {filtered.length === 0 && !fetched.loading && (
+              <div className="px-2 py-6 text-center text-sm text-muted-foreground">{t("audit.targetPicker.empty")}</div>
+            )}
           </div>
         </>
       )}

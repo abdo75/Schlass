@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 import { useFocusTrap } from "@/components/ui/useFocusTrap";
 import { lookupAlert, lookupReason, renderSentence, severity } from "./catalog";
 import { ChangedValuesList, ChangedValuesScalar, ChangedValuesStacked, CountsGrid, ExportSummary, ReasonCard, ScopesList, WhyThisMattersAlert } from "./AuditPanelModules";
@@ -74,24 +75,41 @@ export function AuditPanel({
 function ActionsBlock({ event }: { event: AuditItem }) {
   const { t } = useTranslation();
 
+  async function writeClipboard(text: string, successKey: string) {
+    try {
+      if (!navigator.clipboard) throw new Error("clipboard unavailable");
+      await navigator.clipboard.writeText(text);
+      toast.success(t(successKey));
+    } catch {
+      toast.error(t("audit.panel.copyFailed"));
+    }
+  }
+
   function copyLink() {
-    void navigator.clipboard?.writeText(`${window.location.origin}/admin/audit?event=${event.id}`);
+    void writeClipboard(`${window.location.origin}/admin/audit?event=${event.id}`, "audit.panel.linkCopied");
   }
 
   function copyData() {
-    void navigator.clipboard?.writeText(JSON.stringify(event, null, 2));
+    void writeClipboard(JSON.stringify(event, null, 2), "audit.panel.dataCopied");
   }
 
   function exportData() {
-    const blob = new Blob([JSON.stringify(event, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${event.id}.json`;
-    document.body.append(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
+    let url: string | null = null;
+    try {
+      const blob = new Blob([JSON.stringify(event, null, 2)], { type: "application/json" });
+      url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${event.id}.json`;
+      document.body.append(link);
+      link.click();
+      link.remove();
+      toast.success(t("audit.panel.dataExported"));
+    } catch {
+      toast.error(t("audit.panel.exportFailed"));
+    } finally {
+      if (url) URL.revokeObjectURL(url);
+    }
   }
 
   return (
@@ -131,7 +149,9 @@ function ConditionalContent({ event, alertKey }: { event: AuditItem; alertKey: s
       {(event.event_type === "client.name_updated" || event.event_type.startsWith("config.")) && <ChangedValuesScalar event={event} />}
       {["client.redirect_uris_updated", "client.scopes_updated", "client.grants_updated"].includes(event.event_type) && <ChangedValuesList event={event} />}
       {event.event_type === "user.updated" && <ChangedValuesStacked event={event} />}
-      {["oidc.authorize.succeeded", "oidc.code.exchanged", "oidc.token.refreshed"].includes(event.event_type) && <ScopesList scopes={(event.metadata.scopes as string[]) ?? []} />}
+      {["oidc.authorize.succeeded", "oidc.code.exchanged", "oidc.token.refreshed"].includes(event.event_type) && (
+        <ScopesList scopes={Array.isArray(event.metadata?.scopes) ? event.metadata.scopes.filter((s): s is string => typeof s === "string") : []} />
+      )}
       {(reason.key || reason.raw) && <ReasonCard result={reason} />}
       {alertKey && <WhyThisMattersAlert i18nKey={alertKey} />}
       {["password_reset.cleanup_swept", "user.audit_pseudonymized", "client.created"].includes(event.event_type) && <CountsGrid event={event} />}

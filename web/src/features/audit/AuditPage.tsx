@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AdminPageContent, AdminPageHeader } from "@/components/AdminLayout";
 import { Pagination } from "@/components/Pagination";
 import { AuditPanel } from "./AuditPanel";
@@ -16,6 +16,27 @@ export function AuditPage() {
   const { state, set } = useUrlState();
   const list = useAuditList(state);
   const [selected, setSelected] = useState<AuditItem | null>(null);
+
+  // Hydrate the panel from a deep-link (?event=<id>) once the list arrives.
+  // Effect-based setState here is intentional: the list is fetched async, so
+  // we cannot derive `selected` from props alone.
+  useEffect(() => {
+    if (!state.selectedEventId || !list.data || selected) return;
+    const found = list.data.items.find((item) => item.id === state.selectedEventId);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (found) setSelected(found);
+  }, [state.selectedEventId, list.data, selected]);
+
+  function openEvent(item: AuditItem) {
+    setSelected(item);
+    if (state.selectedEventId !== item.id) set({ selectedEventId: item.id });
+  }
+
+  function closeEvent() {
+    setSelected(null);
+    if (state.selectedEventId) set({ selectedEventId: undefined });
+  }
+
   return (
     <>
       <AdminPageHeader
@@ -29,8 +50,15 @@ export function AuditPage() {
           <div id={AUDIT_TABPANEL_ID} role="tabpanel" aria-labelledby={`audit-tab-${state.view}`}>
             <AuditFilterBar state={state} onChange={set} />
             {list.error && (
-              <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm">
-                {t("audit.error.fetch")}
+              <div className="flex items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm">
+                <span>{t("audit.error.fetch")}</span>
+                <button
+                  type="button"
+                  className="rounded-md border border-destructive/30 bg-background px-2 py-1 text-xs font-medium hover:bg-muted"
+                  onClick={list.retry}
+                >
+                  {t("audit.error.retry")}
+                </button>
               </div>
             )}
             {list.loading && !list.data ? (
@@ -40,7 +68,7 @@ export function AuditPage() {
             ) : (
               <AuditTimeline
                 data={list.data}
-                onSelect={setSelected}
+                onSelect={openEvent}
                 onActorFilter={(actor) => set({ actor, page: 1 })}
                 onEventTypeFilter={(eventType) => set({ event_types: [eventType], page: 1 })}
                 onOutcomeFilter={(outcome) => set({ outcome, page: 1 })}
@@ -59,25 +87,25 @@ export function AuditPage() {
       {selected && (
         <AuditPanel
           event={selected}
-          onClose={() => setSelected(null)}
+          onClose={closeEvent}
           onActorFilter={(actor) => {
-            setSelected(null);
+            closeEvent();
             set({ actor, page: 1 });
           }}
           onTargetFilter={(target) => {
-            setSelected(null);
+            closeEvent();
             set({ target_type: target.target_type, target_id: target.target_id, page: 1 });
           }}
           onTargetTypeFilter={(targetType) => {
-            setSelected(null);
+            closeEvent();
             set({ target_type: targetType, target_id: undefined, page: 1 });
           }}
           onEventTypeFilter={(eventType) => {
-            setSelected(null);
+            closeEvent();
             set({ event_types: [eventType], page: 1 });
           }}
           onOutcomeFilter={(outcome) => {
-            setSelected(null);
+            closeEvent();
             set({ outcome, page: 1 });
           }}
         />

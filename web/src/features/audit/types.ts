@@ -1,4 +1,8 @@
-export type Outcome = "success" | "failure" | "denied";
+export const OUTCOME_VALUES = ["success", "failure", "denied"] as const;
+export type Outcome = (typeof OUTCOME_VALUES)[number];
+
+export const VIEW_VALUES = ["all", "sign-in", "admin", "client"] as const;
+export type AuditView = (typeof VIEW_VALUES)[number];
 
 export interface AuditItem {
   id: string;
@@ -47,7 +51,7 @@ export interface TargetsResponse {
 }
 
 export interface AuditState {
-  view: "all" | "sign-in" | "admin" | "client";
+  view: AuditView;
   since: string;
   until?: string;
   actor?: string;

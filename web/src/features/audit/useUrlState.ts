@@ -1,21 +1,35 @@
 import { useCallback, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
-import type { AuditState } from "./types";
+import type { AuditState, AuditView, Outcome } from "./types";
+import { OUTCOME_VALUES, VIEW_VALUES } from "./types";
+
+function parseView(raw: string | null): AuditView {
+  return (VIEW_VALUES as readonly string[]).includes(raw ?? "") ? (raw as AuditView) : "all";
+}
+
+function parseOutcome(raw: string | null): Outcome | undefined {
+  return raw && (OUTCOME_VALUES as readonly string[]).includes(raw) ? (raw as Outcome) : undefined;
+}
+
+function parsePositiveInt(raw: string | null, fallback: number): number {
+  const n = Number.parseInt(raw ?? "", 10);
+  return Number.isFinite(n) && n >= 1 ? n : fallback;
+}
 
 export function useUrlState(): { state: AuditState; set: (patch: Partial<AuditState>) => void } {
   const [params, setParams] = useSearchParams();
   const state = useMemo<AuditState>(() => ({
-    view: (params.get("view") as AuditState["view"]) ?? "all",
+    view: parseView(params.get("view")),
     since: params.get("since") ?? "24h",
     until: params.get("until") ?? undefined,
     actor: params.get("actor") ?? undefined,
     target_type: params.get("target_type") ?? undefined,
     target_id: params.get("target_id") ?? undefined,
     event_types: params.get("event_types")?.split(",").filter(Boolean),
-    outcome: (params.get("outcome") as AuditState["outcome"]) ?? undefined,
+    outcome: parseOutcome(params.get("outcome")),
     q: params.get("q") ?? undefined,
-    page: Number.parseInt(params.get("page") ?? "1", 10),
-    pageSize: Number.parseInt(params.get("page_size") ?? "25", 10),
+    page: parsePositiveInt(params.get("page"), 1),
+    pageSize: parsePositiveInt(params.get("page_size"), 25),
     selectedEventId: params.get("event") ?? undefined,
   }), [params]);
 

@@ -28,6 +28,8 @@ describe("AuditFilterBar", () => {
       target_type: undefined,
       target_id: undefined,
       event_types: undefined,
+      outcome: undefined,
+      q: undefined,
       page: 1,
     });
   });

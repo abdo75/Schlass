@@ -33,17 +33,23 @@ export function ChangedValuesList({ event }: { event: AuditItem }) {
   );
 }
 
+type ChangedField = { field: string; from: unknown; to: unknown };
+
+function isChangedField(raw: unknown): raw is ChangedField {
+  return typeof raw === "object" && raw !== null && typeof (raw as { field?: unknown }).field === "string";
+}
+
 export function ChangedValuesStacked({ event }: { event: AuditItem }) {
   const { t } = useTranslation();
-  const fields = Array.isArray(event.metadata.changed_fields) ? event.metadata.changed_fields : [];
+  const raw = Array.isArray(event.metadata.changed_fields) ? event.metadata.changed_fields : [];
+  const fields = raw.filter(isChangedField);
   return (
     <section className="panel-block panel-block--section">
       <h4 className="panel-heading">{t("audit.module.changedFields")}</h4>
       <div className="panel-diff-stack">
-        {fields.map((raw) => {
-          const f = raw as { field: string; from: unknown; to: unknown };
-          return <DiffCard key={f.field} label={humanize(f.field)} from={f.from} to={f.to} />;
-        })}
+        {fields.map((f) => (
+          <DiffCard key={f.field} label={humanize(f.field)} from={f.from} to={f.to} />
+        ))}
       </div>
     </section>
   );
@@ -72,7 +78,7 @@ export function ReasonCard({ result }: { result: LookupResult }) {
         </div>
       ) : (
         <div className="panel-reason">
-          <div className="panel-reason-label">{t(result.key!)}</div>
+          <div className="panel-reason-label">{t(result.key)}</div>
           {result.secondary && <div className="panel-reason-secondary">{result.secondary}</div>}
         </div>
       )}

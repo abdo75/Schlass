@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronDownIcon } from "lucide-react";
+import { toast } from "sonner";
 import { ApiRequestError } from "@/lib/api";
 import { StepUpModal } from "./StepUpModal";
 import type { AuditState } from "./types";
@@ -15,9 +16,13 @@ export function ExportMenu({ state }: { state: AuditState }) {
   const [open, setOpen] = useState(false);
   const [stepUpOpen, setStepUpOpen] = useState(false);
   const [pendingFormat, setPendingFormat] = useState<ExportFormat | null>(null);
-  const [lastManifest, setLastManifest] = useState<boolean>(false);
   const ref = useRef<HTMLDivElement>(null);
+  // fetchLock guards against concurrent network requests (rapid double-click)
+  // independently from pendingFormat, which we keep set across the step-up
+  // round-trip so onVerified can resume the download.
+  const fetchLock = useRef(false);
   useOutsideClick(ref, open, () => setOpen(false));
+  const pending = pendingFormat !== null;
 
   function bundleFilename(): string {
     const now = new Date();
@@ -27,33 +32,47 @@ export function ExportMenu({ state }: { state: AuditState }) {
   }
 
   async function download(format: ExportFormat) {
+    if (fetchLock.current) return;
+    fetchLock.current = true;
     setOpen(false);
-    setLastManifest(false);
     setPendingFormat(format);
-    const response = await fetch("/api/audit/export", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...state, format }),
-    });
-    if (!response.ok) {
-      const body = (await response.json()) as { error: string; message: string };
-      if (response.status === 401 && body.error === "STEPUP_REQUIRED") {
-        setStepUpOpen(true);
-        return;
+    try {
+      const response = await fetch("/api/audit/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...state, format }),
+      });
+      if (!response.ok) {
+        const body = (await response.json()) as { error: string; message: string };
+        if (response.status === 401 && body.error === "STEPUP_REQUIRED") {
+          // Keep pendingFormat set so the verified callback can resume the
+          // download with the same format. StepUp cancellation clears it.
+          fetchLock.current = false;
+          setStepUpOpen(true);
+          return;
+        }
+        throw new ApiRequestError(response.status, body);
       }
-      throw new ApiRequestError(response.status, body);
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = bundleFilename();
+      document.body.append(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast.success(t("audit.export.succeeded"));
+      setPendingFormat(null);
+    } catch (err) {
+      const message = err instanceof ApiRequestError && err.message
+        ? `${t("audit.export.failed")} ${err.message}`
+        : t("audit.export.failed");
+      toast.error(message);
+      setPendingFormat(null);
+    } finally {
+      fetchLock.current = false;
     }
-    const blob = await response.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = bundleFilename();
-    document.body.append(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-    setLastManifest(true);
-    setPendingFormat(null);
   }
 
   return (
@@ -64,13 +83,14 @@ export function ExportMenu({ state }: { state: AuditState }) {
           aria-expanded={open}
           aria-haspopup="menu"
           aria-controls="audit-export-menu"
-          className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border bg-background px-3 text-sm font-medium hover:bg-muted"
+          disabled={pending}
+          className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border bg-background px-3 text-sm font-medium hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
           onClick={() => setOpen((v) => !v)}
         >
-          {t("audit.export.button")}
+          {pending ? t("audit.export.started") : t("audit.export.button")}
           <ChevronDownIcon className="size-3.5 text-muted-foreground" />
         </button>
-        {open && (
+        {open && !pending && (
           <div id="audit-export-menu" role="menu" aria-label={t("audit.export.menuLabel")} className="absolute right-0 top-10 z-40 min-w-36 rounded-lg border border-border bg-popover p-1 shadow-lg">
             {FORMATS.map((fmt) => (
               <button
@@ -85,18 +105,20 @@ export function ExportMenu({ state }: { state: AuditState }) {
             ))}
           </div>
         )}
-        {lastManifest && (
-          <p className="mt-1 text-xs text-muted-foreground" role="status">
-            {t("audit.export.manifestHint")}
-          </p>
-        )}
       </div>
       <StepUpModal
         open={stepUpOpen}
-        onCancel={() => setStepUpOpen(false)}
+        onCancel={() => {
+          setStepUpOpen(false);
+          setPendingFormat(null);
+        }}
         onVerified={() => {
           setStepUpOpen(false);
-          if (pendingFormat) void download(pendingFormat);
+          if (pendingFormat) {
+            const fmt = pendingFormat;
+            setPendingFormat(null);
+            void download(fmt);
+          }
         }}
       />
     </>

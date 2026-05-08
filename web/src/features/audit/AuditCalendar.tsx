@@ -106,7 +106,12 @@ export function AuditCalendar({ value, onChange }: { value: AuditRange; onChange
   }
 
   function updateSlot(slot: Slot, next: Date) {
-    onChange({ ...value, [slot]: next });
+    const draft: AuditRange = { ...value, [slot]: next };
+    if (draft.from > draft.to) {
+      onChange({ from: draft.to, to: draft.from });
+    } else {
+      onChange(draft);
+    }
   }
 
   function selectDay(day: Date) {

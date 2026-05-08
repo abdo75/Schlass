@@ -173,12 +173,9 @@ export function renderSentence(
   }
 }
 
-export interface LookupResult {
-  key: string | null;
-  raw: string;
-  secondary?: string;
-  fallback: boolean;
-}
+export type LookupResult =
+  | { fallback: false; key: string; raw: string; secondary?: string }
+  | { fallback: true; key: null; raw: string; secondary?: string };
 
 export function lookupReason(eventType: string, m: Record<string, unknown>): LookupResult {
   if (eventType === "login.failed" && m.reason === "wrong_password") {
