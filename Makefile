@@ -1,4 +1,4 @@
-.PHONY: setup build build-docker dev dev-frontend test test-unit test-integration e2e clean lint lint-fix audit-lint
+.PHONY: setup build build-docker dev dev-frontend test test-unit test-integration audit-load e2e clean lint lint-fix audit-lint
 
 setup:
 	git config core.hooksPath .githooks
@@ -26,6 +26,14 @@ test-unit:
 
 test-integration:
 	go test -tags=integration ./test/integration/... -count=1 -timeout 5m
+
+# REQ-AUD M10 Drill 1: sustained-rate load test against chain.Append.
+# Knobs read from env: AUDIT_LOAD_RATE (default 200), AUDIT_LOAD_DURATION
+# (default 5s), AUDIT_LOAD_WORKERS (default 8). For the spec-target 30-min
+# drill: AUDIT_LOAD_DURATION=30m make audit-load.
+audit-load:
+	go test -tags='integration loadtest' -run TestAuditLoad_SustainedRate \
+		-count=1 -timeout 45m -v ./test/integration/...
 
 e2e:
 	docker compose down -v

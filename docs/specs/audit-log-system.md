@@ -490,13 +490,20 @@ neutral, non-link cell.
   `recovery_codes`, `private_key`, `email`, `ip`, `ip_address`,
   `cookie`, `session_cookie`. Extensible via
   `tools/audit-lint/denylist.txt`.
-- **Performance (target, to be validated):** the audit table is on
-  the write hot path. The plan must include a load test that
-  establishes the current baseline added latency before turning the
-  hash chain on, then re-measures after. The target is ≤5 ms p99
-  added latency at 200 events/sec sustained on the reference Compose
-  stack; the figure is a placeholder until measured. We do not commit
-  to a tighter SLO without data.
+- **Performance (measured, M10 Drill 1):** the audit table is on the
+  write hot path. Reference measurement on a single shared Postgres
+  18 testcontainer with 8 worker goroutines emitting at 200 ev/s for
+  30 s sustained: **p50 = 1.21 ms, p95 = 1.77 ms, p99 = 2.11 ms,
+  p99.9 = 5.60 ms**, 6 000 / 6 000 rows verified clean post-burst.
+  These are end-to-end emit latencies (BEGIN → advisory lock → chain
+  read-and-compute → INSERT → COMMIT), so they include the chain
+  cost — the spec's pre-chain target was a placeholder. The
+  drill is encoded in `test/integration/audit_load_test.go` behind
+  the `loadtest` build tag; re-run on representative hardware before
+  binding numbers to an SLO. The reproducer is `make audit-load`,
+  with `AUDIT_LOAD_RATE` / `AUDIT_LOAD_DURATION` /
+  `AUDIT_LOAD_WORKERS` env knobs for variant runs (e.g. the spec's
+  full-burst case is `AUDIT_LOAD_DURATION=30m`).
 
 ---
 
