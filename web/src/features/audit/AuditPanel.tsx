@@ -1,9 +1,12 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
+import { useFocusTrap } from "@/components/ui/useFocusTrap";
 import { lookupAlert, lookupReason, renderSentence, severity } from "./catalog";
 import { ChangedValuesList, ChangedValuesScalar, ChangedValuesStacked, CountsGrid, ExportSummary, ReasonCard, ScopesList, WhyThisMattersAlert } from "./AuditPanelModules";
 import { OutcomeChip, ParticipantsSection, SeverityBadge, TechnicalDetails, Timestamp } from "./AuditPanelHelpers";
 import type { AuditItem, Outcome } from "./types";
+
+const PANEL_TITLE_ID = "audit-panel-title";
 
 export function AuditPanel({
   event,
@@ -26,6 +29,9 @@ export function AuditPanel({
   const sentence = renderSentence(event.event_type, event.metadata, event.actor_display, event.target_display);
   const sev = severity(event.event_type, event.metadata);
   const alertKey = lookupAlert(event.event_type);
+  const panelRef = useRef<HTMLElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  useFocusTrap(panelRef, true, closeRef);
 
   useEffect(() => {
     function onKeyDown(key: KeyboardEvent) {
@@ -36,16 +42,24 @@ export function AuditPanel({
   }, [onClose]);
 
   return (
-    <div className="audit-panel-overlay" onClick={onClose} data-testid="audit-panel-backdrop">
-      <aside className="audit-panel" role="dialog" aria-label="Event detail" onClick={(click) => click.stopPropagation()}>
-        <button className="panel-close" onClick={onClose} aria-label="Close" type="button">×</button>
+    <div className="audit-panel-overlay" onClick={onClose} role="presentation" data-testid="audit-panel-backdrop">
+      <aside
+        ref={panelRef}
+        className="audit-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Event detail"
+        aria-describedby={PANEL_TITLE_ID}
+        onClick={(click) => click.stopPropagation()}
+      >
+        <button ref={closeRef} className="panel-close" onClick={onClose} aria-label={t("audit.panel.close", { defaultValue: "Close" })} type="button">×</button>
           <section className="panel-block panel-block--hero">
             <div className="panel-eyebrow">{t("audit.panel.event")}</div>
             <div className="panel-badges">
               <OutcomeChip outcome={event.outcome} onFilter={onOutcomeFilter} />
               {sev === "critical" && <SeverityBadge>{t("audit.severity.critical")}</SeverityBadge>}
             </div>
-            <p className="panel-sentence">{sentence.text}</p>
+            <p id={PANEL_TITLE_ID} className="panel-sentence">{sentence.text}</p>
             <Timestamp at={event.created_at} locale={i18n.language} />
           </section>
           <ActionsBlock event={event} />

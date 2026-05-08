@@ -10,6 +10,13 @@ import { stateToParams } from "./useUrlState";
 
 type Picker = "time" | "actor" | "target" | "event-type" | null;
 
+const POPOVER_IDS: Record<Exclude<Picker, null>, { id: string; popup: "dialog" }> = {
+  time: { id: "audit-time-popover", popup: "dialog" },
+  actor: { id: "audit-actor-popover", popup: "dialog" },
+  target: { id: "audit-target-popover", popup: "dialog" },
+  "event-type": { id: "audit-event-type-popover", popup: "dialog" },
+};
+
 export function AuditFilterBar({
   state,
   onChange,
@@ -54,6 +61,8 @@ export function AuditFilterBar({
           <Opener
             label={state.until ? "Custom range" : presetLabel(state.since)}
             active={open === "time"}
+            popoverId={POPOVER_IDS.time.id}
+            popup={POPOVER_IDS.time.popup}
             onClick={() => setOpen(open === "time" ? null : "time")}
           />
         }
@@ -82,6 +91,8 @@ export function AuditFilterBar({
             <Opener
               label={t("audit.refine.actorOpener")}
               active={open === "actor"}
+              popoverId={POPOVER_IDS.actor.id}
+              popup={POPOVER_IDS.actor.popup}
               onClick={() => setOpen(open === "actor" ? null : "actor")}
             />
           )
@@ -114,6 +125,8 @@ export function AuditFilterBar({
             <Opener
               label={t("audit.refine.targetOpener")}
               active={open === "target"}
+              popoverId={POPOVER_IDS.target.id}
+              popup={POPOVER_IDS.target.popup}
               onClick={() => setOpen(open === "target" ? null : "target")}
             />
           )
@@ -141,12 +154,16 @@ export function AuditFilterBar({
             <ActiveOpener
               label={`Event type: ${state.event_types.length} selected`}
               active={open === "event-type"}
+              popoverId={POPOVER_IDS["event-type"].id}
+              popup={POPOVER_IDS["event-type"].popup}
               onClick={() => setOpen(open === "event-type" ? null : "event-type")}
             />
           ) : (
             <Opener
               label={t("audit.refine.eventTypeOpener")}
               active={open === "event-type"}
+              popoverId={POPOVER_IDS["event-type"].id}
+              popup={POPOVER_IDS["event-type"].popup}
               onClick={() => setOpen(open === "event-type" ? null : "event-type")}
             />
           )
@@ -210,16 +227,22 @@ function PickerSlot({
 function Opener({
   label,
   active,
+  popoverId,
+  popup,
   onClick,
 }: {
   label: string;
   active: boolean;
+  popoverId: string;
+  popup: "dialog" | "listbox" | "menu";
   onClick: () => void;
 }) {
   return (
     <button
       type="button"
       aria-expanded={active}
+      aria-haspopup={popup}
+      aria-controls={popoverId}
       className="rounded-full border border-dashed border-border bg-background px-3 py-1.5 text-xs font-medium text-muted-foreground hover:border-primary/40 hover:text-foreground"
       onClick={onClick}
     >
@@ -245,16 +268,22 @@ function ActiveChip({ label, onClear }: { label: string; onClear: () => void }) 
 function ActiveOpener({
   label,
   active,
+  popoverId,
+  popup,
   onClick,
 }: {
   label: string;
   active: boolean;
+  popoverId: string;
+  popup: "dialog" | "listbox" | "menu";
   onClick: () => void;
 }) {
   return (
     <button
       type="button"
       aria-expanded={active}
+      aria-haspopup={popup}
+      aria-controls={popoverId}
       title="Click to edit selection"
       className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-accent px-3 py-1.5 text-xs font-medium text-accent-foreground transition-colors hover:bg-accent/70"
       onClick={onClick}

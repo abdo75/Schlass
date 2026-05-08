@@ -33,7 +33,12 @@ export function AuditTimePicker({
   }
 
   return (
-    <div className="absolute left-0 top-9 z-30 flex items-start gap-2 text-popover-foreground">
+    <div
+      id="audit-time-popover"
+      role="dialog"
+      aria-label="Time range"
+      className="absolute left-0 top-9 z-30 flex items-start gap-2 text-popover-foreground"
+    >
       <div className="w-60 rounded-lg border border-border bg-popover p-3 shadow-lg">
         <div className="grid gap-1">
           {PRESETS.map((item) => (

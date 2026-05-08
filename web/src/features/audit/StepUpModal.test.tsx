@@ -7,6 +7,18 @@ afterEach(() => {
 });
 
 describe("StepUpModal", () => {
+  it("auto-focuses the code input on open", () => {
+    render(<StepUpModal open onCancel={vi.fn()} onVerified={vi.fn()} />);
+    expect(screen.getByLabelText(/Authenticator code/i)).toHaveFocus();
+  });
+
+  it("closes on Escape", () => {
+    const onCancel = vi.fn();
+    render(<StepUpModal open onCancel={onCancel} onVerified={vi.fn()} />);
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onCancel).toHaveBeenCalled();
+  });
+
   it("submits a TOTP code and calls onVerified", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
     const onVerified = vi.fn();

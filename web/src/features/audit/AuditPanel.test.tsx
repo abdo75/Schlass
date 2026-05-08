@@ -11,6 +11,12 @@ describe("AuditPanel", () => {
     expect(screen.getByText(/signed in/i)).toBeVisible();
   });
 
+  it("marks the dialog as modal", () => {
+    render(<AuditPanel event={fakeEvent()} onClose={vi.fn()} />);
+    const dialog = screen.getByRole("dialog", { name: /event detail/i });
+    expect(dialog).toHaveAttribute("aria-modal", "true");
+  });
+
   it("renders Critical badge for refresh-token reuse", () => {
     render(<AuditPanel event={fakeEvent({ event_type: "oidc.refresh.reuse_detected", outcome: "failure" })} onClose={vi.fn()} />);
     expect(screen.getByText(/critical/i)).toBeVisible();

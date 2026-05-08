@@ -39,7 +39,12 @@ export function EventTypePicker({ selected, onApply }: { selected: string[]; onA
   }
 
   return (
-    <div className="absolute left-0 top-9 z-30 flex max-h-[34rem] w-[28rem] flex-col rounded-lg border border-border bg-popover text-popover-foreground shadow-lg">
+    <div
+      id="audit-event-type-popover"
+      role="dialog"
+      aria-label={t("audit.refine.eventTypeOpener")}
+      className="absolute left-0 top-9 z-30 flex max-h-[34rem] w-[28rem] flex-col rounded-lg border border-border bg-popover text-popover-foreground shadow-lg"
+    >
       <div className="max-h-[29rem] overflow-y-auto p-2">
         {EVENT_TYPE_GROUPS.map((group) => {
           const isOpen = expanded.has(group.groupKey);

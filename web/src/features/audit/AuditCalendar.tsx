@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useOutsideClick } from "./useOutsideClick";
@@ -7,6 +7,10 @@ export type AuditRange = { from: Date; to: Date };
 type Slot = "from" | "to";
 type ViewMode = "day" | "month" | "year";
 type TimeGrid = { slot: Slot; part: "hour" | "minute" } | null;
+
+function dayKey(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -17,8 +21,70 @@ export function AuditCalendar({ value, onChange }: { value: AuditRange; onChange
   const [cursor, setCursor] = useState(() => new Date(value.from));
   const [timeGrid, setTimeGrid] = useState<TimeGrid>(null);
   const days = useMemo(() => buildDays(cursor), [cursor]);
+  const dayRefs = useRef(new Map<string, HTMLButtonElement>());
+  const pendingFocusRef = useRef<string | null>(null);
   const currentYear = new Date().getFullYear();
   const yearStart = Math.floor(cursor.getFullYear() / 12) * 12;
+
+  useEffect(() => {
+    const target = pendingFocusRef.current;
+    if (!target) return;
+    dayRefs.current.get(target)?.focus();
+    pendingFocusRef.current = null;
+  }, [days]);
+
+  function focusDay(date: Date) {
+    const key = dayKey(date);
+    const ref = dayRefs.current.get(key);
+    if (ref) {
+      ref.focus();
+    } else {
+      pendingFocusRef.current = key;
+    }
+  }
+
+  function moveFocus(currentDay: Date, deltaDays: number) {
+    const next = new Date(currentDay);
+    next.setDate(currentDay.getDate() + deltaDays);
+    const crossedMonth = next.getFullYear() !== cursor.getFullYear() || next.getMonth() !== cursor.getMonth();
+    if (crossedMonth) {
+      pendingFocusRef.current = dayKey(next);
+      setCursor(new Date(next.getFullYear(), next.getMonth(), 1));
+    } else {
+      focusDay(next);
+    }
+  }
+
+  function moveFocusByMonth(currentDay: Date, deltaMonths: number) {
+    const next = new Date(currentDay);
+    next.setMonth(currentDay.getMonth() + deltaMonths);
+    pendingFocusRef.current = dayKey(next);
+    setCursor(new Date(next.getFullYear(), next.getMonth(), 1));
+  }
+
+  function moveFocusToWeekEdge(currentDay: Date, edge: "start" | "end") {
+    const dayOfWeek = (currentDay.getDay() + 6) % 7;
+    const offset = edge === "start" ? -dayOfWeek : 6 - dayOfWeek;
+    moveFocus(currentDay, offset);
+  }
+
+  function onGridKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    const target = event.target as HTMLElement;
+    const iso = target.dataset.day;
+    if (!iso) return;
+    const [y, m, d] = iso.split("-").map(Number);
+    const current = new Date(y, m - 1, d);
+    switch (event.key) {
+      case "ArrowLeft": event.preventDefault(); moveFocus(current, -1); break;
+      case "ArrowRight": event.preventDefault(); moveFocus(current, 1); break;
+      case "ArrowUp": event.preventDefault(); moveFocus(current, -7); break;
+      case "ArrowDown": event.preventDefault(); moveFocus(current, 7); break;
+      case "PageUp": event.preventDefault(); moveFocusByMonth(current, -1); break;
+      case "PageDown": event.preventDefault(); moveFocusByMonth(current, 1); break;
+      case "Home": event.preventDefault(); moveFocusToWeekEdge(current, "start"); break;
+      case "End": event.preventDefault(); moveFocusToWeekEdge(current, "end"); break;
+    }
+  }
 
   function updateSlot(slot: Slot, next: Date) {
     onChange({ ...value, [slot]: next });
@@ -54,25 +120,37 @@ export function AuditCalendar({ value, onChange }: { value: AuditRange; onChange
       </div>
 
       {view === "day" && (
-        <div className="grid grid-cols-7 gap-0.5 font-mono text-sm">
-          {["M", "T", "W", "T", "F", "S", "S"].map((d, i) => <div key={`${d}-${i}`} className="py-1 text-center text-[11px] uppercase text-muted-foreground">{d}</div>)}
-          {days.map((day) => (
-            <button
-              key={day.toISOString()}
-              type="button"
-              className={cn(
-                "cal-cell flex h-8 items-center justify-center rounded-md text-sm hover:bg-muted",
-                day.getMonth() !== cursor.getMonth() && "outside text-muted-foreground/50",
-                sameDay(day, new Date()) && "is-today bg-muted font-semibold",
-                sameDay(day, value.from) && "is-range-start bg-primary text-primary-foreground hover:bg-primary",
-                sameDay(day, value.to) && "is-range-end bg-primary text-primary-foreground hover:bg-primary",
-                day > value.from && day < value.to && "is-in-range bg-accent text-accent-foreground hover:bg-accent",
-              )}
-              onClick={() => selectDay(day)}
-            >
-              {day.getDate()}
-            </button>
-          ))}
+        <div
+          role="grid"
+          className="grid grid-cols-7 gap-0.5 font-mono text-sm focus-within:outline-none"
+          onKeyDown={onGridKeyDown}
+        >
+          {["M", "T", "W", "T", "F", "S", "S"].map((d, i) => <div key={`${d}-${i}`} role="columnheader" className="py-1 text-center text-[11px] uppercase text-muted-foreground">{d}</div>)}
+          {days.map((day) => {
+            const key = dayKey(day);
+            return (
+              <button
+                key={day.toISOString()}
+                ref={(node) => {
+                  if (node) dayRefs.current.set(key, node);
+                  else dayRefs.current.delete(key);
+                }}
+                data-day={key}
+                type="button"
+                className={cn(
+                  "cal-cell flex h-8 items-center justify-center rounded-md text-sm hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring",
+                  day.getMonth() !== cursor.getMonth() && "outside text-muted-foreground/50",
+                  sameDay(day, new Date()) && "is-today bg-muted font-semibold",
+                  sameDay(day, value.from) && "is-range-start bg-primary text-primary-foreground hover:bg-primary",
+                  sameDay(day, value.to) && "is-range-end bg-primary text-primary-foreground hover:bg-primary",
+                  day > value.from && day < value.to && "is-in-range bg-accent text-accent-foreground hover:bg-accent",
+                )}
+                onClick={() => selectDay(day)}
+              >
+                {day.getDate()}
+              </button>
+            );
+          })}
         </div>
       )}
 

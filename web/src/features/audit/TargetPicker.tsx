@@ -41,7 +41,12 @@ export function TargetPicker({ state, onSelect }: { state: AuditState; onSelect:
   }, [items, query]);
 
   return (
-    <div className="absolute left-0 top-9 z-30 w-80 rounded-lg border border-border bg-popover p-2 text-popover-foreground shadow-lg">
+    <div
+      id="audit-target-popover"
+      role="dialog"
+      aria-label="Target"
+      className="absolute left-0 top-9 z-30 w-80 rounded-lg border border-border bg-popover p-2 text-popover-foreground shadow-lg"
+    >
       {!type ? (
         <div role="listbox" aria-label="Target type" className="grid gap-1">
           {TARGET_TYPES.map((targetType) => (

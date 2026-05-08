@@ -75,8 +75,17 @@ function TimelineRow({
   return (
     <TableRow
       data-testid="audit-event-row"
-      className="cursor-pointer hover:bg-muted/35"
+      className="cursor-pointer hover:bg-muted/35 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring"
+      tabIndex={0}
+      role="button"
+      aria-label={sentence.text}
       onClick={() => onSelect(item)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onSelect(item);
+        }
+      }}
     >
       <TableCell className="px-4 py-3">
         <OutcomeChip

@@ -36,6 +36,22 @@ describe("AuditCalendar", () => {
     expect(screen.getByRole("button", { name: nextYear })).toBeDisabled();
   });
 
+  it("ArrowRight moves focus to the next day", () => {
+    render(<AuditCalendar value={range} onChange={vi.fn()} />);
+    const day22 = screen.getByRole("button", { name: "22" });
+    day22.focus();
+    fireEvent.keyDown(day22, { key: "ArrowRight" });
+    expect(screen.getByRole("button", { name: "23" })).toHaveFocus();
+  });
+
+  it("ArrowDown moves focus by 7 days", () => {
+    render(<AuditCalendar value={range} onChange={vi.fn()} />);
+    const day22 = screen.getByRole("button", { name: "22" });
+    day22.focus();
+    fireEvent.keyDown(day22, { key: "ArrowDown" });
+    expect(screen.getByRole("button", { name: "29" })).toHaveFocus();
+  });
+
   it("edits and picks time values", () => {
     const onChange = vi.fn();
     render(<AuditCalendar value={range} onChange={onChange} />);

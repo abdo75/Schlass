@@ -27,7 +27,12 @@ export function ActorPicker({ state, onSelect }: { state: AuditState; onSelect: 
   }, [data.users, query]);
 
   return (
-    <div className="absolute left-0 top-9 z-30 w-72 rounded-lg border border-border bg-popover p-2 text-popover-foreground shadow-lg">
+    <div
+      id="audit-actor-popover"
+      role="dialog"
+      aria-label="Actor"
+      className="absolute left-0 top-9 z-30 w-72 rounded-lg border border-border bg-popover p-2 text-popover-foreground shadow-lg"
+    >
       <input
         autoFocus
         value={query}

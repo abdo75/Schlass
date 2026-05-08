@@ -64,6 +64,8 @@ export function ExportMenu({ state }: { state: AuditState }) {
         <button
           type="button"
           aria-expanded={open}
+          aria-haspopup="menu"
+          aria-controls="audit-export-menu"
           className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border bg-background px-3 text-sm font-medium hover:bg-muted"
           onClick={() => setOpen((v) => !v)}
         >
@@ -71,7 +73,7 @@ export function ExportMenu({ state }: { state: AuditState }) {
           <ChevronDownIcon className="size-3.5 text-muted-foreground" />
         </button>
         {open && (
-          <div role="menu" className="absolute right-0 top-10 z-40 min-w-36 rounded-lg border border-border bg-popover p-1 shadow-lg">
+          <div id="audit-export-menu" role="menu" aria-label="Export format" className="absolute right-0 top-10 z-40 min-w-36 rounded-lg border border-border bg-popover p-1 shadow-lg">
             {(Object.keys(FORMAT_LABELS) as ExportFormat[]).map((fmt) => (
               <button
                 key={fmt}
