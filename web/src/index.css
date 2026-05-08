@@ -158,8 +158,10 @@
 }
 
 /* === Audit log side panel ===
-   Custom layout primitives for the side-panel drawer. Token references
-   resolve through the `--color-*` aliases declared on :root above. */
+   Custom layout primitives for the side-panel drawer. Tokens resolve through
+   the `--color-*` aliases declared on :root / .dark; panel-specific tokens
+   (--audit-panel-shadow, --audit-panel-surface) follow the same light/dark
+   override pattern further down. */
 
 .audit-panel-overlay {
   position: fixed;
@@ -167,7 +169,8 @@
   z-index: 50;
   display: flex;
   justify-content: flex-end;
-  background: oklch(0.145 0 0 / 0.30);
+  background: color-mix(in oklch, var(--color-foreground) 35%, transparent);
+  backdrop-filter: blur(4px);
 }
 
 .audit-panel {
@@ -177,7 +180,7 @@
   overflow-y: auto;
   background: var(--color-background);
   color: var(--color-foreground);
-  box-shadow: 0 0 0 1px var(--color-border), 0 6px 24px oklch(0.145 0 0 / 0.06);
+  box-shadow: 0 0 0 1px var(--color-border), var(--audit-panel-shadow);
 }
 
 .audit-panel .panel-close {
@@ -192,6 +195,13 @@
   font-size: 20px;
   line-height: 1;
   cursor: pointer;
+}
+.audit-panel .panel-close:focus-visible,
+.audit-panel .panel-btn:focus-visible,
+.audit-panel .panel-fact-link:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--color-ring) 50%, transparent);
+  border-radius: 6px;
 }
 
 .audit-panel .panel-block { padding-inline: 24px; }
@@ -240,26 +250,26 @@
   background: var(--color-primary);
 }
 .audit-panel .outcome--failure {
-  background: oklch(0.577 0.245 27.325 / 0.12);
-  color: oklch(0.47 0.22 27);
+  background: color-mix(in oklch, var(--color-destructive) 12%, transparent);
+  color: var(--color-destructive);
 }
 .audit-panel .outcome--failure .outcome-dot {
   width: 6px; height: 6px; border-radius: 50%;
   background: var(--color-destructive);
 }
 .audit-panel .outcome--denied {
-  background: oklch(0.68 0.16 55 / 0.16);
-  color: oklch(0.45 0.13 55);
+  background: var(--color-warning);
+  color: var(--color-warning-foreground);
 }
 .audit-panel .outcome--denied .outcome-dot {
   width: 6px; height: 6px; border-radius: 50%;
-  background: oklch(0.58 0.16 55);
+  background: var(--color-warning-border);
 }
 .audit-panel .severity-badge {
   border-radius: 999px;
   padding: 3px 10px;
-  background: oklch(0.577 0.245 27.325 / 0.12);
-  color: oklch(0.47 0.22 27);
+  background: color-mix(in oklch, var(--color-destructive) 12%, transparent);
+  color: var(--color-destructive);
   font-size: 11.5px;
   font-weight: 600;
 }
@@ -278,7 +288,7 @@
   align-items: baseline;
   flex-wrap: wrap;
   gap: 10px;
-  color: oklch(0.20 0 0);
+  color: var(--color-foreground);
   font-size: 13.5px;
   font-variant-numeric: tabular-nums;
 }
@@ -304,10 +314,10 @@
   gap: 6px;
   height: 30px;
   padding: 0 11px;
-  border: 1px solid oklch(0.145 0 0 / 0.12);
+  border: 1px solid var(--color-border);
   border-radius: 8px;
   background: var(--color-background);
-  color: oklch(0.20 0 0);
+  color: var(--color-foreground);
   font-size: 12.5px;
   cursor: pointer;
 }
@@ -327,10 +337,10 @@
   color: var(--color-muted-foreground);
   font-size: 12px;
 }
-.audit-panel .panel-facts > dd { margin: 0; color: oklch(0.20 0 0); }
+.audit-panel .panel-facts > dd { margin: 0; color: var(--color-foreground); }
 .audit-panel .panel-facts .panel-fact-link {
-  color: oklch(0.34 0.12 185);
-  text-decoration: underline dotted oklch(0.50 0.13 185 / 0.5);
+  color: var(--color-primary);
+  text-decoration: underline dotted color-mix(in oklch, var(--color-primary) 50%, transparent);
   text-underline-offset: 3px;
 }
 .audit-panel .panel-facts span.is-system {
@@ -339,14 +349,14 @@
 
 .audit-panel .panel-diff,
 .audit-panel .panel-listdiff {
-  background: oklch(0.99 0 0);
+  background: var(--audit-panel-surface);
   border: 1px solid var(--color-border);
   border-radius: 10px;
   padding: 12px 16px;
 }
 .audit-panel .panel-diff-label {
   margin-bottom: 8px;
-  color: oklch(0.38 0 0);
+  color: var(--color-foreground);
   font-size: 13px;
   font-weight: 500;
 }
@@ -361,16 +371,16 @@
 .audit-panel .panel-diff-old {
   border-radius: 6px;
   padding: 4px 12px;
-  background: oklch(0.577 0.245 27.325 / 0.08);
-  color: oklch(0.47 0.22 27);
+  background: color-mix(in oklch, var(--color-destructive) 8%, transparent);
+  color: var(--color-destructive);
   text-decoration: line-through;
-  text-decoration-color: oklch(0.47 0.22 27 / 0.5);
+  text-decoration-color: color-mix(in oklch, var(--color-destructive) 50%, transparent);
 }
 .audit-panel .panel-diff-arrow { color: var(--color-muted-foreground); font-weight: 500; }
 .audit-panel .panel-diff-new {
   border-radius: 6px;
   padding: 4px 12px;
-  background: oklch(0.94 0.04 185 / 0.7);
+  background: color-mix(in oklch, var(--color-accent) 70%, transparent);
   color: var(--color-accent-foreground);
   font-weight: 500;
 }
@@ -392,13 +402,13 @@
   font-size: 13px;
   word-break: break-all;
 }
-.audit-panel .panel-listdiff .added { background: oklch(0.94 0.04 185 / 0.7); color: var(--color-accent-foreground); }
+.audit-panel .panel-listdiff .added { background: color-mix(in oklch, var(--color-accent) 70%, transparent); color: var(--color-accent-foreground); }
 .audit-panel .panel-listdiff .added::before { content: "+"; width: 10px; color: var(--color-primary); font-weight: 600; }
 .audit-panel .panel-listdiff .removed {
-  background: oklch(0.577 0.245 27.325 / 0.08);
-  color: oklch(0.47 0.22 27);
+  background: color-mix(in oklch, var(--color-destructive) 8%, transparent);
+  color: var(--color-destructive);
   text-decoration: line-through;
-  text-decoration-color: oklch(0.47 0.22 27 / 0.5);
+  text-decoration-color: color-mix(in oklch, var(--color-destructive) 50%, transparent);
 }
 .audit-panel .panel-listdiff .removed::before {
   content: "−";
@@ -445,17 +455,17 @@
 }
 
 .audit-panel .panel-alert {
-  border: 1px solid oklch(0.577 0.245 27.325 / 0.15);
+  border: 1px solid color-mix(in oklch, var(--color-destructive) 15%, transparent);
   border-radius: 10px;
   padding: 12px 16px;
-  background: oklch(0.577 0.245 27.325 / 0.05);
-  color: oklch(0.20 0 0);
+  background: color-mix(in oklch, var(--color-destructive) 5%, transparent);
+  color: var(--color-foreground);
   font-size: 13px;
   line-height: 1.5;
 }
 .audit-panel .panel-alert-title {
   margin: 0 0 6px;
-  color: oklch(0.47 0.22 27);
+  color: var(--color-destructive);
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.06em;
@@ -502,13 +512,23 @@
 }
 .audit-panel .panel-tech-row > dd {
   margin: 0;
-  color: oklch(0.20 0 0);
+  color: var(--color-foreground);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
   word-break: break-all;
 }
 .audit-panel .panel-tech-row .panel-fact-link {
-  color: oklch(0.34 0.12 185);
-  text-decoration: underline dotted oklch(0.50 0.13 185 / 0.5);
+  color: var(--color-primary);
+  text-decoration: underline dotted color-mix(in oklch, var(--color-primary) 50%, transparent);
   text-underline-offset: 3px;
+}
+
+/* Audit-panel-specific tokens. Dark variants override below. */
+:root {
+  --audit-panel-shadow: 0 6px 24px oklch(0 0 0 / 0.06);
+  --audit-panel-surface: oklch(0.99 0 0);
+}
+.dark {
+  --audit-panel-shadow: 0 6px 24px oklch(0 0 0 / 0.40);
+  --audit-panel-surface: oklch(0.24 0.01 240);
 }

@@ -105,7 +105,7 @@ function TimelineRow({
           ) : (
             <span className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">{item.event_type}</span>
           )}
-          {item.actor_pseudonymized && <span className="rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-900">GDPR-erased</span>}
+          {item.actor_pseudonymized && <span className="rounded-md border border-warning-border bg-warning px-1.5 py-0.5 text-[10px] font-medium text-warning-foreground">GDPR-erased</span>}
           {sev === "critical" && <span className="rounded-md bg-destructive/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.04em] text-destructive">Critical</span>}
         </div>
       </TableCell>
@@ -136,12 +136,12 @@ function OutcomeChip({ outcome, onClick }: { outcome: AuditItem["outcome"]; onCl
   const denied = outcome === "denied";
   const className = cn(
     "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold",
-    ok ? "bg-accent text-accent-foreground" : denied ? "bg-amber-100 text-amber-900" : "bg-destructive/10 text-destructive",
+    ok ? "bg-accent text-accent-foreground" : denied ? "bg-warning text-warning-foreground" : "bg-destructive/10 text-destructive",
     onClick && "hover:ring-1 hover:ring-current",
   );
   const content = (
     <>
-      <span className={cn("size-1.5 rounded-full", ok ? "bg-primary" : denied ? "bg-amber-600" : "bg-destructive")} />
+      <span className={cn("size-1.5 rounded-full", ok ? "bg-primary" : denied ? "bg-warning-border" : "bg-destructive")} />
       {outcome}
     </>
   );

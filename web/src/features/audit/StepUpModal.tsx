@@ -41,7 +41,7 @@ export function StepUpModal({ open, onCancel, onVerified }: Props) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/35 p-4" role="presentation">
+    <div className="fixed inset-0 z-50 grid place-items-center bg-foreground/35 p-4 backdrop-blur-sm" role="presentation">
       <form onSubmit={(event) => void submit(event)} role="dialog" aria-modal="true" aria-labelledby="stepup-title" className="w-full max-w-sm rounded-lg border border-border bg-background p-5 shadow-xl">
         <div className="flex items-start justify-between gap-4">
           <div>
