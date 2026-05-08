@@ -3,6 +3,7 @@ package audit
 import (
 	"archive/tar"
 	"compress/gzip"
+	"context"
 	"encoding/csv"
 	"encoding/hex"
 	"encoding/json"
@@ -13,8 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/abdo75/Schlass/internal/audit/stream"
 	"github.com/abdo75/Schlass/internal/httputil"
 )
@@ -23,13 +22,13 @@ import (
 // It carries enough chain metadata for an independent verifier to re-walk
 // the exported segment without access to the full audit_logs table.
 type exportManifest struct {
-	ExportedAt      time.Time    `json:"exported_at"`
-	TenantID        string       `json:"tenant_id"`
-	SequenceRange   [2]int64     `json:"sequence_range"`
-	RowHashAtStart  string       `json:"row_hash_at_start"`
-	RowHashAtEnd    string       `json:"row_hash_at_end"`
-	AnchorProof     *anchorProof `json:"anchor_proof"`
-	Format          string       `json:"format"`
+	ExportedAt     time.Time    `json:"exported_at"`
+	TenantID       string       `json:"tenant_id"`
+	SequenceRange  [2]int64     `json:"sequence_range"`
+	RowHashAtStart string       `json:"row_hash_at_start"`
+	RowHashAtEnd   string       `json:"row_hash_at_end"`
+	AnchorProof    *anchorProof `json:"anchor_proof"`
+	Format         string       `json:"format"`
 }
 
 type anchorProof struct {
@@ -51,6 +50,9 @@ type exportRecord struct {
 	chain exportRow
 	item  ItemDTO
 }
+
+// caepSignFn signs a CAEP claim map and returns the JWS string.
+type caepSignFn func(claims map[string]any) (string, error)
 
 func (h *Handler) Export(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -95,6 +97,20 @@ func (h *Handler) Export(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
+
+	// For CAEP exports every row must be signed (REQ-AUD-052). Validate
+	// signing availability before touching the DB so we can return a clean
+	// 503 without having written any tar bytes.
+	var signFn caepSignFn
+	if format == "caep" {
+		fn, signingErr := h.resolveCAEPSignFn(ctx)
+		if signingErr != nil {
+			httputil.WriteError(w, http.StatusServiceUnavailable, "SIGNING_UNAVAILABLE", "Signing key unavailable; retry later.")
+			return
+		}
+		signFn = fn
+	}
+
 	user, ok := h.currentUser(ctx)
 	if !ok {
 		httputil.WriteError(w, http.StatusUnauthorized, "INVALID_SESSION", "Not authenticated.")
@@ -172,6 +188,18 @@ func (h *Handler) Export(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// For CAEP format: run a separate SQL query that fetches the raw columns
+	// ProjectCAEP actually needs (actor_type, reason_code, etc.). The viewer
+	// DTO scan above does not carry these fields reliably.
+	var caepEvents []stream.Event
+	if format == "caep" {
+		caepEvents, err = h.collectCAEPEvents(ctx, where, args, capRows)
+		if err != nil {
+			writeErr(w, "audit.Export caep query", err)
+			return
+		}
+	}
+
 	// Build manifest fields from collected rows (rows are DESC by created_at).
 	// Lowest seq is last element; highest seq is first element.
 	var (
@@ -237,7 +265,7 @@ func (h *Handler) Export(w http.ResponseWriter, r *http.Request) {
 	tw := tar.NewWriter(gz)
 
 	// Build data file content in memory so we know its size for the tar header.
-	dataFilename, dataBytes, err := buildDataFile(format, collected)
+	dataFilename, dataBytes, err := buildDataFile(format, collected, caepEvents, signFn, h.issuer)
 	if err != nil {
 		// Headers already sent — log and bail.
 		slog.Error("audit.Export: build data file", "error", err)
@@ -286,7 +314,70 @@ func (h *Handler) Export(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func buildDataFile(format string, rows []exportRecord) (filename string, data []byte, err error) {
+// resolveCAEPSignFn fetches the active signing key, unwraps it, and returns
+// a closure that signs CAEP claim maps. Returns an error if any required
+// dependency is absent (empty issuer, nil key functions, or key fetch fails).
+func (h *Handler) resolveCAEPSignFn(ctx context.Context) (caepSignFn, error) {
+	if h.issuer == "" || h.fetchKey == nil || h.unwrapKey == nil || len(h.encryptionKey) == 0 {
+		return nil, fmt.Errorf("caep signing not configured")
+	}
+	kid, encrypted, err := h.fetchKey(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("caep: fetch active key: %w", err)
+	}
+	privPEM, err := h.unwrapKey(encrypted, h.encryptionKey)
+	if err != nil {
+		return nil, fmt.Errorf("caep: unwrap key: %w", err)
+	}
+	kidCopy := kid
+	privCopy := privPEM
+	return func(claims map[string]any) (string, error) {
+		return SignCAEP(claims, kidCopy, privCopy)
+	}, nil
+}
+
+// collectCAEPEvents runs the raw-column SQL query and returns stream.Events
+// suitable for ProjectCAEP. Uses scanEvent (which handles actor_type,
+// reason_code, etc.) so the projection gets accurate field values.
+// inet columns (client_ip_coarse, client_geo_coarse) are cast to text so
+// pgx can scan them into *string without binary-format type errors.
+func (h *Handler) collectCAEPEvents(ctx context.Context, where string, args []any, capRows int) ([]stream.Event, error) {
+	caepSQL := `SELECT a.id, a.tenant_id, a.sequence_no, a.event_type, a.event_timestamp, a.outcome, a.reason_code,
+	                   a.actor_type, a.actor_id, a.actor_session_id, a.target_type, a.target_id,
+	                   a.source_service, a.client_ip_coarse::text, a.client_geo_coarse::text, a.client_ua_family,
+	                   a.request_id, a.correlation_id, a.retention_bucket, a.metadata
+	              FROM audit_logs a
+	             WHERE ` + where + ` ORDER BY a.created_at DESC`
+	rows, err := h.pool.Query(ctx, caepSQL, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []stream.Event
+	for rows.Next() {
+		if capRows > 0 && len(out) >= capRows {
+			break
+		}
+		evt, err := scanEvent(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, evt)
+	}
+	return out, rows.Err()
+}
+
+// buildDataFile produces the tarball data file for the given format.
+// For csv/jsonl it uses the already-collected exportRecord slice.
+// For caep it uses pre-collected caepEvents (raw stream.Events) so
+// ProjectCAEP gets accurate actor_type and reason_code fields.
+func buildDataFile(
+	format string,
+	rows []exportRecord,
+	caepEvents []stream.Event,
+	signFn caepSignFn,
+	issuer string,
+) (filename string, data []byte, err error) {
 	switch format {
 	case "csv":
 		var sb strings.Builder
@@ -313,25 +404,21 @@ func buildDataFile(format string, rows []exportRecord) (filename string, data []
 		return "audit-log.jsonl", []byte(sb.String()), nil
 
 	case "caep":
-		// ProjectCAEP requires a stream.Event. We build a minimal one from
-		// the ItemDTO fields that are available in the export view.
 		var sb strings.Builder
-		for _, r := range rows {
-			evt := itemToStreamEvent(r.item, r.chain.SequenceNo)
-			claims, _, ok, projErr := ProjectCAEP(evt, "")
+		for _, evt := range caepEvents {
+			claims, _, ok, projErr := ProjectCAEP(evt, issuer)
 			if projErr != nil {
-				return "", nil, fmt.Errorf("caep projection %s: %w", r.item.EventType, projErr)
+				return "", nil, fmt.Errorf("caep projection %s: %w", evt.EventType, projErr)
 			}
 			if !ok {
-				// No CAEP mapping — skip silently.
-				slog.Debug("audit.Export caep: skipping unmapped event", "event_type", r.item.EventType)
+				slog.Debug("audit.Export caep: skipping unmapped event", "event_type", evt.EventType)
 				continue
 			}
-			line, mErr := json.Marshal(claims)
-			if mErr != nil {
-				return "", nil, fmt.Errorf("caep marshal %s: %w", r.item.EventType, mErr)
+			jws, signErr := signFn(claims)
+			if signErr != nil {
+				return "", nil, fmt.Errorf("caep sign %s: %w", evt.EventType, signErr)
 			}
-			sb.Write(line)
+			sb.WriteString(jws)
 			sb.WriteByte('\n')
 		}
 		return "audit-log.set.jsonl", []byte(sb.String()), nil
@@ -339,30 +426,6 @@ func buildDataFile(format string, rows []exportRecord) (filename string, data []
 	default:
 		return "", nil, fmt.Errorf("unknown format %q", format)
 	}
-}
-
-// itemToStreamEvent builds a minimal stream.Event from an ItemDTO for CAEP
-// projection. It only populates fields that ProjectCAEP actually uses.
-func itemToStreamEvent(item ItemDTO, seqNo int64) stream.Event {
-	e := stream.Event{
-		SequenceNo:     seqNo,
-		EventType:      item.EventType,
-		EventTimestamp: item.CreatedAt,
-		Outcome:        item.Outcome,
-		ActorType:      "system",
-		TargetType:     item.TargetType,
-		TargetID:       item.TargetID,
-	}
-	if id, err := uuid.Parse(item.ID); err == nil {
-		e.ID = id
-	}
-	if item.ActorID != nil {
-		if id, err := uuid.Parse(*item.ActorID); err == nil {
-			e.ActorID = &id
-			e.ActorType = "user"
-		}
-	}
-	return e
 }
 
 func (h *Handler) emitExported(r *http.Request, format string, q ListQuery, rowCount int, truncated bool, proof *anchorProof, minSeq, maxSeq int64) error {

@@ -144,8 +144,12 @@ func (s *SyslogStreamer) ensureConn(ctx context.Context) error {
 //
 //	<PRI>1 TIMESTAMP HOSTNAME APP-NAME PROCID MSGID [SD] MSG
 //
-// MSG is the literal "-" — every field of interest lives in SD so the
-// receiver doesn't have to grep the free-form body.
+// When e.RawSET is non-empty the event is a CAEP SET: MSGID is the
+// static token "secevent", SD is "-" (omitted), and MSG body carries
+// the JWS string verbatim. Per RFC 5424 §6.3 the structured-data fields
+// are irrelevant once the receiver can decode the self-describing SET.
+//
+// For plain events MSG is "-" and structured-data carries all fields.
 //
 // PRI = facility*8 + severity. Facility 13 = "log audit" per the RFC
 // 3164 numeric table that RFC 5424 inherits. Severity 6 = informational
@@ -158,6 +162,17 @@ func formatRFC5424(hostname, pid string, e Event) string {
 	pri := 13*8 + severity
 
 	var b bytes.Buffer
+	if e.RawSET != "" {
+		// CAEP SET path: static MSGID, no SD, JWS as MSG body.
+		fmt.Fprintf(&b, "<%d>1 %s %s schlass-audit %s secevent - %s",
+			pri,
+			e.EventTimestamp.UTC().Format(time.RFC3339Nano),
+			hostname,
+			pid,
+			e.RawSET,
+		)
+		return b.String()
+	}
 	fmt.Fprintf(&b, "<%d>1 %s %s schlass-audit %s %s ",
 		pri,
 		e.EventTimestamp.UTC().Format(time.RFC3339Nano),

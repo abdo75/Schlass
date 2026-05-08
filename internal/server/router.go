@@ -22,6 +22,7 @@ import (
 	"github.com/abdo75/Schlass/internal/crypto"
 	"github.com/abdo75/Schlass/internal/instanceconfig"
 	"github.com/abdo75/Schlass/internal/middleware"
+	"github.com/abdo75/Schlass/internal/oidc"
 	"github.com/abdo75/Schlass/internal/session"
 	"github.com/abdo75/Schlass/internal/settings"
 	authsigningkeys "github.com/abdo75/Schlass/internal/signingkeys"
@@ -69,13 +70,30 @@ func BuildRouter(d RouterDeps) (http.Handler, error) {
 	authMW := auth.Middleware(sessionStore, d.UserStore, d.AuditStore, d.Pool)
 
 	usersHandler := users.NewHandler(d.Pool, d.ValkeyClient, d.UserStore, d.AuditStore, sessionStore, d.InstanceConfig, d.RecoveryCodeStore)
-	auditHandler := audit.NewHandler(d.Pool, sessionStore, d.InstanceConfig, d.AuditStore, func(ctx context.Context) (audit.CurrentUser, bool) {
-		u, ok := users.CurrentUser(ctx)
-		if !ok {
-			return audit.CurrentUser{}, false
-		}
-		return audit.CurrentUser{ID: u.ID, Email: u.Email}, true
-	})
+	skStoreForAudit := authsigningkeys.NewStore()
+	auditHandler := audit.NewHandler(
+		d.Pool,
+		sessionStore,
+		d.InstanceConfig,
+		d.AuditStore,
+		func(ctx context.Context) (audit.CurrentUser, bool) {
+			u, ok := users.CurrentUser(ctx)
+			if !ok {
+				return audit.CurrentUser{}, false
+			}
+			return audit.CurrentUser{ID: u.ID, Email: u.Email}, true
+		},
+		d.Cfg.EncryptionKey,
+		func(wrapped, kek []byte) ([]byte, error) { return oidc.UnwrapPrivateKey(wrapped, kek) },
+		func(ctx context.Context) (string, []byte, error) {
+			k, err := skStoreForAudit.GetActive(ctx, d.Pool)
+			if err != nil {
+				return "", nil, err
+			}
+			return k.ID.String(), k.PrivateKeyEncrypted, nil
+		},
+		d.Cfg.SchlassPublicURL,
+	)
 	adminSigningKeysHandler := authsigningkeys.NewHandler(d.Pool, d.AuditStore, d.Cfg.EncryptionKey)
 	settingsHandler := settings.NewHandler(d.Pool, d.InstanceConfig, d.AuditStore, d.Cfg.EncryptionKey)
 

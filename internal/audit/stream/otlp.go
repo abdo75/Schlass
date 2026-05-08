@@ -128,12 +128,26 @@ func buildOTLPPayload(batch []Event) otlpPayload {
 	records := make([]otlpRecord, 0, len(batch))
 	for _, e := range batch {
 		sevNum, sevText := otlpSeverity(e.Outcome)
+		var body otlpValue
+		var attrs []otlpAttr
+		if e.RawSET != "" {
+			// CAEP SET path: JWS as body, minimal dedup attributes only.
+			body = otlpValue{StringValue: e.RawSET}
+			attrs = []otlpAttr{
+				{Key: "event.id", Value: otlpValue{StringValue: e.ID.String()}},
+				{Key: "audit.tenant_id", Value: otlpValue{StringValue: e.TenantID.String()}},
+				{Key: "audit.sequence_no", Value: otlpValue{StringValue: strconv.FormatInt(e.SequenceNo, 10)}},
+			}
+		} else {
+			body = otlpValue{StringValue: e.EventType}
+			attrs = buildAttrs(e)
+		}
 		records = append(records, otlpRecord{
 			TimeUnixNano:   strconv.FormatInt(e.EventTimestamp.UTC().UnixNano(), 10),
 			SeverityNumber: sevNum,
 			SeverityText:   sevText,
-			Body:           otlpValue{StringValue: e.EventType},
-			Attributes:     buildAttrs(e),
+			Body:           body,
+			Attributes:     attrs,
 		})
 	}
 	return otlpPayload{

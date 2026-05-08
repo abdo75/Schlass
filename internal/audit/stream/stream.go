@@ -22,6 +22,11 @@ import (
 // transformations (IP coarsening, UA family extraction) have already
 // been applied at emit time per M2; the streamer treats every string
 // field as opaque.
+//
+// RawSET, when non-empty, carries a signed RFC 8417 JWS string produced
+// by CAEPStreamer. Syslog and OTLP backends write this verbatim as the
+// message body and suppress the structured-data / attribute fields that
+// describe an individual event (those are already encoded in the SET).
 type Event struct {
 	ID              uuid.UUID
 	TenantID        uuid.UUID
@@ -43,6 +48,10 @@ type Event struct {
 	CorrelationID  *uuid.UUID
 	RetentionBucket string
 	Metadata        map[string]any
+	// RawSET carries a signed RFC 8417 JWS when the event was projected
+	// through CAEPStreamer. Non-empty means the backends should emit it
+	// verbatim as the log body instead of structured fields.
+	RawSET string
 }
 
 // Streamer is the contract every backend implements. Push delivers a

@@ -139,7 +139,8 @@ func (r *recordStreamer) Close() error {
 }
 
 // TestCAEPStreamer_FiltersAndProjects verifies that only mapped events
-// reach the inner streamer as JWS lines, and unmapped events are dropped.
+// reach the inner streamer with RawSET populated, and unmapped events are
+// dropped. EventType is preserved unchanged; JWS goes into RawSET.
 func TestCAEPStreamer_FiltersAndProjects(t *testing.T) {
 	inner := &recordStreamer{}
 
@@ -175,8 +176,13 @@ func TestCAEPStreamer_FiltersAndProjects(t *testing.T) {
 	if len(batch) != 1 {
 		t.Fatalf("batch len = %d, want 1 (unmapped should be filtered)", len(batch))
 	}
-	if batch[0].EventType != "signed.jws."+evtMapped.ID.String() {
-		t.Errorf("EventType = %q, want JWS string", batch[0].EventType)
+	// EventType must be preserved; JWS must be in RawSET.
+	if batch[0].EventType != "session.revoked" {
+		t.Errorf("EventType = %q, want original event type", batch[0].EventType)
+	}
+	wantJWS := "signed.jws." + evtMapped.ID.String()
+	if batch[0].RawSET != wantJWS {
+		t.Errorf("RawSET = %q, want %q", batch[0].RawSET, wantJWS)
 	}
 }
 

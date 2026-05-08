@@ -20,12 +20,19 @@ import (
 	"github.com/abdo75/Schlass/internal/session"
 )
 
+// Handler serves the audit viewer API. The signing-key fields are used only
+// by the CAEP export path (REQ-AUD-052); other export formats and viewer
+// endpoints leave them unused.
 type Handler struct {
-	pool        *pgxpool.Pool
-	sessions    session.Store
-	cfg         *instanceconfig.Service
-	audit       PseudonymizingLogger
-	currentUser func(context.Context) (CurrentUser, bool)
+	pool          *pgxpool.Pool
+	sessions      session.Store
+	cfg           *instanceconfig.Service
+	audit         PseudonymizingLogger
+	currentUser   func(context.Context) (CurrentUser, bool)
+	encryptionKey []byte
+	unwrapKey     KeyUnwrapper
+	fetchKey      ActiveKeyFetcher
+	issuer        string
 }
 
 type CurrentUser struct {
@@ -33,8 +40,28 @@ type CurrentUser struct {
 	Email string
 }
 
-func NewHandler(pool *pgxpool.Pool, sessions session.Store, cfg *instanceconfig.Service, audit PseudonymizingLogger, currentUser func(context.Context) (CurrentUser, bool)) *Handler {
-	return &Handler{pool: pool, sessions: sessions, cfg: cfg, audit: audit, currentUser: currentUser}
+func NewHandler(
+	pool *pgxpool.Pool,
+	sessions session.Store,
+	cfg *instanceconfig.Service,
+	audit PseudonymizingLogger,
+	currentUser func(context.Context) (CurrentUser, bool),
+	encryptionKey []byte,
+	unwrapKey KeyUnwrapper,
+	fetchKey ActiveKeyFetcher,
+	issuer string,
+) *Handler {
+	return &Handler{
+		pool:          pool,
+		sessions:      sessions,
+		cfg:           cfg,
+		audit:         audit,
+		currentUser:   currentUser,
+		encryptionKey: encryptionKey,
+		unwrapKey:     unwrapKey,
+		fetchKey:      fetchKey,
+		issuer:        issuer,
+	}
 }
 
 type ListResponse struct {

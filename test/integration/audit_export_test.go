@@ -6,23 +6,31 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
+
+	auditapi "github.com/abdo75/Schlass/internal/audit"
+	"github.com/abdo75/Schlass/internal/signingkeys"
 )
 
 // exportManifest mirrors the shape written by the export API.
 type exportManifest struct {
-	ExportedAt     time.Time       `json:"exported_at"`
-	TenantID       string          `json:"tenant_id"`
-	SequenceRange  [2]int64        `json:"sequence_range"`
-	RowHashAtStart string          `json:"row_hash_at_start"`
-	RowHashAtEnd   string          `json:"row_hash_at_end"`
+	ExportedAt     time.Time          `json:"exported_at"`
+	TenantID       string             `json:"tenant_id"`
+	SequenceRange  [2]int64           `json:"sequence_range"`
+	RowHashAtStart string             `json:"row_hash_at_start"`
+	RowHashAtEnd   string             `json:"row_hash_at_end"`
 	AnchorProof    *exportAnchorProof `json:"anchor_proof"`
-	Format         string          `json:"format"`
+	Format         string             `json:"format"`
 }
 
 type exportAnchorProof struct {
@@ -32,9 +40,43 @@ type exportAnchorProof struct {
 	SequenceNo int64     `json:"sequence_no"`
 }
 
+// emitChainRow emits one audit row through the real chain (Emit → chain.Append)
+// so sequence_no and row_hash are populated by the store. This is required for
+// RowHashAtEnd to be non-empty in the manifest and for the CAEP export to have
+// a valid signing key context.
+func emitChainRow(t *testing.T, env *TestEnv, actorID *uuid.UUID, eventType string, targetType, targetID *string, outcome string) {
+	t.Helper()
+	store := auditapi.NewStore()
+	ctx := context.Background()
+	tx, err := env.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("emitChainRow begin: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	evt := auditapi.Event{
+		EventType: eventType,
+		ActorID:   actorID,
+		Outcome:   outcome,
+	}
+	if targetType != nil {
+		evt.TargetType = *targetType
+	}
+	if targetID != nil {
+		evt.TargetID = *targetID
+	}
+	if err := store.Emit(ctx, tx, evt); err != nil {
+		t.Fatalf("emitChainRow emit: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("emitChainRow commit: %v", err)
+	}
+}
+
 // TestAuditExport_BundleShape seeds a few rows, hits the export API for
 // each format, and asserts: (a) the response is a tar.gz, (b) it contains
 // a manifest.json with the right shape, (c) it contains the data file.
+// For caep: each line is a valid JWS; decoded payload has iss + events URN + jti UUID.
+// For all formats: manifest.RowHashAtEnd is non-empty (chain rows were used).
 func TestAuditExport_BundleShape(t *testing.T) {
 	env := NewTestEnv(t)
 	defer env.Cleanup()
@@ -42,12 +84,15 @@ func TestAuditExport_BundleShape(t *testing.T) {
 	adminID := env.SeedAdmin(t, "export-test@example.com", "CorrectHorse42!")
 	cookie := env.LoginAsAdmin(t, "export-test@example.com", "CorrectHorse42!")
 
-	// Emit a few rows via the chain so sequence_no + row_hash are populated.
+	// Bootstrap a signing key so CAEP export can sign SETs.
+	bootstrapSigningKey(t, env)
+
+	// Emit rows via the chain so sequence_no + row_hash are populated.
 	for i := 0; i < 3; i++ {
-		insertAuditViewerRow(t, env, "login.succeeded", &adminID, "export-test@example.com", nil, nil, "success")
+		emitChainRow(t, env, &adminID, "login.succeeded", nil, nil, "success")
 	}
 	// Emit a CAEP-mapped row so the caep export has something to write.
-	insertAuditViewerRow(t, env, "session.revoked", &adminID, "export-test@example.com", ptr("user"), ptr(adminID.String()), "success")
+	emitChainRow(t, env, &adminID, "session.revoked", ptr("user"), ptr(adminID.String()), "success")
 
 	for _, format := range []string{"csv", "jsonl", "caep"} {
 		t.Run(format, func(t *testing.T) {
@@ -81,13 +126,91 @@ func TestAuditExport_BundleShape(t *testing.T) {
 			if manifest.TenantID == "" {
 				t.Errorf("format=%s: manifest.tenant_id empty", format)
 			}
+			// Chain rows must have populated row_hash so RowHashAtEnd is non-empty.
+			if manifest.RowHashAtEnd == "" {
+				t.Errorf("format=%s: manifest.row_hash_at_end empty — rows not chain-emitted?", format)
+			}
 
 			// Data file must be present.
 			dataName := exportDataFilename(format)
-			if _, ok := files[dataName]; !ok {
+			dataBytes, ok := files[dataName]
+			if !ok {
 				t.Errorf("format=%s: data file %q missing from bundle", format, dataName)
 			}
+
+			// CAEP-specific: each line must be a valid JWS with correct claims.
+			if format == "caep" {
+				assertCAEPLines(t, dataBytes, env.Cfg.SchlassPublicURL)
+			}
 		})
+	}
+}
+
+// assertCAEPLines parses audit-log.set.jsonl line-by-line and asserts:
+//   - each non-empty line has exactly 3 dot-separated base64url segments (JWS)
+//   - the payload (middle segment) decodes to JSON with iss == wantIssuer
+//   - events map contains a CAEP URN key
+//   - jti parses as UUID
+func assertCAEPLines(t *testing.T, data []byte, wantIssuer string) {
+	t.Helper()
+	content := strings.TrimSpace(string(data))
+	if content == "" {
+		t.Error("caep: audit-log.set.jsonl is empty — no CAEP-mapped rows exported")
+		return
+	}
+	lines := strings.Split(content, "\n")
+	for i, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.Split(line, ".")
+		if len(parts) != 3 {
+			t.Errorf("caep line %d: want 3 JWS segments, got %d: %q", i+1, len(parts), line[:min(len(line), 80)])
+			continue
+		}
+		// Decode the payload (middle segment).
+		payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+		if err != nil {
+			t.Errorf("caep line %d: base64 decode payload: %v", i+1, err)
+			continue
+		}
+		var claims map[string]any
+		if err := json.Unmarshal(payload, &claims); err != nil {
+			t.Errorf("caep line %d: parse payload JSON: %v", i+1, err)
+			continue
+		}
+		// iss must match the issuer.
+		iss, _ := claims["iss"].(string)
+		if iss != wantIssuer {
+			t.Errorf("caep line %d: iss = %q, want %q", i+1, iss, wantIssuer)
+		}
+		// events map must be present and non-empty.
+		events, _ := claims["events"].(map[string]any)
+		if len(events) == 0 {
+			t.Errorf("caep line %d: events map missing or empty", i+1)
+		} else {
+			for urn := range events {
+				if !strings.HasPrefix(urn, "https://") {
+					t.Errorf("caep line %d: events URN %q does not look like a CAEP URN", i+1, urn)
+				}
+			}
+		}
+		// jti must parse as UUID.
+		jti, _ := claims["jti"].(string)
+		if _, err := uuid.Parse(jti); err != nil {
+			t.Errorf("caep line %d: jti %q is not a UUID: %v", i+1, jti, err)
+		}
+	}
+}
+
+// bootstrapSigningKey ensures a signing key exists in the test DB so the CAEP
+// export path can fetch an active key. Uses signingkeys.Bootstrap which is
+// idempotent — safe to call when a key already exists.
+func bootstrapSigningKey(t *testing.T, env *TestEnv) {
+	t.Helper()
+	if err := signingkeys.Bootstrap(context.Background(), env.Pool, auditapi.NewStore(), env.Cfg.EncryptionKey); err != nil {
+		t.Fatalf("bootstrapSigningKey: %v", err)
 	}
 }
 
