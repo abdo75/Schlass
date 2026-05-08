@@ -57,7 +57,11 @@ func NewStreamWorker(pool *pgxpool.Pool, cfg *instanceconfig.Service, auditStore
 // streamer, and runs the watermark loop until ctx is cancelled. When
 // audit.stream.backend is "none" (the default) the goroutine returns
 // immediately so deployments without SIEM integration pay no cost.
-func StartStreamWorker(ctx context.Context, pool *pgxpool.Pool, cfg *instanceconfig.Service, auditStore Logger) {
+//
+// encryptionKey, unwrap, fetchKey, and issuer are forwarded to the CAEP
+// signing closure when audit.stream.format is "caep". Pass nil/empty to
+// keep raw mode.
+func StartStreamWorker(ctx context.Context, pool *pgxpool.Pool, cfg *instanceconfig.Service, auditStore Logger, encryptionKey []byte, unwrap KeyUnwrapper, fetchKey ActiveKeyFetcher, issuer string) {
 	backend, err := cfg.AuditStreamBackend(ctx, pool)
 	if err != nil {
 		slog.Warn("audit stream: read backend, defaulting to none", "error", err)
@@ -77,6 +81,18 @@ func StartStreamWorker(ctx context.Context, pool *pgxpool.Pool, cfg *instancecon
 			slog.Warn("audit stream: streamer close", "error", err)
 		}
 	}()
+
+	format, err := cfg.AuditStreamFormat(ctx, pool)
+	if err != nil {
+		slog.Warn("audit stream: read format, defaulting to raw", "error", err)
+		format = "raw"
+	}
+	if format == "caep" && len(encryptionKey) > 0 && unwrap != nil && fetchKey != nil && issuer != "" {
+		projSign := buildCAEPProjSign(ctx, fetchKey, unwrap, encryptionKey, issuer)
+		streamer = stream.NewCAEPStreamer(streamer, projSign)
+		slog.Info("audit stream: CAEP mode active", "issuer", issuer)
+	}
+
 	pollSecs, err := cfg.AuditStreamPollSecs(ctx, pool)
 	if err != nil || pollSecs <= 0 {
 		pollSecs = 5
@@ -96,6 +112,42 @@ func StartStreamWorker(ctx context.Context, pool *pgxpool.Pool, cfg *instancecon
 				slog.Error("audit stream: cycle failed", "backend", backend, "error", err)
 			}
 		}
+	}
+}
+
+// KeyUnwrapper decrypts an encrypted private key PEM blob. Provided by
+// the boot path to avoid an import cycle through signingkeys/oidc → users.
+type KeyUnwrapper func(wrapped, kek []byte) ([]byte, error)
+
+// ActiveKeyFetcher returns the active signing key (kid string, encrypted
+// private key bytes). Provided by the boot path for the same reason.
+type ActiveKeyFetcher func(ctx context.Context) (kid string, encrypted []byte, err error)
+
+// buildCAEPProjSign returns a SETProjector closure that fetches the active
+// signing key each call (so key rotations are picked up automatically),
+// projects the event to CAEP claims, and signs the SET.
+func buildCAEPProjSign(ctx context.Context, fetchKey ActiveKeyFetcher, unwrap KeyUnwrapper, encryptionKey []byte, issuer string) stream.SETProjector {
+	return func(evt stream.Event) (string, bool, error) {
+		claims, _, ok, err := ProjectCAEP(evt, issuer)
+		if err != nil {
+			return "", false, err
+		}
+		if !ok {
+			return "", false, nil
+		}
+		kid, encrypted, err := fetchKey(ctx)
+		if err != nil {
+			return "", false, fmt.Errorf("caep projsign: get active key: %w", err)
+		}
+		privPEM, err := unwrap(encrypted, encryptionKey)
+		if err != nil {
+			return "", false, fmt.Errorf("caep projsign: unwrap key: %w", err)
+		}
+		jws, err := SignCAEP(claims, kid, privPEM)
+		if err != nil {
+			return "", false, err
+		}
+		return jws, true, nil
 	}
 }
 

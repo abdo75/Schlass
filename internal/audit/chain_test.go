@@ -29,7 +29,7 @@ func TestLegacyRowHash_Deterministic(t *testing.T) {
 // row_hash is decoupled from prev_hash and tampering can re-link a
 // chain segment without detection.
 func TestComputeRowHash_DependsOnPrevHash(t *testing.T) {
-	base := chainRow{
+	base := ChainRow{
 		SchemaVersion:  1,
 		EventType:      "login.succeeded",
 		EventTimestamp: "2026-04-30T00:00:00Z",
@@ -61,7 +61,7 @@ func TestComputeRowHash_DependsOnPrevHash(t *testing.T) {
 // account.locked) leaves row_hash equal, the verifier can't detect
 // content tampering.
 func TestComputeRowHash_DependsOnEventType(t *testing.T) {
-	base := chainRow{
+	base := ChainRow{
 		SchemaVersion:  1,
 		EventType:      "login.succeeded",
 		EventTimestamp: "2026-04-30T00:00:00Z",

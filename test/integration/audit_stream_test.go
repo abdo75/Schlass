@@ -231,7 +231,7 @@ func TestStreamWorker_NoneBackend(t *testing.T) {
 	store := audit.NewStore()
 	done := make(chan struct{})
 	go func() {
-		audit.StartStreamWorker(ctx, env.Pool, cfg, store)
+		audit.StartStreamWorker(ctx, env.Pool, cfg, store, nil, nil, nil, "")
 		close(done)
 	}()
 	select {

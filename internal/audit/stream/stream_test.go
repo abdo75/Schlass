@@ -1,6 +1,7 @@
 package stream
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -120,3 +121,78 @@ func TestOTLPSeverity(t *testing.T) {
 }
 
 func ptr[T any](v T) *T { return &v }
+
+// recordStreamer records every batch it receives; used in CAEPStreamer tests.
+type recordStreamer struct {
+	received [][]Event
+	closed   bool
+}
+
+func (r *recordStreamer) Push(_ context.Context, batch []Event) error {
+	r.received = append(r.received, batch)
+	return nil
+}
+
+func (r *recordStreamer) Close() error {
+	r.closed = true
+	return nil
+}
+
+// TestCAEPStreamer_FiltersAndProjects verifies that only mapped events
+// reach the inner streamer as JWS lines, and unmapped events are dropped.
+func TestCAEPStreamer_FiltersAndProjects(t *testing.T) {
+	inner := &recordStreamer{}
+
+	// projSign: returns a fake JWS for session.revoked; false for login.succeeded.
+	projSign := func(evt Event) (string, bool, error) {
+		if evt.EventType == "session.revoked" {
+			return "signed.jws." + evt.ID.String(), true, nil
+		}
+		return "", false, nil
+	}
+
+	cs := NewCAEPStreamer(inner, projSign)
+
+	evtMapped := Event{
+		ID:        uuid.New(),
+		EventType: "session.revoked",
+		Outcome:   "success",
+	}
+	evtUnmapped := Event{
+		ID:        uuid.New(),
+		EventType: "login.succeeded",
+		Outcome:   "success",
+	}
+
+	if err := cs.Push(context.Background(), []Event{evtMapped, evtUnmapped}); err != nil {
+		t.Fatalf("Push: %v", err)
+	}
+
+	if len(inner.received) != 1 {
+		t.Fatalf("inner received %d batches, want 1", len(inner.received))
+	}
+	batch := inner.received[0]
+	if len(batch) != 1 {
+		t.Fatalf("batch len = %d, want 1 (unmapped should be filtered)", len(batch))
+	}
+	if batch[0].EventType != "signed.jws."+evtMapped.ID.String() {
+		t.Errorf("EventType = %q, want JWS string", batch[0].EventType)
+	}
+}
+
+// TestCAEPStreamer_AllUnmapped checks that inner.Push is not called when
+// every event in the batch has no CAEP mapping.
+func TestCAEPStreamer_AllUnmapped(t *testing.T) {
+	inner := &recordStreamer{}
+	projSign := func(evt Event) (string, bool, error) {
+		return "", false, nil // nothing mapped
+	}
+	cs := NewCAEPStreamer(inner, projSign)
+	evt := Event{ID: uuid.New(), EventType: "login.succeeded"}
+	if err := cs.Push(context.Background(), []Event{evt}); err != nil {
+		t.Fatalf("Push: %v", err)
+	}
+	if len(inner.received) != 0 {
+		t.Errorf("inner.Push called despite all-unmapped batch")
+	}
+}

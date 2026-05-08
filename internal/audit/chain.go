@@ -50,7 +50,7 @@ import (
 // Chain wraps the hash-chain INSERT path. Stateless; safe to share.
 type Chain struct{}
 
-// chainRow mirrors the column-name set hashed into row_hash. JSON tag
+// ChainRow mirrors the column-name set hashed into row_hash. JSON tag
 // names MUST match the SQL column names exactly so a future
 // cross-language verifier produces the same canonical bytes.
 //
@@ -60,7 +60,9 @@ type Chain struct{}
 // could differ from event_timestamp by sub-millisecond — we hash the
 // caller-supplied event_timestamp instead so the input is fully
 // deterministic from the event payload.
-type chainRow struct {
+// ChainRow fields are exported to allow the verify-export CLI to
+// re-derive row_hash from exported data without DB access.
+type ChainRow struct {
 	SchemaVersion   int            `json:"schema_version"`
 	EventType       string         `json:"event_type"`
 	EventTimestamp  string         `json:"event_timestamp"`
@@ -85,8 +87,8 @@ type chainRow struct {
 	PrevHash        string         `json:"prev_hash,omitempty"` // hex-encoded; empty for first row
 }
 
-// computeRowHash returns sha256(canonical(chainRow)).
-func computeRowHash(r chainRow) ([]byte, error) {
+// computeRowHash returns sha256(canonical(ChainRow)).
+func computeRowHash(r ChainRow) ([]byte, error) {
 	encoded, err := Canonicalize(r)
 	if err != nil {
 		return nil, fmt.Errorf("chain: canonicalize: %w", err)
@@ -266,7 +268,7 @@ func (c *Chain) Append(ctx context.Context, tx pgx.Tx, s *Store, e Event) error 
 	// Build the chainRow. UUID values render as canonical hyphenated
 	// strings; missing optional fields stay zero-valued and drop out
 	// via the omitempty tag.
-	cr := chainRow{
+	cr := ChainRow{
 		SchemaVersion:   SchemaVersion,
 		EventType:       e.EventType,
 		EventTimestamp:  eventTimestamp.UTC().Format(time.RFC3339Nano),

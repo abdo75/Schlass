@@ -45,6 +45,13 @@ func SignIDToken(c IDTokenClaims, kid string, privatePEM []byte) (string, error)
 	return signRS256(c, kid, "JWT", privatePEM)
 }
 
+// SignSET signs a Security Event Token per RFC 8417. The claims map is
+// passed verbatim so callers can compose any RFC 8417 claim set without
+// an intermediate struct. typ=secevent+jwt.
+func SignSET(claims map[string]any, kid string, privatePEM []byte) (string, error) {
+	return signRS256(claims, kid, "secevent+jwt", privatePEM)
+}
+
 func signRS256(claims any, kid, typ string, privatePEM []byte) (string, error) {
 	priv, err := ParsePrivatePEM(privatePEM)
 	if err != nil {

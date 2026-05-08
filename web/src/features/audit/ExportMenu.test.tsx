@@ -18,7 +18,7 @@ describe("ExportMenu", () => {
     const fetchMock = vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(new Response(JSON.stringify({ error: "STEPUP_REQUIRED", message: "Recent MFA verification is required." }), { status: 401 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true }), { status: 200 }))
-      .mockResolvedValueOnce(new Response("id,event_type\n", { status: 200, headers: { "Content-Type": "text/csv" } }));
+      .mockResolvedValueOnce(new Response("id,event_type\n", { status: 200, headers: { "Content-Type": "application/gzip" } }));
 
     render(<ExportMenu state={state} />);
     fireEvent.click(screen.getByRole("button", { name: /Export/i }));
@@ -35,5 +35,66 @@ describe("ExportMenu", () => {
     expect(createObjectURL).toHaveBeenCalled();
     expect(append).toHaveBeenCalled();
     expect(click).toHaveBeenCalled();
+  });
+
+  it("renders CSV, JSON, and CAEP SET menu items", () => {
+    render(<ExportMenu state={state} />);
+    fireEvent.click(screen.getByRole("button", { name: /Export/i }));
+
+    expect(screen.getByRole("menuitem", { name: "CSV" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "JSON" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "CAEP SET" })).toBeInTheDocument();
+  });
+
+  it("downloads a .tar.gz bundle and shows manifest confirmation", async () => {
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:bundle");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    vi.spyOn(document.body, "append");
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(new Uint8Array([0x1f, 0x8b]), { status: 200, headers: { "Content-Type": "application/gzip" } })
+    );
+
+    render(<ExportMenu state={state} />);
+    fireEvent.click(screen.getByRole("button", { name: /Export/i }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "CSV" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("Bundle includes manifest.json with chain proof");
+  });
+
+  it("sends format=caep when CAEP SET is clicked", async () => {
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:bundle");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    vi.spyOn(document.body, "append");
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(new Uint8Array([0x1f, 0x8b]), { status: 200, headers: { "Content-Type": "application/gzip" } })
+    );
+
+    render(<ExportMenu state={state} />);
+    fireEvent.click(screen.getByRole("button", { name: /Export/i }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "CAEP SET" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const body = JSON.parse(fetchMock.mock.calls[0][1]?.body as string) as Record<string, unknown>;
+    expect(body.format).toBe("caep");
+  });
+
+  it("uses a .tar.gz filename suffix for all formats", async () => {
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:bundle");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    const append = vi.spyOn(document.body, "append");
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(new Uint8Array(), { status: 200, headers: { "Content-Type": "application/gzip" } })
+    );
+
+    render(<ExportMenu state={state} />);
+    fireEvent.click(screen.getByRole("button", { name: /Export/i }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "JSON" }));
+
+    await waitFor(() => expect(append).toHaveBeenCalled());
+    const anchor = (append.mock.calls[0][0] as HTMLAnchorElement);
+    expect(anchor.download).toMatch(/audit-log-\d{8}-\d{4}\.tar\.gz/);
   });
 });

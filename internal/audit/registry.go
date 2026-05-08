@@ -171,6 +171,7 @@ var configChangeKeys = []string{
 	"audit.stream.backend",
 	"audit.stream.batch_size",
 	"audit.stream.endpoint",
+	"audit.stream.format",
 	"audit.stream.poll_secs",
 	"audit.stream.token_ref",
 	"instance_name",

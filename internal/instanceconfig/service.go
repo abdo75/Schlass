@@ -191,6 +191,22 @@ func (s *Service) AuditStreamPollSecs(ctx context.Context, q database.Querier) (
 	return s.intWithDefault(ctx, q, "audit.stream.poll_secs", 5)
 }
 
+// AuditStreamFormat returns "raw" (default) or "caep". "raw" emits the
+// stream.Event JSON payload; "caep" projects + signs RFC 8417 SETs and
+// filters to events with a registered CAEP URN mapping.
+func (s *Service) AuditStreamFormat(ctx context.Context, q database.Querier) (string, error) {
+	v, err := s.stringWithDefault(ctx, q, "audit.stream.format", "raw")
+	if err != nil {
+		return "raw", err
+	}
+	switch v {
+	case "raw", "caep":
+		return v, nil
+	default:
+		return "raw", nil
+	}
+}
+
 // AuditStreamBatchSize returns the maximum events per push. Floors at 1,
 // caps at 1000 silently (a runaway value would balloon receiver memory);
 // defaults to 100.

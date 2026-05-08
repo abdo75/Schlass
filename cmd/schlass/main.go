@@ -17,6 +17,7 @@ import (
 	"github.com/abdo75/Schlass/internal/crypto"
 	"github.com/abdo75/Schlass/internal/database"
 	"github.com/abdo75/Schlass/internal/instanceconfig"
+	"github.com/abdo75/Schlass/internal/oidc"
 	"github.com/abdo75/Schlass/internal/recovery"
 	"github.com/abdo75/Schlass/internal/server"
 	"github.com/abdo75/Schlass/internal/signingkeys"
@@ -113,7 +114,20 @@ func main() {
 	// graceful shutdown cancels cleanly. 0 interval disables.
 	go server.StartSweeper(ctx, pool, time.Duration(cfg.SweeperIntervalSecs)*time.Second, auditStore)
 	go audit.StartAnchorJob(ctx, pool, instanceConfig, auditStore)
-	go audit.StartStreamWorker(ctx, pool, instanceConfig, auditStore)
+	skStore := signingkeys.NewStore()
+	issuerURL := cfg.SchlassPublicURL
+	go audit.StartStreamWorker(ctx, pool, instanceConfig, auditStore,
+		cfg.EncryptionKey,
+		func(wrapped, kek []byte) ([]byte, error) { return oidc.UnwrapPrivateKey(wrapped, kek) },
+		func(kctx context.Context) (string, []byte, error) {
+			k, err := skStore.GetActive(kctx, pool)
+			if err != nil {
+				return "", nil, err
+			}
+			return k.ID.String(), k.PrivateKeyEncrypted, nil
+		},
+		issuerURL,
+	)
 
 	// Create a test OIDC client when running in dev mode. Skipped in prod.
 	if err := server.SeedDevClient(ctx, pool, os.Getenv("SCHLASS_DEV"), os.Getenv("SCHLASS_DEV_SECRET"), cfg.SchlassPublicURL); err != nil {

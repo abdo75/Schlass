@@ -209,7 +209,7 @@ func Verify(ctx context.Context, conn VerifierConn, opts VerifyOptions) (*Verify
 			geoCoarse = *clientGeoCoarse
 		}
 
-		cr := chainRow{
+		cr := ChainRow{
 			SchemaVersion:   schemaVersion,
 			EventType:       eventType,
 			EventTimestamp:  eventTimestamp.UTC().Format(time.RFC3339Nano),

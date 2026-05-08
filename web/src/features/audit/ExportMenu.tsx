@@ -5,15 +5,32 @@ import { StepUpModal } from "./StepUpModal";
 import type { AuditState } from "./types";
 import { useOutsideClick } from "./useOutsideClick";
 
+type ExportFormat = "csv" | "jsonl" | "caep";
+
+const FORMAT_LABELS: Record<ExportFormat, string> = {
+  csv: "CSV",
+  jsonl: "JSON",
+  caep: "CAEP SET",
+};
+
 export function ExportMenu({ state }: { state: AuditState }) {
   const [open, setOpen] = useState(false);
   const [stepUpOpen, setStepUpOpen] = useState(false);
-  const [pendingFormat, setPendingFormat] = useState<"csv" | "jsonl" | null>(null);
+  const [pendingFormat, setPendingFormat] = useState<ExportFormat | null>(null);
+  const [lastManifest, setLastManifest] = useState<boolean>(false);
   const ref = useRef<HTMLDivElement>(null);
   useOutsideClick(ref, open, () => setOpen(false));
 
-  async function download(format: "csv" | "jsonl") {
+  function bundleFilename(): string {
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const ts = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}`;
+    return `audit-log-${ts}.tar.gz`;
+  }
+
+  async function download(format: ExportFormat) {
     setOpen(false);
+    setLastManifest(false);
     setPendingFormat(format);
     const response = await fetch("/api/audit/export", {
       method: "POST",
@@ -32,11 +49,12 @@ export function ExportMenu({ state }: { state: AuditState }) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `audit-log.${format === "csv" ? "csv" : "jsonl"}`;
+    a.download = bundleFilename();
     document.body.append(a);
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
+    setLastManifest(true);
     setPendingFormat(null);
   }
 
@@ -53,24 +71,24 @@ export function ExportMenu({ state }: { state: AuditState }) {
           <ChevronDownIcon className="size-3.5 text-muted-foreground" />
         </button>
         {open && (
-          <div role="menu" className="absolute right-0 top-10 z-40 min-w-32 rounded-lg border border-border bg-popover p-1 shadow-lg">
-            <button
-              type="button"
-              role="menuitem"
-              className="block w-full rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted"
-              onClick={() => void download("csv")}
-            >
-              CSV
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              className="block w-full rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted"
-              onClick={() => void download("jsonl")}
-            >
-              JSON
-            </button>
+          <div role="menu" className="absolute right-0 top-10 z-40 min-w-36 rounded-lg border border-border bg-popover p-1 shadow-lg">
+            {(Object.keys(FORMAT_LABELS) as ExportFormat[]).map((fmt) => (
+              <button
+                key={fmt}
+                type="button"
+                role="menuitem"
+                className="block w-full rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted"
+                onClick={() => void download(fmt)}
+              >
+                {FORMAT_LABELS[fmt]}
+              </button>
+            ))}
           </div>
+        )}
+        {lastManifest && (
+          <p className="mt-1 text-xs text-muted-foreground" role="status">
+            Bundle includes manifest.json with chain proof
+          </p>
         )}
       </div>
       <StepUpModal
