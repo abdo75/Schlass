@@ -85,20 +85,20 @@ export function EventTypePicker({ selected, onApply }: { selected: string[]; onA
         })}
       </div>
       <div className="flex items-center gap-2 border-t border-border p-3">
-        <span className="text-sm text-muted-foreground">{count} selected</span>
+        <span className="text-sm text-muted-foreground">{t("audit.eventTypePicker.countSelected", { count })}</span>
         <button
           type="button"
           className="ml-auto rounded-md px-2 py-1 text-sm text-muted-foreground hover:bg-muted"
           onClick={() => setDraft(new Set())}
         >
-          Clear
+          {t("audit.eventTypePicker.clear")}
         </button>
         <button
           type="button"
           className="rounded-md bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground"
           onClick={() => onApply([...draft])}
         >
-          Apply
+          {t("audit.eventTypePicker.apply")}
         </button>
       </div>
     </div>

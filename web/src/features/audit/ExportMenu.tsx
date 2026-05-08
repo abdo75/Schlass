@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ChevronDownIcon } from "lucide-react";
 import { ApiRequestError } from "@/lib/api";
 import { StepUpModal } from "./StepUpModal";
@@ -7,13 +8,10 @@ import { useOutsideClick } from "./useOutsideClick";
 
 type ExportFormat = "csv" | "jsonl" | "caep";
 
-const FORMAT_LABELS: Record<ExportFormat, string> = {
-  csv: "CSV",
-  jsonl: "JSON",
-  caep: "CAEP SET",
-};
+const FORMATS: ExportFormat[] = ["csv", "jsonl", "caep"];
 
 export function ExportMenu({ state }: { state: AuditState }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [stepUpOpen, setStepUpOpen] = useState(false);
   const [pendingFormat, setPendingFormat] = useState<ExportFormat | null>(null);
@@ -69,12 +67,12 @@ export function ExportMenu({ state }: { state: AuditState }) {
           className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border bg-background px-3 text-sm font-medium hover:bg-muted"
           onClick={() => setOpen((v) => !v)}
         >
-          Export
+          {t("audit.export.button")}
           <ChevronDownIcon className="size-3.5 text-muted-foreground" />
         </button>
         {open && (
-          <div id="audit-export-menu" role="menu" aria-label="Export format" className="absolute right-0 top-10 z-40 min-w-36 rounded-lg border border-border bg-popover p-1 shadow-lg">
-            {(Object.keys(FORMAT_LABELS) as ExportFormat[]).map((fmt) => (
+          <div id="audit-export-menu" role="menu" aria-label={t("audit.export.menuLabel")} className="absolute right-0 top-10 z-40 min-w-36 rounded-lg border border-border bg-popover p-1 shadow-lg">
+            {FORMATS.map((fmt) => (
               <button
                 key={fmt}
                 type="button"
@@ -82,14 +80,14 @@ export function ExportMenu({ state }: { state: AuditState }) {
                 className="block w-full rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted"
                 onClick={() => void download(fmt)}
               >
-                {FORMAT_LABELS[fmt]}
+                {t(`audit.export.format.${fmt}`)}
               </button>
             ))}
           </div>
         )}
         {lastManifest && (
           <p className="mt-1 text-xs text-muted-foreground" role="status">
-            Bundle includes manifest.json with chain proof
+            {t("audit.export.manifestHint")}
           </p>
         )}
       </div>

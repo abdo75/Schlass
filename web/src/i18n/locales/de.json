@@ -321,27 +321,136 @@
     "title": "Signaturschlüssel"
   },
   "settings": {
-    "title": "Einstellungen"
+    "title": "Einstellungen",
+    "audit": {
+      "heading": "Auditprotokoll",
+      "description": "Steuert die Eigenüberwachung des Audit-Viewers und Exportlimits.",
+      "viewLogging": "Ansichten des Auditprotokolls protokollieren",
+      "exportCap": "Zeilenlimit für Audit-Export"
+    }
   },
   "audit": {
     "title": "Auditprotokoll",
     "subtitle": "Unveränderliche Aufzeichnung der Systemaktivität.",
+    "loading": "Audit-Ereignisse werden geladen…",
     "stepup": {
       "title": "Mit MFA bestätigen",
       "description": "Diese Audit-Aktion erfordert eine aktuelle MFA-Prüfung.",
       "totp_label": "Authenticator-Code",
+      "recovery_label": "Wiederherstellungscode",
       "recovery_link": "Recovery-Code verwenden",
       "submit": "Bestätigen",
       "cancel": "Abbrechen",
-      "too_old": "MFA-Bestätigung fehlgeschlagen. Versuchen Sie es erneut."
+      "too_old": "MFA-Bestätigung fehlgeschlagen. Versuchen Sie es erneut.",
+      "unexpected_error": "MFA-Bestätigung konnte nicht abgeschlossen werden. Versuchen Sie es erneut."
     },
     "tabs": {
+      "ariaLabel": "Audit-Ansichten",
       "all": "Alle Ereignisse",
       "signIn": "Anmeldeaktivität",
       "admin": "Admin-Aktionen",
       "client": "Client-Änderungen"
     },
+    "refine": {
+      "label": "Filter",
+      "actorOpener": "+ Akteur",
+      "targetOpener": "+ Ziel",
+      "eventTypeOpener": "+ Ereignistyp",
+      "clear": "Filter löschen",
+      "clearTitle": "Klicken zum Löschen",
+      "clearFilterAria": "Filter löschen: {{label}}",
+      "editSelectionTitle": "Klicken zum Bearbeiten der Auswahl",
+      "outcomeChip": "Ergebnis: {{outcome}}",
+      "actorChip": "Akteur: {{value}}",
+      "targetChipType": "Ziel: {{type}}",
+      "targetChipFull": "Ziel: {{type}} — {{display}}",
+      "targetChipSelected": "ausgewählt",
+      "eventTypeCountChip_one": "Ereignistyp: {{count}} ausgewählt",
+      "eventTypeCountChip_other": "Ereignistyp: {{count}} ausgewählt"
+    },
+    "timeline": {
+      "empty": "Keine Audit-Ereignisse gefunden.",
+      "gdprErased": "DSGVO-gelöscht",
+      "columns": {
+        "outcome": "Ergebnis",
+        "when": "Wann",
+        "activity": "Aktivität",
+        "actor": "Akteur"
+      },
+      "outcome": {
+        "success": "erfolgreich",
+        "failed": "fehlgeschlagen",
+        "denied": "abgelehnt"
+      }
+    },
+    "timepicker": {
+      "ariaLabel": "Zeitraum",
+      "customRange": "Benutzerdefinierter Zeitraum",
+      "apply": "Anwenden",
+      "preset": {
+        "lastHour": "Letzte Stunde",
+        "last24h": "Letzte 24 Stunden",
+        "last7d": "Letzte 7 Tage",
+        "last30d": "Letzte 30 Tage"
+      }
+    },
+    "calendar": {
+      "previousMonth": "Vorheriger Monat",
+      "nextMonth": "Nächster Monat",
+      "slot": {
+        "from": "von",
+        "to": "bis"
+      },
+      "part": {
+        "hour": "Stunde",
+        "minute": "Minute"
+      },
+      "timeAria": "{{slot}} {{part}}",
+      "pickTimeAria": "{{slot}} {{part}} auswählen"
+    },
+    "eventTypePicker": {
+      "countSelected_one": "{{count}} ausgewählt",
+      "countSelected_other": "{{count}} ausgewählt",
+      "clear": "Löschen",
+      "apply": "Anwenden"
+    },
+    "actorPicker": {
+      "title": "Akteur",
+      "search": "Akteure suchen",
+      "empty": "Keine Akteure gefunden."
+    },
+    "targetPicker": {
+      "title": "Ziel",
+      "typeAria": "Zieltyp",
+      "back": "Zurück",
+      "search": "Ziele suchen",
+      "empty": "Keine Ziele gefunden.",
+      "types": {
+        "user": "Benutzer",
+        "client": "Client",
+        "system": "System"
+      }
+    },
+    "export": {
+      "button": "Exportieren",
+      "menuLabel": "Exportformat",
+      "manifestHint": "Bundle enthält manifest.json mit Kettenbeweis",
+      "format": {
+        "csv": "CSV",
+        "jsonl": "JSON",
+        "caep": "CAEP SET"
+      }
+    },
+    "error": {
+      "fetch": "Das Auditprotokoll konnte nicht geladen werden.",
+      "retry": "Erneut versuchen",
+      "unexpected": "Ein unerwarteter Fehler ist aufgetreten."
+    },
     "panel": {
+      "close": "Schließen",
+      "eventDetail": "Ereignisdetails",
+      "gdprTitle": "DSGVO Art. 17 Löschung",
+      "system": "System",
       "event": "Ereignis",
       "copyLink": "Link kopieren",
       "copyData": "Daten kopieren",
@@ -360,7 +469,41 @@
       "actorId": "Akteur-ID",
       "targetType": "Zieltyp",
       "targetId": "Ziel-ID",
-      "recordedAt": "Erfasst am"
+      "recordedAt": "Erfasst am",
+      "targetLabel": {
+        "client": "Client",
+        "config": "Einstellung",
+        "user": "Zielbenutzer",
+        "default": "Ziel"
+      },
+      "targetTypeLabel": {
+        "user": "Benutzer",
+        "client": "Client",
+        "config": "Einstellung",
+        "instance_config": "Einstellung",
+        "signing_key": "Signaturschlüssel",
+        "instance": "Instanz",
+        "audit_log": "Auditprotokoll",
+        "permission": "Berechtigung",
+        "session": "Sitzung"
+      }
+    },
+    "module": {
+      "changedFields": "Geänderte Felder",
+      "rowsExported": "Zeilen exportiert",
+      "label": {
+        "name": "Name",
+        "value": "Wert"
+      },
+      "counts": {
+        "resetTokens": "Reset-Tokens",
+        "authCodes": "Auth-Codes",
+        "rowsUpdated": "Zeilen aktualisiert",
+        "redirectUris": "Redirect-URIs",
+        "scopes": "Scopes",
+        "grants": "Berechtigungen",
+        "rows": "Zeilen"
+      }
     },
     "severity": { "critical": "Kritisch" },
     "reason": {
@@ -395,6 +538,7 @@
     },
     "eventLabel": {
       "login": { "succeeded": "Erfolgreich", "failed": "Fehlgeschlagen" },
+      "auth": { "permission_denied": "Berechtigung verweigert" },
       "logout": { "completed": "Abgeschlossen" },
       "account": { "locked": "Gesperrt" },
       "mfa": {
@@ -458,7 +602,25 @@
       "oidcUserinfo": { "accessed": "Abgerufen" },
       "signingKey": { "generated": "Erzeugt", "rotated": "Rotiert", "retired": "Außer Dienst" },
       "setup": { "completed": "Abgeschlossen" },
-      "audit": { "viewed": "Angesehen", "exported": "Exportiert" }
+      "audit": { "viewed": "Angesehen", "exported": "Exportiert" },
+      "config": {
+        "instance_name": "Instanzname geändert",
+        "mfa_required": "MFA-Anforderung geändert",
+        "password_min_length": "Passwort-Mindestlänge geändert",
+        "password_require_upper": "Passwort-Großbuchstabenregel geändert",
+        "password_require_digit": "Passwort-Ziffernregel geändert",
+        "lockout_threshold": "Sperrschwelle geändert",
+        "lockout_duration_secs": "Sperrdauer geändert",
+        "access_token_ttl_secs": "Lebensdauer von Access Tokens geändert",
+        "refresh_token_ttl_secs": "Lebensdauer von Refresh Tokens geändert",
+        "smtp_host": "SMTP-Host geändert",
+        "smtp_port": "SMTP-Port geändert",
+        "smtp_username": "SMTP-Benutzername geändert",
+        "smtp_from": "SMTP-Absenderadresse geändert",
+        "smtp_password": "SMTP-Passwort geändert",
+        "audit_view_logging_enabled": "Audit-Ansichten-Protokollierung geändert",
+        "audit_export_max_rows": "Audit-Export-Zeilenlimit geändert"
+      }
     },
     "eventGroup": {
       "login": "Anmeldung",

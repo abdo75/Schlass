@@ -48,7 +48,7 @@ export function StepUpModal({ open, onCancel, onVerified }: Props) {
       if (err instanceof ApiRequestError) {
         setError(t(`errors.${err.code}`, { defaultValue: err.message }));
       } else {
-        setError(t("audit.stepup.too_old"));
+        setError(t("audit.stepup.unexpected_error"));
       }
     } finally {
       setSubmitting(false);
@@ -80,7 +80,7 @@ className="rounded-md p-1 hover:bg-muted"
           </button>
         </div>
         <label className="mt-5 block text-sm font-medium" htmlFor="stepup-code">
-          {t(recoveryMode ? "audit.stepup.recovery_link" : "audit.stepup.totp_label")}
+          {t(recoveryMode ? "audit.stepup.recovery_label" : "audit.stepup.totp_label")}
         </label>
         <input
           ref={inputRef}

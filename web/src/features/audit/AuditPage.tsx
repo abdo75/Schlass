@@ -35,7 +35,7 @@ export function AuditPage() {
             )}
             {list.loading && !list.data ? (
               <div className="rounded-lg border border-border bg-background p-6 text-sm text-muted-foreground">
-                Loading...
+                {t("audit.loading")}
               </div>
             ) : (
               <AuditTimeline

@@ -321,21 +321,31 @@
     "title": "Signing keys"
   },
   "settings": {
-    "title": "Settings"
+    "title": "Settings",
+    "audit": {
+      "heading": "Audit log",
+      "description": "Controls audit-log viewer self-auditing and export limits.",
+      "viewLogging": "Log audit-log views",
+      "exportCap": "Audit export row cap"
+    }
   },
   "audit": {
     "title": "Audit log",
     "subtitle": "Append-only record of system activity.",
+    "loading": "Loading audit events…",
     "stepup": {
       "title": "Verify with MFA",
       "description": "This audit action requires a recent MFA check.",
       "totp_label": "Authenticator code",
+      "recovery_label": "Recovery code",
       "recovery_link": "Use a recovery code",
       "submit": "Verify",
       "cancel": "Cancel",
-      "too_old": "MFA verification failed. Try again."
+      "too_old": "MFA verification failed. Try again.",
+      "unexpected_error": "Couldn't complete MFA verification. Try again."
     },
     "tabs": {
+      "ariaLabel": "Audit views",
       "all": "All events",
       "signIn": "Sign-in activity",
       "admin": "Admin actions",
@@ -346,13 +356,100 @@
       "actorOpener": "+ Actor",
       "targetOpener": "+ Target",
       "eventTypeOpener": "+ Event type",
-      "clear": "Clear filters"
+      "clear": "Clear filters",
+      "clearTitle": "Click to clear",
+      "clearFilterAria": "Clear filter: {{label}}",
+      "editSelectionTitle": "Click to edit selection",
+      "outcomeChip": "Outcome: {{outcome}}",
+      "actorChip": "Actor: {{value}}",
+      "targetChipType": "Target: {{type}}",
+      "targetChipFull": "Target: {{type}} — {{display}}",
+      "targetChipSelected": "selected",
+      "eventTypeCountChip_one": "Event type: {{count}} selected",
+      "eventTypeCountChip_other": "Event type: {{count}} selected"
+    },
+    "timeline": {
+      "empty": "No audit events found.",
+      "gdprErased": "GDPR-erased",
+      "columns": {
+        "outcome": "Outcome",
+        "when": "When",
+        "activity": "Activity",
+        "actor": "Actor"
+      },
+      "outcome": {
+        "success": "success",
+        "failed": "failed",
+        "denied": "denied"
+      }
+    },
+    "timepicker": {
+      "ariaLabel": "Time range",
+      "customRange": "Custom range",
+      "apply": "Apply",
+      "preset": {
+        "lastHour": "Last hour",
+        "last24h": "Last 24 hours",
+        "last7d": "Last 7 days",
+        "last30d": "Last 30 days"
+      }
+    },
+    "calendar": {
+      "previousMonth": "Previous month",
+      "nextMonth": "Next month",
+      "slot": {
+        "from": "from",
+        "to": "to"
+      },
+      "part": {
+        "hour": "hour",
+        "minute": "minute"
+      },
+      "timeAria": "{{slot}} {{part}}",
+      "pickTimeAria": "Pick {{slot}} {{part}}"
+    },
+    "eventTypePicker": {
+      "countSelected_one": "{{count}} selected",
+      "countSelected_other": "{{count}} selected",
+      "clear": "Clear",
+      "apply": "Apply"
+    },
+    "actorPicker": {
+      "title": "Actor",
+      "search": "Search actors",
+      "empty": "No actors found."
+    },
+    "targetPicker": {
+      "title": "Target",
+      "typeAria": "Target type",
+      "back": "Back",
+      "search": "Search targets",
+      "empty": "No targets found.",
+      "types": {
+        "user": "User",
+        "client": "Client",
+        "system": "System"
+      }
+    },
+    "export": {
+      "button": "Export",
+      "menuLabel": "Export format",
+      "manifestHint": "Bundle includes manifest.json with chain proof",
+      "format": {
+        "csv": "CSV",
+        "jsonl": "JSON",
+        "caep": "CAEP SET"
+      }
     },
     "error": {
       "fetch": "The audit log could not be loaded.",
-      "retry": "Retry"
+      "retry": "Retry",
+      "unexpected": "An unexpected error occurred."
     },
     "panel": {
+      "close": "Close",
+      "eventDetail": "Event detail",
+      "gdprTitle": "GDPR Art. 17 erasure",
       "system": "System",
       "event": "Event",
       "copyLink": "Copy link",
@@ -372,7 +469,41 @@
       "actorId": "Actor ID",
       "targetType": "Target type",
       "targetId": "Target ID",
-      "recordedAt": "Recorded at"
+      "recordedAt": "Recorded at",
+      "targetLabel": {
+        "client": "Client",
+        "config": "Setting",
+        "user": "Target user",
+        "default": "Target"
+      },
+      "targetTypeLabel": {
+        "user": "User",
+        "client": "Client",
+        "config": "Setting",
+        "instance_config": "Setting",
+        "signing_key": "Signing key",
+        "instance": "Instance",
+        "audit_log": "Audit log",
+        "permission": "Permission",
+        "session": "Session"
+      }
+    },
+    "module": {
+      "changedFields": "Changed fields",
+      "rowsExported": "rows exported",
+      "label": {
+        "name": "Name",
+        "value": "Value"
+      },
+      "counts": {
+        "resetTokens": "Reset tokens",
+        "authCodes": "Auth codes",
+        "rowsUpdated": "Rows updated",
+        "redirectUris": "Redirect URIs",
+        "scopes": "Scopes",
+        "grants": "Grants",
+        "rows": "Rows"
+      }
     },
     "severity": {
       "critical": "Critical"

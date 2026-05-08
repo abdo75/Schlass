@@ -1,11 +1,12 @@
 import { useRef } from "react";
+import { useTranslation } from "react-i18next";
 import type { AuditState } from "./types";
 
-const tabs: Array<{ view: AuditState["view"]; label: string }> = [
-  { view: "all", label: "All events" },
-  { view: "sign-in", label: "Sign-in activity" },
-  { view: "admin", label: "Admin actions" },
-  { view: "client", label: "Client changes" },
+const tabs: Array<{ view: AuditState["view"]; labelKey: string }> = [
+  { view: "all", labelKey: "audit.tabs.all" },
+  { view: "sign-in", labelKey: "audit.tabs.signIn" },
+  { view: "admin", labelKey: "audit.tabs.admin" },
+  { view: "client", labelKey: "audit.tabs.client" },
 ];
 
 export const AUDIT_TABPANEL_ID = "audit-tabpanel";
@@ -15,6 +16,7 @@ function tabId(view: AuditState["view"]): string {
 }
 
 export function AuditTabs({ state, onChange }: { state: AuditState; onChange: (patch: Partial<AuditState>) => void }) {
+  const { t } = useTranslation();
   const refs = useRef(new Map<AuditState["view"], HTMLButtonElement>());
 
   function focusTab(view: AuditState["view"]) {
@@ -54,7 +56,7 @@ export function AuditTabs({ state, onChange }: { state: AuditState; onChange: (p
       className="mb-6 flex gap-0.5 border-b border-border"
       role="tablist"
       aria-orientation="horizontal"
-      aria-label="Audit views"
+      aria-label={t("audit.tabs.ariaLabel")}
       onKeyDown={onKeyDown}
     >
       {tabs.map((tab) => {
@@ -81,7 +83,7 @@ export function AuditTabs({ state, onChange }: { state: AuditState; onChange: (p
             }
             onClick={() => onChange({ view: tab.view, page: 1 })}
           >
-            {tab.label}
+            {t(tab.labelKey)}
           </button>
         );
       })}

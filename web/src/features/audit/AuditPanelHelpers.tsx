@@ -3,10 +3,12 @@ import { useTranslation } from "react-i18next";
 import type { AuditItem, Outcome } from "./types";
 
 export function OutcomeChip({ outcome, onFilter }: { outcome: Outcome; onFilter?: (outcome: Outcome) => void }) {
+  const { t } = useTranslation();
+  const label = t(`audit.timeline.outcome.${outcome}`, { defaultValue: outcome });
   const content = (
     <>
       <span className="outcome-dot" aria-hidden="true" />
-      {outcome}
+      {label}
     </>
   );
   return onFilter ? (
@@ -55,8 +57,8 @@ export function ParticipantsSection({
   const actor = event.actor_email ?? event.actor_display;
   const actorIsSystem = !event.actor_id && (!actor || actor.toLowerCase().startsWith("system"));
   const actorIsFormerUser = event.actor_pseudonymized || event.actor_display === "Former user";
-  const targetLabel = targetLabelFor(event.target_type);
-  const targetTypeLabel = humanizeTargetType(event.target_type);
+  const targetLabel = targetLabelFor(event.target_type, t);
+  const targetTypeLabel = humanizeTargetType(event.target_type, t);
   const targetDisplay = event.target_display ?? targetTypeLabel;
   return (
     <section className="panel-block panel-block--section">
@@ -65,7 +67,7 @@ export function ParticipantsSection({
         <dt>{t("audit.panel.actor")}</dt>
         <dd>
           {actorIsFormerUser ? (
-            <span className="is-system" title="GDPR Art. 17 erasure">{event.actor_display}</span>
+            <span className="is-system" title={t("audit.panel.gdprTitle")}>{event.actor_display}</span>
           ) : actorIsSystem ? (
             onActorFilter ? (
               <a
@@ -217,27 +219,22 @@ function relativeTime(date: Date, locale: string): string {
   return formatter.format(0, "second");
 }
 
-function targetLabelFor(targetType: string | null): string {
+type Translator = (key: string, options?: Record<string, unknown>) => string;
+
+function targetLabelFor(targetType: string | null, t: Translator): string {
   switch (targetType) {
-    case "client": return "Client";
-    case "config": return "Setting";
-    case "user": return "Target user";
-    default: return "Target";
+    case "client": return t("audit.panel.targetLabel.client");
+    case "config": return t("audit.panel.targetLabel.config");
+    case "user": return t("audit.panel.targetLabel.user");
+    default: return t("audit.panel.targetLabel.default");
   }
 }
 
-function humanizeTargetType(targetType: string | null): string | null {
+function humanizeTargetType(targetType: string | null, t: Translator): string | null {
   if (!targetType) return null;
-  switch (targetType) {
-    case "user": return "User";
-    case "client": return "Client";
-    case "config":
-    case "instance_config": return "Setting";
-    case "signing_key": return "Signing key";
-    case "instance": return "Instance";
-    case "audit_log": return "Audit log";
-    case "permission": return "Permission";
-    case "session": return "Session";
-    default: return targetType.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  const known = ["user", "client", "config", "instance_config", "signing_key", "instance", "audit_log", "permission", "session"];
+  if (known.includes(targetType)) {
+    return t(`audit.panel.targetTypeLabel.${targetType}`);
   }
+  return targetType.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }

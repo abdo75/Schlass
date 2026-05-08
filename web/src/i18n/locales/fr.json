@@ -321,27 +321,136 @@
     "title": "Clés de signature"
   },
   "settings": {
-    "title": "Paramètres"
+    "title": "Paramètres",
+    "audit": {
+      "heading": "Journal d'audit",
+      "description": "Contrôle l'auto-audit du visualiseur et les limites d'export.",
+      "viewLogging": "Consigner les consultations du journal d'audit",
+      "exportCap": "Plafond de lignes pour l'export d'audit"
+    }
   },
   "audit": {
     "title": "Journal d'audit",
     "subtitle": "Historique append-only de l'activité du système.",
+    "loading": "Chargement des événements d'audit…",
     "stepup": {
       "title": "Vérification MFA",
       "description": "Cette action d'audit exige une vérification MFA récente.",
       "totp_label": "Code d'authentification",
+      "recovery_label": "Code de récupération",
       "recovery_link": "Utiliser un code de récupération",
       "submit": "Vérifier",
       "cancel": "Annuler",
-      "too_old": "La vérification MFA a échoué. Réessayez."
+      "too_old": "La vérification MFA a échoué. Réessayez.",
+      "unexpected_error": "Impossible de finaliser la vérification MFA. Réessayez."
     },
     "tabs": {
+      "ariaLabel": "Vues d'audit",
       "all": "Tous les événements",
       "signIn": "Connexions",
       "admin": "Actions d'administration",
       "client": "Modifications des clients"
     },
+    "refine": {
+      "label": "Filtrer",
+      "actorOpener": "+ Acteur",
+      "targetOpener": "+ Cible",
+      "eventTypeOpener": "+ Type d'événement",
+      "clear": "Effacer les filtres",
+      "clearTitle": "Cliquer pour effacer",
+      "clearFilterAria": "Effacer le filtre : {{label}}",
+      "editSelectionTitle": "Cliquer pour modifier la sélection",
+      "outcomeChip": "Résultat : {{outcome}}",
+      "actorChip": "Acteur : {{value}}",
+      "targetChipType": "Cible : {{type}}",
+      "targetChipFull": "Cible : {{type}} — {{display}}",
+      "targetChipSelected": "sélectionné",
+      "eventTypeCountChip_one": "Type d'événement : {{count}} sélectionné",
+      "eventTypeCountChip_other": "Type d'événement : {{count}} sélectionnés"
+    },
+    "timeline": {
+      "empty": "Aucun événement d'audit trouvé.",
+      "gdprErased": "Effacé RGPD",
+      "columns": {
+        "outcome": "Résultat",
+        "when": "Quand",
+        "activity": "Activité",
+        "actor": "Acteur"
+      },
+      "outcome": {
+        "success": "succès",
+        "failed": "échec",
+        "denied": "refusé"
+      }
+    },
+    "timepicker": {
+      "ariaLabel": "Plage temporelle",
+      "customRange": "Plage personnalisée",
+      "apply": "Appliquer",
+      "preset": {
+        "lastHour": "Dernière heure",
+        "last24h": "Dernières 24 heures",
+        "last7d": "7 derniers jours",
+        "last30d": "30 derniers jours"
+      }
+    },
+    "calendar": {
+      "previousMonth": "Mois précédent",
+      "nextMonth": "Mois suivant",
+      "slot": {
+        "from": "de",
+        "to": "à"
+      },
+      "part": {
+        "hour": "heure",
+        "minute": "minute"
+      },
+      "timeAria": "{{slot}} {{part}}",
+      "pickTimeAria": "Choisir {{slot}} {{part}}"
+    },
+    "eventTypePicker": {
+      "countSelected_one": "{{count}} sélectionné",
+      "countSelected_other": "{{count}} sélectionnés",
+      "clear": "Effacer",
+      "apply": "Appliquer"
+    },
+    "actorPicker": {
+      "title": "Acteur",
+      "search": "Rechercher des acteurs",
+      "empty": "Aucun acteur trouvé."
+    },
+    "targetPicker": {
+      "title": "Cible",
+      "typeAria": "Type de cible",
+      "back": "Retour",
+      "search": "Rechercher des cibles",
+      "empty": "Aucune cible trouvée.",
+      "types": {
+        "user": "Utilisateur",
+        "client": "Client",
+        "system": "Système"
+      }
+    },
+    "export": {
+      "button": "Exporter",
+      "menuLabel": "Format d'export",
+      "manifestHint": "Le bundle inclut manifest.json avec la preuve de chaîne",
+      "format": {
+        "csv": "CSV",
+        "jsonl": "JSON",
+        "caep": "CAEP SET"
+      }
+    },
+    "error": {
+      "fetch": "Le journal d'audit n'a pas pu être chargé.",
+      "retry": "Réessayer",
+      "unexpected": "Une erreur inattendue s'est produite."
+    },
     "panel": {
+      "close": "Fermer",
+      "eventDetail": "Détail de l'événement",
+      "gdprTitle": "Effacement RGPD art. 17",
+      "system": "Système",
       "event": "Événement",
       "copyLink": "Copier le lien",
       "copyData": "Copier les données",
@@ -360,7 +469,41 @@
       "actorId": "ID de l'acteur",
       "targetType": "Type de cible",
       "targetId": "ID de la cible",
-      "recordedAt": "Enregistré le"
+      "recordedAt": "Enregistré le",
+      "targetLabel": {
+        "client": "Client",
+        "config": "Paramètre",
+        "user": "Utilisateur cible",
+        "default": "Cible"
+      },
+      "targetTypeLabel": {
+        "user": "Utilisateur",
+        "client": "Client",
+        "config": "Paramètre",
+        "instance_config": "Paramètre",
+        "signing_key": "Clé de signature",
+        "instance": "Instance",
+        "audit_log": "Journal d'audit",
+        "permission": "Autorisation",
+        "session": "Session"
+      }
+    },
+    "module": {
+      "changedFields": "Champs modifiés",
+      "rowsExported": "lignes exportées",
+      "label": {
+        "name": "Nom",
+        "value": "Valeur"
+      },
+      "counts": {
+        "resetTokens": "Tokens de réinitialisation",
+        "authCodes": "Codes d'autorisation",
+        "rowsUpdated": "Lignes mises à jour",
+        "redirectUris": "URI de redirection",
+        "scopes": "Scopes",
+        "grants": "Autorisations",
+        "rows": "Lignes"
+      }
     },
     "severity": { "critical": "Critique" },
     "reason": {
@@ -395,6 +538,7 @@
     },
     "eventLabel": {
       "login": { "succeeded": "Réussite", "failed": "Échec" },
+      "auth": { "permission_denied": "Autorisation refusée" },
       "logout": { "completed": "Terminée" },
       "account": { "locked": "Verrouillé" },
       "mfa": {
@@ -458,7 +602,25 @@
       "oidcUserinfo": { "accessed": "Consulté" },
       "signingKey": { "generated": "Générée", "rotated": "Renouvelée", "retired": "Retirée" },
       "setup": { "completed": "Terminée" },
-      "audit": { "viewed": "Consulté", "exported": "Exporté" }
+      "audit": { "viewed": "Consulté", "exported": "Exporté" },
+      "config": {
+        "instance_name": "Nom de l'instance modifié",
+        "mfa_required": "Exigence MFA modifiée",
+        "password_min_length": "Longueur minimale du mot de passe modifiée",
+        "password_require_upper": "Règle de majuscule du mot de passe modifiée",
+        "password_require_digit": "Règle de chiffre du mot de passe modifiée",
+        "lockout_threshold": "Seuil de verrouillage modifié",
+        "lockout_duration_secs": "Durée de verrouillage modifiée",
+        "access_token_ttl_secs": "Durée de vie des tokens d'accès modifiée",
+        "refresh_token_ttl_secs": "Durée de vie des refresh tokens modifiée",
+        "smtp_host": "Hôte SMTP modifié",
+        "smtp_port": "Port SMTP modifié",
+        "smtp_username": "Utilisateur SMTP modifié",
+        "smtp_from": "Adresse SMTP « De » modifiée",
+        "smtp_password": "Mot de passe SMTP modifié",
+        "audit_view_logging_enabled": "Journalisation des consultations d'audit modifiée",
+        "audit_export_max_rows": "Plafond des exports d'audit modifié"
+      }
     },
     "eventGroup": {
       "login": "Connexion",

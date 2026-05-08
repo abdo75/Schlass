@@ -48,11 +48,11 @@ export function AuditPanel({
         className="audit-panel"
         role="dialog"
         aria-modal="true"
-        aria-label="Event detail"
+        aria-label={t("audit.panel.eventDetail")}
         aria-describedby={PANEL_TITLE_ID}
         onClick={(click) => click.stopPropagation()}
       >
-        <button ref={closeRef} className="panel-close" onClick={onClose} aria-label={t("audit.panel.close", { defaultValue: "Close" })} type="button">×</button>
+        <button ref={closeRef} className="panel-close" onClick={onClose} aria-label={t("audit.panel.close")} type="button">×</button>
           <section className="panel-block panel-block--hero">
             <div className="panel-eyebrow">{t("audit.panel.event")}</div>
             <div className="panel-badges">

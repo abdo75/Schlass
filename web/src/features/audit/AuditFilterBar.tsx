@@ -59,7 +59,7 @@ export function AuditFilterBar({
         onClose={() => setOpen(null)}
         chip={
           <Opener
-            label={state.until ? "Custom range" : presetLabel(state.since)}
+            label={state.until ? t("audit.timepicker.customRange") : presetLabel(state.since, t)}
             active={open === "time"}
             popoverId={POPOVER_IDS.time.id}
             popup={POPOVER_IDS.time.popup}
@@ -115,7 +115,16 @@ export function AuditFilterBar({
         chip={
           state.target_type ? (
             <ActiveChip
-              label={`${t("audit.panel.target")}: ${state.target_type}${state.target_id ? ` — ${targetDisplay ?? "selected"}` : ""}`}
+              label={
+                state.target_id
+                  ? t("audit.refine.targetChipFull", {
+                      type: t(`audit.panel.targetTypeLabel.${state.target_type}`, { defaultValue: state.target_type }),
+                      display: targetDisplay ?? t("audit.refine.targetChipSelected"),
+                    })
+                  : t("audit.refine.targetChipType", {
+                      type: t(`audit.panel.targetTypeLabel.${state.target_type}`, { defaultValue: state.target_type }),
+                    })
+              }
               onClear={() => {
                 patch({ target_type: undefined, target_id: undefined });
                 setTargetDisplay(null);
@@ -152,7 +161,7 @@ export function AuditFilterBar({
             // Multi-select: click re-opens picker; clearing happens via the
             // picker's Clear button (single-value chips below clear on click).
             <ActiveOpener
-              label={`Event type: ${state.event_types.length} selected`}
+              label={t("audit.refine.eventTypeCountChip", { count: state.event_types.length })}
               active={open === "event-type"}
               popoverId={POPOVER_IDS["event-type"].id}
               popup={POPOVER_IDS["event-type"].popup}
@@ -182,7 +191,7 @@ export function AuditFilterBar({
 
       {state.outcome && (
         <ActiveChip
-          label={`Outcome: ${state.outcome}`}
+          label={t("audit.refine.outcomeChip", { outcome: t(`audit.timeline.outcome.${state.outcome}`, { defaultValue: state.outcome }) })}
           onClear={() => patch({ outcome: undefined })}
         />
       )}
@@ -252,11 +261,12 @@ function Opener({
 }
 
 function ActiveChip({ label, onClear }: { label: string; onClear: () => void }) {
+  const { t } = useTranslation();
   return (
     <button
       type="button"
-      title="Click to clear"
-      aria-label={`Clear filter: ${label}`}
+      title={t("audit.refine.clearTitle")}
+      aria-label={t("audit.refine.clearFilterAria", { label })}
       className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-accent px-3 py-1.5 text-xs font-medium text-accent-foreground transition-colors hover:bg-accent/70"
       onClick={onClear}
     >
@@ -278,13 +288,14 @@ function ActiveOpener({
   popup: "dialog" | "listbox" | "menu";
   onClick: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <button
       type="button"
       aria-expanded={active}
       aria-haspopup={popup}
       aria-controls={popoverId}
-      title="Click to edit selection"
+      title={t("audit.refine.editSelectionTitle")}
       className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-accent px-3 py-1.5 text-xs font-medium text-accent-foreground transition-colors hover:bg-accent/70"
       onClick={onClick}
     >
@@ -293,16 +304,18 @@ function ActiveOpener({
   );
 }
 
-function presetLabel(value: string) {
+type Translator = (key: string, options?: Record<string, unknown>) => string;
+
+function presetLabel(value: string, t: Translator): string {
   switch (value) {
     case "1h":
-      return "Last hour";
+      return t("audit.timepicker.preset.lastHour");
     case "7d":
-      return "Last 7 days";
+      return t("audit.timepicker.preset.last7d");
     case "30d":
-      return "Last 30 days";
+      return t("audit.timepicker.preset.last30d");
     case "24h":
     default:
-      return "Last 24 hours";
+      return t("audit.timepicker.preset.last24h");
   }
 }

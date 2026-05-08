@@ -11,7 +11,7 @@ export function ChangedValuesScalar({ event }: { event: AuditItem }) {
   return (
     <section className="panel-block panel-block--section">
       <h4 className="panel-heading">{t("audit.panel.changedValues")}</h4>
-      <DiffCard label={labelForScalar(event)} from={from} to={to} hint={hint ? t(hint.key) : undefined} />
+      <DiffCard label={labelForScalar(event, t)} from={from} to={to} hint={hint ? t(hint.key) : undefined} />
     </section>
   );
 }
@@ -34,10 +34,11 @@ export function ChangedValuesList({ event }: { event: AuditItem }) {
 }
 
 export function ChangedValuesStacked({ event }: { event: AuditItem }) {
+  const { t } = useTranslation();
   const fields = Array.isArray(event.metadata.changed_fields) ? event.metadata.changed_fields : [];
   return (
     <section className="panel-block panel-block--section">
-      <h4 className="panel-heading">Changed fields</h4>
+      <h4 className="panel-heading">{t("audit.module.changedFields")}</h4>
       <div className="panel-diff-stack">
         {fields.map((raw) => {
           const f = raw as { field: string; from: unknown; to: unknown };
@@ -92,7 +93,8 @@ export function WhyThisMattersAlert({ i18nKey }: { i18nKey: string }) {
 }
 
 export function CountsGrid({ event }: { event: AuditItem }) {
-  const counts = countTuples(event);
+  const { t } = useTranslation();
+  const counts = countTuples(event, t);
   return (
     <section className="panel-block panel-block--section">
       <div className="panel-counts">
@@ -108,11 +110,12 @@ export function CountsGrid({ event }: { event: AuditItem }) {
 }
 
 export function ExportSummary({ event }: { event: AuditItem }) {
+  const { t } = useTranslation();
   return (
     <section className="panel-block panel-block--section">
       <div className="panel-count-row">
         <span className="panel-count-value">{numberValue(event.metadata.row_count)}</span>
-        <span className="panel-count-value">rows exported</span>
+        <span className="panel-count-value">{t("audit.module.rowsExported")}</span>
       </div>
     </section>
   );
@@ -136,33 +139,35 @@ function DiffCard({ label, from, to, hint }: { label: string; from: unknown; to:
   );
 }
 
-function countTuples(event: AuditItem): Array<[string, number]> {
+type Translator = (key: string, options?: Record<string, unknown>) => string;
+
+function countTuples(event: AuditItem, t: Translator): Array<[string, number]> {
   const metadata = event.metadata;
   switch (event.event_type) {
     case "password_reset.cleanup_swept":
       return [
-        ["Reset tokens", numberValue(metadata.reset_rows_deleted)],
-        ["Auth codes", numberValue(metadata.auth_code_rows_deleted)],
+        [t("audit.module.counts.resetTokens"), numberValue(metadata.reset_rows_deleted)],
+        [t("audit.module.counts.authCodes"), numberValue(metadata.auth_code_rows_deleted)],
       ];
     case "user.audit_pseudonymized":
-      return [["Rows updated", numberValue(metadata.rows_updated)]];
+      return [[t("audit.module.counts.rowsUpdated"), numberValue(metadata.rows_updated)]];
     case "client.created":
       return [
-        ["Redirect URIs", numberValue(metadata.redirect_uris_count)],
-        ["Scopes", Array.isArray(metadata.scopes) ? metadata.scopes.length : numberValue(metadata.scopes_count)],
-        ["Grants", Array.isArray(metadata.grants) ? metadata.grants.length : numberValue(metadata.grants_count)],
+        [t("audit.module.counts.redirectUris"), numberValue(metadata.redirect_uris_count)],
+        [t("audit.module.counts.scopes"), Array.isArray(metadata.scopes) ? metadata.scopes.length : numberValue(metadata.scopes_count)],
+        [t("audit.module.counts.grants"), Array.isArray(metadata.grants) ? metadata.grants.length : numberValue(metadata.grants_count)],
       ];
     default:
-      return [["Rows", numberValue(metadata.row_count ?? metadata.rows_affected)]];
+      return [[t("audit.module.counts.rows"), numberValue(metadata.row_count ?? metadata.rows_affected)]];
   }
 }
 
-function labelForScalar(event: AuditItem): string {
+function labelForScalar(event: AuditItem, t: Translator): string {
   const key = configKeyOf(event);
   if (key) return humanize(key);
   if (typeof event.metadata.field === "string") return humanize(event.metadata.field);
-  if (event.event_type === "client.name_updated") return "Name";
-  return "Value";
+  if (event.event_type === "client.name_updated") return t("audit.module.label.name");
+  return t("audit.module.label.value");
 }
 
 function humanize(value: string): string {

@@ -1,14 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { AuditState, TargetBucket, TargetsResponse } from "./types";
 import { stateToParams } from "./useUrlState";
 
 const TARGET_TYPES = ["user", "client", "system"] as const;
-
-const TYPE_LABELS: Record<string, string> = {
-  user: "User",
-  client: "Client",
-  system: "System",
-};
 
 export type TargetSelection = {
   target_type: string;
@@ -17,6 +12,7 @@ export type TargetSelection = {
 };
 
 export function TargetPicker({ state, onSelect }: { state: AuditState; onSelect: (target: TargetSelection) => void }) {
+  const { t } = useTranslation();
   const [type, setType] = useState<string | null>(state.target_type ?? null);
   const [query, setQuery] = useState("");
   const [items, setItems] = useState<TargetBucket[]>([]);
@@ -44,28 +40,28 @@ export function TargetPicker({ state, onSelect }: { state: AuditState; onSelect:
     <div
       id="audit-target-popover"
       role="dialog"
-      aria-label="Target"
+      aria-label={t("audit.targetPicker.title")}
       className="absolute left-0 top-9 z-30 w-80 rounded-lg border border-border bg-popover p-2 text-popover-foreground shadow-lg"
     >
       {!type ? (
-        <div role="listbox" aria-label="Target type" className="grid gap-1">
+        <div role="listbox" aria-label={t("audit.targetPicker.typeAria")} className="grid gap-1">
           {TARGET_TYPES.map((targetType) => (
             <button key={targetType} type="button" role="option" className="rounded-md px-2 py-2 text-left text-sm hover:bg-muted" onClick={() => setType(targetType)}>
-              {TYPE_LABELS[targetType] ?? targetType}
+              {t(`audit.targetPicker.types.${targetType}`, { defaultValue: targetType })}
             </button>
           ))}
         </div>
       ) : (
         <>
           <div className="mb-2 flex items-center gap-2">
-            <button type="button" className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted" onClick={() => setType(null)}>Back</button>
-            <span className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">{TYPE_LABELS[type] ?? type}</span>
+            <button type="button" className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted" onClick={() => setType(null)}>{t("audit.targetPicker.back")}</button>
+            <span className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">{t(`audit.targetPicker.types.${type}`, { defaultValue: type })}</span>
           </div>
           <input
             autoFocus
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search targets"
+            placeholder={t("audit.targetPicker.search")}
             className="mb-2 h-8 w-full rounded-md border border-border bg-background px-2 text-sm outline-none focus:border-primary/50"
           />
           <div role="listbox" className="max-h-72 overflow-y-auto">
@@ -81,7 +77,7 @@ export function TargetPicker({ state, onSelect }: { state: AuditState; onSelect:
                 {item.extra && <span className="text-xs text-muted-foreground">{item.extra}</span>}
               </button>
             ))}
-            {filtered.length === 0 && <div className="px-2 py-6 text-center text-sm text-muted-foreground">No targets found.</div>}
+            {filtered.length === 0 && <div className="px-2 py-6 text-center text-sm text-muted-foreground">{t("audit.targetPicker.empty")}</div>}
           </div>
         </>
       )}

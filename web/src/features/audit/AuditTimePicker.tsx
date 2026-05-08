@@ -1,12 +1,13 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { AuditCalendar, type AuditRange } from "./AuditCalendar";
 import type { AuditState } from "./types";
 
 const PRESETS = [
-  { label: "Last hour", value: "1h" },
-  { label: "Last 24 hours", value: "24h" },
-  { label: "Last 7 days", value: "7d" },
-  { label: "Last 30 days", value: "30d" },
+  { labelKey: "audit.timepicker.preset.lastHour", value: "1h" },
+  { labelKey: "audit.timepicker.preset.last24h", value: "24h" },
+  { labelKey: "audit.timepicker.preset.last7d", value: "7d" },
+  { labelKey: "audit.timepicker.preset.last30d", value: "30d" },
 ] as const;
 
 /**
@@ -20,6 +21,7 @@ export function AuditTimePicker({
   state: AuditState;
   onChange: (patch: Partial<AuditState>) => void;
 }) {
+  const { t } = useTranslation();
   const [mode, setMode] = useState<"preset" | "custom">(state.until ? "custom" : "preset");
   const [preset, setPreset] = useState(state.until ? "24h" : state.since);
   const [range, setRange] = useState<AuditRange>(() => stateToRange(state));
@@ -36,7 +38,7 @@ export function AuditTimePicker({
     <div
       id="audit-time-popover"
       role="dialog"
-      aria-label="Time range"
+      aria-label={t("audit.timepicker.ariaLabel")}
       className="absolute left-0 top-9 z-30 flex items-start gap-2 text-popover-foreground"
     >
       <div className="w-60 rounded-lg border border-border bg-popover p-3 shadow-lg">
@@ -55,7 +57,7 @@ export function AuditTimePicker({
                 setPreset(item.value);
               }}
             >
-              {item.label}
+              {t(item.labelKey)}
             </button>
           ))}
           <button
@@ -65,7 +67,7 @@ export function AuditTimePicker({
             }`}
             onClick={() => setMode("custom")}
           >
-            Custom range
+            {t("audit.timepicker.customRange")}
           </button>
         </div>
         <div className="mt-3 flex justify-end border-t border-border pt-3">
@@ -74,7 +76,7 @@ export function AuditTimePicker({
             className="rounded-md bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground"
             onClick={apply}
           >
-            Apply
+            {t("audit.timepicker.apply")}
           </button>
         </div>
       </div>

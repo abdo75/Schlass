@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useOutsideClick } from "./useOutsideClick";
@@ -12,15 +13,33 @@ function dayKey(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+function buildLocaleNames(locale: string) {
+  const monthShort = new Intl.DateTimeFormat(locale, { month: "short" });
+  const monthLong = new Intl.DateTimeFormat(locale, { month: "long" });
+  const weekday = new Intl.DateTimeFormat(locale, { weekday: "narrow" });
+  const months: string[] = [];
+  const monthsLong: string[] = [];
+  for (let i = 0; i < 12; i++) {
+    const ref = new Date(2024, i, 1);
+    months.push(monthShort.format(ref));
+    monthsLong.push(monthLong.format(ref));
+  }
+  // Mon=2024-01-01 … Sun=2024-01-07
+  const weekdays = Array.from({ length: 7 }, (_, i) => weekday.format(new Date(2024, 0, i + 1)));
+  return { months, monthsLong, weekdays };
+}
 
 export function AuditCalendar({ value, onChange }: { value: AuditRange; onChange: (range: AuditRange) => void }) {
+  const { t, i18n } = useTranslation();
   const [activeSlot, setActiveSlot] = useState<Slot>("from");
   const [view, setView] = useState<ViewMode>("day");
   const [cursor, setCursor] = useState(() => new Date(value.from));
   const [timeGrid, setTimeGrid] = useState<TimeGrid>(null);
   const days = useMemo(() => buildDays(cursor), [cursor]);
+  const { months: MONTHS, monthsLong: MONTH_NAMES, weekdays: WEEKDAYS } = useMemo(
+    () => buildLocaleNames(i18n.language),
+    [i18n.language],
+  );
   const dayRefs = useRef(new Map<string, HTMLButtonElement>());
   const pendingFocusRef = useRef<string | null>(null);
   const currentYear = new Date().getFullYear();
@@ -111,12 +130,12 @@ export function AuditCalendar({ value, onChange }: { value: AuditRange; onChange
   return (
     <div className="w-[280px] rounded-lg bg-popover p-3 text-popover-foreground">
       <div className="mb-2 flex items-center justify-between gap-1">
-        <button type="button" aria-label="Previous" className="cal-nav inline-flex size-7 items-center justify-center rounded-md border border-border bg-background hover:bg-muted" onClick={() => setCursor(shiftCursor(cursor, view, -1))}><ChevronLeftIcon className="size-4" /></button>
+        <button type="button" aria-label={t("audit.calendar.previousMonth")} className="cal-nav inline-flex size-7 items-center justify-center rounded-md border border-border bg-background hover:bg-muted" onClick={() => setCursor(shiftCursor(cursor, view, -1))}><ChevronLeftIcon className="size-4" /></button>
         <div className="flex justify-center gap-1">
           <button type="button" className="cal-select h-7 rounded-md px-2 text-sm font-semibold hover:bg-muted" onClick={() => setView("month")}>{MONTH_NAMES[cursor.getMonth()]}</button>
           <button type="button" className="cal-select h-7 rounded-md px-2 text-sm font-semibold hover:bg-muted" onClick={() => setView("year")}>{cursor.getFullYear()}</button>
         </div>
-        <button type="button" aria-label="Next" className="cal-nav inline-flex size-7 items-center justify-center rounded-md border border-border bg-background hover:bg-muted" onClick={() => setCursor(shiftCursor(cursor, view, 1))}><ChevronRightIcon className="size-4" /></button>
+        <button type="button" aria-label={t("audit.calendar.nextMonth")} className="cal-nav inline-flex size-7 items-center justify-center rounded-md border border-border bg-background hover:bg-muted" onClick={() => setCursor(shiftCursor(cursor, view, 1))}><ChevronRightIcon className="size-4" /></button>
       </div>
 
       {view === "day" && (
@@ -125,7 +144,7 @@ export function AuditCalendar({ value, onChange }: { value: AuditRange; onChange
           className="grid grid-cols-7 gap-0.5 font-mono text-sm focus-within:outline-none"
           onKeyDown={onGridKeyDown}
         >
-          {["M", "T", "W", "T", "F", "S", "S"].map((d, i) => <div key={`${d}-${i}`} role="columnheader" className="py-1 text-center text-[11px] uppercase text-muted-foreground">{d}</div>)}
+          {WEEKDAYS.map((d, i) => <div key={`wd-${i}`} role="columnheader" className="py-1 text-center text-[11px] uppercase text-muted-foreground">{d}</div>)}
           {days.map((day) => {
             const key = dayKey(day);
             return (
@@ -203,9 +222,10 @@ function TimeRow({
   timeGrid: TimeGrid;
   setTimeGrid: (grid: TimeGrid) => void;
 }) {
+  const { t } = useTranslation();
   return (
     <div data-testid={`time-row-${slot}`} className="grid grid-cols-[56px_1fr] items-center gap-3">
-      <button type="button" className={cn("text-left text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground", active && "text-primary")} onClick={onActivate}>{slot}</button>
+      <button type="button" className={cn("text-left text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground", active && "text-primary")} onClick={onActivate}>{t(`audit.calendar.slot.${slot}`)}</button>
       <TimeGridContainer
         slot={slot}
         value={value}
@@ -263,10 +283,13 @@ function TimeGridContainer({
 }
 
 function TimePart({ slot, part, value, onPart, setTimeGrid }: { slot: Slot; part: "hour" | "minute"; value: number; onPart: (slot: Slot, part: "hour" | "minute", value: string | number) => void; setTimeGrid: (grid: TimeGrid) => void }) {
+  const { t } = useTranslation();
+  const slotLabel = t(`audit.calendar.slot.${slot}`);
+  const partLabel = t(`audit.calendar.part.${part}`);
   return (
     <span className="inline-flex h-8 overflow-hidden rounded-md border border-border bg-background focus-within:border-primary/50">
       <input
-        aria-label={`${slot} ${part}`}
+        aria-label={t("audit.calendar.timeAria", { slot: slotLabel, part: partLabel })}
         value={pad(value)}
         maxLength={2}
         inputMode="numeric"
@@ -274,7 +297,7 @@ function TimePart({ slot, part, value, onPart, setTimeGrid }: { slot: Slot; part
         onChange={(event) => onPart(slot, part, event.target.value)}
         onBlur={(event) => onPart(slot, part, event.target.value)}
       />
-      <button type="button" aria-label={`Pick ${slot} ${part}`} className="w-6 border-l border-border text-xs text-muted-foreground hover:bg-muted" onClick={() => setTimeGrid({ slot, part })}>▾</button>
+      <button type="button" aria-label={t("audit.calendar.pickTimeAria", { slot: slotLabel, part: partLabel })} className="w-6 border-l border-border text-xs text-muted-foreground hover:bg-muted" onClick={() => setTimeGrid({ slot, part })}>▾</button>
     </span>
   );
 }
