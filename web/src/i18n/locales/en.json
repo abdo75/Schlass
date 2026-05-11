@@ -370,7 +370,7 @@
     },
     "timeline": {
       "empty": "No audit events found.",
-      "gdprErased": "GDPR-erased",
+      "gdprErased": "Former user (GDPR)",
       "columns": {
         "outcome": "Outcome",
         "when": "When",
@@ -434,7 +434,7 @@
     "export": {
       "button": "Export",
       "menuLabel": "Export format",
-      "manifestHint": "Bundle includes manifest.json with chain proof",
+      "manifestHint": "Includes signed integrity manifest",
       "started": "Preparing export…",
       "succeeded": "Export ready.",
       "failed": "Export failed.",
@@ -445,7 +445,7 @@
       }
     },
     "error": {
-      "fetch": "The audit log could not be loaded.",
+      "fetch": "Couldn't load the audit log.",
       "retry": "Retry",
       "unexpected": "An unexpected error occurred."
     },

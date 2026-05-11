@@ -4,6 +4,7 @@ import { AdminPageContent, AdminPageHeader } from "@/components/AdminLayout";
 import { Pagination } from "@/components/Pagination";
 import { AuditPanel } from "./AuditPanel";
 import { AuditFilterBar } from "./AuditFilterBar";
+import { AuditTableSkeleton } from "./AuditTableSkeleton";
 import { AuditTabs, AUDIT_TABPANEL_ID } from "./AuditTabs";
 import { AuditTimeline } from "./AuditTimeline";
 import { ExportMenu } from "./ExportMenu";
@@ -62,9 +63,7 @@ export function AuditPage() {
               </div>
             )}
             {list.loading && !list.data ? (
-              <div className="rounded-lg border border-border bg-background p-6 text-sm text-muted-foreground">
-                {t("audit.loading")}
-              </div>
+              <AuditTableSkeleton />
             ) : (
               <AuditTimeline
                 data={list.data}

@@ -102,7 +102,7 @@ describe("ExportMenu", () => {
     expect(body.format).toBe("caep");
   });
 
-  it("uses a .tar.gz filename suffix for all formats", async () => {
+  it("encodes the chosen format into the filename before the .tar.gz suffix", async () => {
     vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:bundle");
     vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
     const append = vi.spyOn(document.body, "append");
@@ -117,6 +117,6 @@ describe("ExportMenu", () => {
 
     await waitFor(() => expect(append).toHaveBeenCalled());
     const anchor = (append.mock.calls[0][0] as HTMLAnchorElement);
-    expect(anchor.download).toMatch(/audit-log-\d{8}-\d{4}\.tar\.gz/);
+    expect(anchor.download).toMatch(/^audit-log-\d{8}-\d{4}-jsonl\.tar\.gz$/);
   });
 });

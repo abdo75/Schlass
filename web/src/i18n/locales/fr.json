@@ -370,7 +370,7 @@
     },
     "timeline": {
       "empty": "Aucun événement d'audit trouvé.",
-      "gdprErased": "Effacé RGPD",
+      "gdprErased": "Ancien utilisateur (RGPD)",
       "columns": {
         "outcome": "Résultat",
         "when": "Quand",
@@ -434,7 +434,7 @@
     "export": {
       "button": "Exporter",
       "menuLabel": "Format d'export",
-      "manifestHint": "Le bundle inclut manifest.json avec la preuve de chaîne",
+      "manifestHint": "Inclut un manifeste d'intégrité signé",
       "started": "Préparation de l'export…",
       "succeeded": "Export prêt.",
       "failed": "Échec de l'export.",
@@ -445,7 +445,7 @@
       }
     },
     "error": {
-      "fetch": "Le journal d'audit n'a pas pu être chargé.",
+      "fetch": "Impossible de charger le journal d'audit.",
       "retry": "Réessayer",
       "unexpected": "Une erreur inattendue s'est produite."
     },

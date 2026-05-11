@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ActorPicker } from "./ActorPicker";
 import { AuditTimePicker } from "./AuditTimePicker";
+import { PRESETS } from "./timePresets";
 import { EventTypePicker } from "./EventTypePicker";
 import { Pill } from "./Pill";
 import { TargetPicker } from "./TargetPicker";
@@ -278,15 +279,6 @@ function PickerSlot({
 type Translator = (key: string, options?: Record<string, unknown>) => string;
 
 function presetLabel(value: string, t: Translator): string {
-  switch (value) {
-    case "1h":
-      return t("audit.timepicker.preset.lastHour");
-    case "7d":
-      return t("audit.timepicker.preset.last7d");
-    case "30d":
-      return t("audit.timepicker.preset.last30d");
-    case "24h":
-    default:
-      return t("audit.timepicker.preset.last24h");
-  }
+  const match = PRESETS.find((preset) => preset.value === value);
+  return t(match?.labelKey ?? "audit.timepicker.preset.last24h");
 }

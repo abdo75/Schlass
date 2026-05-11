@@ -1,14 +1,8 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AuditCalendar, type AuditRange } from "./AuditCalendar";
+import { PRESETS } from "./timePresets";
 import type { AuditState } from "./types";
-
-const PRESETS = [
-  { labelKey: "audit.timepicker.preset.lastHour", value: "1h" },
-  { labelKey: "audit.timepicker.preset.last24h", value: "24h" },
-  { labelKey: "audit.timepicker.preset.last7d", value: "7d" },
-  { labelKey: "audit.timepicker.preset.last30d", value: "30d" },
-] as const;
 
 /**
  * Popover content for the time-range picker. Anchor (chip + open/close

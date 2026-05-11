@@ -24,11 +24,11 @@ export function ExportMenu({ state }: { state: AuditState }) {
   useOutsideClick(ref, open, () => setOpen(false));
   const pending = pendingFormat !== null;
 
-  function bundleFilename(): string {
+  function bundleFilename(format: ExportFormat): string {
     const now = new Date();
     const pad = (n: number) => String(n).padStart(2, "0");
     const ts = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}`;
-    return `audit-log-${ts}.tar.gz`;
+    return `audit-log-${ts}-${format}.tar.gz`;
   }
 
   async function download(format: ExportFormat) {
@@ -57,7 +57,7 @@ export function ExportMenu({ state }: { state: AuditState }) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = bundleFilename();
+      a.download = bundleFilename(format);
       document.body.append(a);
       a.click();
       a.remove();

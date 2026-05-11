@@ -33,8 +33,9 @@ export default defineConfig([
   {
     // Vitest + RTL matchers (expect.any, expect.stringMatching, ...) are
     // typed as `any`, which trips the type-aware unsafe-* rules without
-    // signalling real bugs. Relax those in test files only.
-    files: ['**/*.test.{ts,tsx}'],
+    // signalling real bugs. Scope to src test files and the shared
+    // test-helpers module — production code stays under the strict rules.
+    files: ['src/**/*.test.{ts,tsx}', 'src/**/test-helpers.{ts,tsx}'],
     rules: {
       '@typescript-eslint/no-unsafe-assignment': 'off',
       '@typescript-eslint/no-unsafe-argument': 'off',

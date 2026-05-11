@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { OutcomeChip } from "./AuditPanelHelpers";
+import { relativeTime } from "./auditFormatters";
 import { renderSentence, severity } from "./catalog";
 import type { AuditItem, ListResponse, Outcome } from "./types";
 
@@ -95,7 +96,7 @@ function TimelineRow({
       <TableCell className="px-4 py-3">
         <OutcomeChip outcome={item.outcome} variant="timeline" onFilter={onOutcomeFilter} />
       </TableCell>
-      <TableCell className="px-4 py-3 text-xs text-muted-foreground">{formatRelative(item.created_at, locale)}</TableCell>
+      <TableCell className="px-4 py-3 text-xs text-muted-foreground">{relativeTime(new Date(item.created_at), locale)}</TableCell>
       <TableCell className="min-w-[280px] whitespace-normal px-4 py-3 text-sm">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-foreground">{sentence.text}</span>
@@ -139,20 +140,3 @@ function TimelineRow({
   );
 }
 
-function formatRelative(value: string, locale: string): string {
-  const then = new Date(value).getTime();
-  const seconds = Math.round((then - Date.now()) / 1000);
-  const formatter = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
-  const divisions: Array<[Intl.RelativeTimeFormatUnit, number]> = [
-    ["day", 60 * 60 * 24],
-    ["hour", 60 * 60],
-    ["minute", 60],
-    ["second", 1],
-  ];
-  for (const [unit, amount] of divisions) {
-    if (Math.abs(seconds) >= amount || unit === "second") {
-      return formatter.format(Math.round(seconds / amount), unit);
-    }
-  }
-  return formatter.format(0, "second");
-}

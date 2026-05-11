@@ -30,6 +30,13 @@ describe("AuditTabs a11y", () => {
     expect(onChange).toHaveBeenCalledWith({ view: "client", page: 1 });
   });
 
+  it("clicking a tab calls onChange with the matching view", () => {
+    const onChange = vi.fn();
+    render(<AuditTabs state={baseState} onChange={onChange} />);
+    fireEvent.click(screen.getByRole("tab", { name: /admin actions/i }));
+    expect(onChange).toHaveBeenCalledWith({ view: "admin", page: 1 });
+  });
+
   it("End key jumps to the last tab", () => {
     const onChange = vi.fn();
     render(<AuditTabs state={baseState} onChange={onChange} />);

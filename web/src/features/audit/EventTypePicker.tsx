@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { EVENT_TYPE_GROUPS } from "./eventTypeGroups";
 
@@ -8,16 +8,14 @@ export function EventTypePicker({ selected, onApply }: { selected: string[]; onA
   // Auto-expand only groups that already contain a selected event so the user
   // sees their current selection without an extra click. Other groups stay
   // collapsed for a cleaner overview when there are many categories.
-  const initiallyExpanded = useMemo(
+  const [expanded, setExpanded] = useState<Set<string>>(
     () =>
       new Set(
         EVENT_TYPE_GROUPS.filter((group) =>
           group.events.some((event) => selected.includes(event.type)),
         ).map((group) => group.groupKey),
       ),
-    [selected],
   );
-  const [expanded, setExpanded] = useState<Set<string>>(initiallyExpanded);
   const count = draft.size;
 
   function toggle(type: string) {

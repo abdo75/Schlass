@@ -370,7 +370,7 @@
     },
     "timeline": {
       "empty": "Keine Audit-Ereignisse gefunden.",
-      "gdprErased": "DSGVO-gelöscht",
+      "gdprErased": "Ehemaliger Benutzer (DSGVO)",
       "columns": {
         "outcome": "Ergebnis",
         "when": "Wann",
@@ -434,7 +434,7 @@
     "export": {
       "button": "Exportieren",
       "menuLabel": "Exportformat",
-      "manifestHint": "Bundle enthält manifest.json mit Kettenbeweis",
+      "manifestHint": "Enthält ein signiertes Integritätsmanifest",
       "started": "Export wird vorbereitet…",
       "succeeded": "Export bereit.",
       "failed": "Export fehlgeschlagen.",
@@ -445,7 +445,7 @@
       }
     },
     "error": {
-      "fetch": "Das Auditprotokoll konnte nicht geladen werden.",
+      "fetch": "Auditprotokoll konnte nicht geladen werden.",
       "retry": "Erneut versuchen",
       "unexpected": "Ein unerwarteter Fehler ist aufgetreten."
     },

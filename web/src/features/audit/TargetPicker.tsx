@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { PickerSkeleton } from "./PickerSkeleton";
 import type { AuditState, TargetsResponse } from "./types";
 import { stateToParams } from "./useUrlState";
 import { usePickerFetch } from "./usePickerFetch";
@@ -68,6 +69,19 @@ export function TargetPicker({ state, onSelect }: { state: AuditState; onSelect:
             className="mb-2 h-8 w-full rounded-md border border-border bg-background px-2 text-sm outline-none focus:border-primary/50"
           />
           <div role="listbox" className="max-h-72 overflow-y-auto">
+            {fetched.loading && !fetched.data && <PickerSkeleton />}
+            {fetched.error && (
+              <div className="flex items-center justify-between gap-2 px-2 py-2 text-sm">
+                <span className="text-muted-foreground">{t("audit.error.fetch")}</span>
+                <button
+                  type="button"
+                  className="rounded-md border border-border bg-background px-2 py-1 text-xs font-medium hover:bg-muted"
+                  onClick={fetched.retry}
+                >
+                  {t("audit.error.retry")}
+                </button>
+              </div>
+            )}
             {filtered.map((item) => (
               <button
                 key={`${item.target_type ?? type}:${item.target_id}`}

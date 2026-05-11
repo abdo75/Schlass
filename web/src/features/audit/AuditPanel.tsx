@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
+import { XIcon } from "lucide-react";
 import { toast } from "sonner";
 import { useFocusTrap } from "@/components/ui/useFocusTrap";
 import { lookupAlert, lookupReason, renderSentence, severity } from "./catalog";
@@ -53,7 +54,7 @@ export function AuditPanel({
         aria-describedby={PANEL_TITLE_ID}
         onClick={(click) => click.stopPropagation()}
       >
-        <button ref={closeRef} className="panel-close" onClick={onClose} aria-label={t("audit.panel.close")} type="button">×</button>
+        <button ref={closeRef} className="panel-close" onClick={onClose} aria-label={t("audit.panel.close")} type="button"><XIcon className="size-4" aria-hidden="true" /></button>
           <section className="panel-block panel-block--hero">
             <div className="panel-eyebrow">{t("audit.panel.event")}</div>
             <div className="panel-badges">

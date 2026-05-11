@@ -77,4 +77,23 @@ describe("AuditPanel", () => {
     render(<AuditPanel event={fakeEvent({ outcome: "denied" })} onClose={vi.fn()} onOutcomeFilter={vi.fn()} />);
     expect(screen.getByRole("button", { name: "denied" })).toMatchSnapshot();
   });
+
+  it("renders the full panel tree for the happy path", () => {
+    const event = fakeEvent({
+      id: "evt-snap-happy",
+      created_at: "2026-04-01T12:00:00.000Z",
+    });
+    const { container } = render(
+      <AuditPanel
+        event={event}
+        onClose={vi.fn()}
+        onActorFilter={vi.fn()}
+        onTargetFilter={vi.fn()}
+        onTargetTypeFilter={vi.fn()}
+        onEventTypeFilter={vi.fn()}
+        onOutcomeFilter={vi.fn()}
+      />,
+    );
+    expect(container.querySelector(".audit-panel")).toMatchSnapshot();
+  });
 });
